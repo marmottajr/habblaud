@@ -135,6 +135,9 @@ export interface RoomRow {
   waiting: string;
   /** "3 h 10 min no total" */
   totalText: string;
+  /** "88,5 mi tokens" (vazio sem tokens no dia) e o detalhe de entrada e saída. */
+  tokens: string;
+  tokensDetail: string;
   label: string;
 }
 
@@ -153,6 +156,8 @@ export function roomRows(rooms: readonly RoomDayStats[], visible: Visible): Room
         segments: segments(r.ms, visible, scale),
         waiting: `${formatAgentTime(r.ms.waiting)} esperando você`,
         totalText: `${formatAgentTime(total)} no total`,
+        tokens: r.counts.tokensIn + r.counts.tokensOut > 0 ? `${formatTokens(r.counts.tokensIn + r.counts.tokensOut)} tokens` : '',
+        tokensDetail: `${formatTokens(r.counts.tokensIn)} de entrada (com a releitura do contexto) · ${formatTokens(r.counts.tokensOut)} de saída`,
         label: `${r.name}: ${statusSummary(r.ms, visible)}`,
       };
     });

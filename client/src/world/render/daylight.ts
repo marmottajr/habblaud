@@ -28,12 +28,20 @@ export const FIXED_DAY_HOUR = 13.5;
 export const FIXED_NIGHT_HOUR = 22.5;
 
 export const WHITE: Rgb = [255, 255, 255];
+/**
+ * O tom da noite: "quente" é o do Habblaud de sempre (luz de lâmpada amarelada, noite azul), usado no estilo
+ * Clássico; "branca" é a noite azul-marinho escuro com luz branca, dos estilos Corporativo, Moderno e Futurista.
+ */
+export type LightTone = 'quente' | 'branca';
+
 /** Luz de lâmpada (interiores à noite). */
-const LAMP: Rgb = [244, 220, 184];
+const LAMP: Record<LightTone, Rgb> = { quente: [244, 220, 184], branca: [250, 251, 255] };
 /** Sol baixo entrando pelas janelas (amanhecer/entardecer). */
 const SUN: Rgb = [255, 222, 184];
-/** Área comum vazia à noite: penumbra azulada. */
-const VIGIL: Rgb = [138, 144, 180];
+/** Área comum vazia à noite: penumbra azulada (azul-marinho, na luz branca). */
+const VIGIL: Record<LightTone, Rgb> = { quente: [138, 144, 180], branca: [78, 90, 142] };
+
+type Key = readonly [number, number, number, Rgb];
 
 /**
  * Chaves do céu ao longo do dia: [hora, noite, quente, cor do exterior]. Interpolação linear, com a
@@ -41,7 +49,7 @@ const VIGIL: Rgb = [138, 144, 180];
  * começo da noite; o amanhecer passa pelo violeta e pelo rosado, o entardecer pelo dourado e pelo
  * laranja até o roxo do crepúsculo.
  */
-const KEYS: readonly (readonly [number, number, number, Rgb])[] = [
+const KEYS: readonly Key[] = [
   [0, 1, 0, [70, 84, 140]],
   [4.5, 1, 0, [72, 86, 142]],
   [5.25, 0.86, 0.25, [104, 100, 156]],
@@ -57,6 +65,10 @@ const KEYS: readonly (readonly [number, number, number, Rgb])[] = [
   [20, 1, 0, [80, 96, 150]],
   [24, 1, 0, [70, 84, 140]],
 ];
+
+/** As mesmas chaves com a noite fechada em azul-marinho escuro (tom "branca"). */
+const NAVY: Record<number, Rgb> = { 0: [34, 46, 96], 4.5: [36, 48, 98], 20: [44, 58, 110], 24: [34, 46, 96] };
+const KEYS_NAVY: readonly Key[] = KEYS.map((k) => (NAVY[k[0]] ? ([k[0], k[1], k[2], NAVY[k[0]]] as const) : k));
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v);
 
@@ -80,20 +92,21 @@ export function phaseOf(hour: number): DayPhase {
   return 'noite';
 }
 
-/** Nível de luz e cores pela hora local fracionária (0–24). */
-export function ambientAt(hour: number): Ambient {
+/** Nível de luz e cores pela hora local fracionária (0–24), no tom da noite pedido (padrão: o de sempre). */
+export function ambientAt(hour: number, tone: LightTone = 'quente'): Ambient {
   const h = wrapHour(hour);
+  const keys = tone === 'branca' ? KEYS_NAVY : KEYS;
   let i = 0;
-  while (i < KEYS.length - 2 && KEYS[i + 1][0] <= h) i++;
-  const [h0, n0, w0, c0] = KEYS[i];
-  const [h1, n1, w1, c1] = KEYS[i + 1];
+  while (i < keys.length - 2 && keys[i + 1][0] <= h) i++;
+  const [h0, n0, w0, c0] = keys[i];
+  const [h1, n1, w1, c1] = keys[i + 1];
   const u = (h - h0) / Math.max(1e-6, h1 - h0);
   const night = n0 + (n1 - n0) * u;
   const warm = w0 + (w1 - w0) * u;
   const outside = mixRgb(c0, c1, u);
-  // interiores acesos: lâmpada quente à noite; de dia, um sopro do sol baixo pelas janelas
-  const inside = mixRgb(mixRgb(WHITE, LAMP, night), SUN, warm * (1 - night) * 0.55);
-  const dim = mixRgb(WHITE, VIGIL, night);
+  // interiores acesos: a luz das lâmpadas à noite (amarelada ou branca, pelo tom); de dia, um sopro do sol baixo
+  const inside = mixRgb(mixRgb(WHITE, LAMP[tone], night), SUN, warm * (1 - night) * 0.55);
+  const dim = mixRgb(WHITE, VIGIL[tone], night);
   return { hour: h, phase: phaseOf(h), night, warm, outside, inside, dim };
 }
 

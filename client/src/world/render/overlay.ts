@@ -863,11 +863,17 @@ export class Overlay {
 
   // =================================================================== etiquetas
 
+  /** Texto da etiqueta: o nome e, para quem tem função, "Nome · Função" (cortada na etiqueta compacta). */
+  private labelText(l: Label): string {
+    const info = l.ch.info;
+    return info.kind === 'main' && info.job && !l.compact ? `${info.name} · ${info.job}` : info.name;
+  }
+
   /** Larguras das partes da etiqueta. O selo "CODEX" (como o "SUB") só aparece fora do modo compacto. */
   private labelWidth(l: Label): { nameW: number; chipW: number; badgeW: number; codexW: number } {
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
-    const nameW = this.measure(LABEL_FONT, ch.info.name);
+    const nameW = this.measure(LABEL_FONT, this.labelText(l));
     const chipW = acc ? 13 : 0;
     const badgeW = ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
     const codexW = ch.info.provider === 'codex' && !l.compact ? this.measure(BADGE_FONT, CODEX_BADGE) + 7 : 0;
@@ -939,7 +945,7 @@ export class Overlay {
     }
     ctx.font = LABEL_FONT;
     ctx.fillStyle = '#f5f7fb';
-    ctx.fillText(ch.info.name, cx + 1, y + h / 2 + 0.5);
+    ctx.fillText(this.labelText(l), cx + 1, y + h / 2 + 0.5);
     cx += nameW + 4;
     if (badgeW) {
       ctx.fillStyle = ch.appearance.lanyard ?? '#f2b33d';

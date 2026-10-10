@@ -1,11 +1,15 @@
 // Gaveta de detalhes (direita): agente ou sala selecionados. Agente do Codex: selo "Codex", textos dele (onde
 // responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
+import { aiLabel } from '../../../shared/ia';
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
-import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
 import { CharacterEditor } from './character-editor';
 import { MessageComposer } from './composer';
 import type { UiComponent, UiContext } from './context';
+import { lotacao, salasParaLigar, textoDaLotacao } from './criar';
+import { AgentAiPicker } from './ia';
+import { MesasPicker } from './mesas';
+import { quandoTexto } from './rotinas';
 import { copyText, h, iconButton, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import {
   formatClock,
@@ -40,6 +44,7 @@ import {
 } from './model';
 import { isLocalHostname, PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
+import { accentOf, canStyleRoom, LAYOUT_ICONS, layoutOf, RoomStylePicker } from './roomstyle';
 import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
@@ -233,6 +238,33 @@ class AgentView {
   private composer: MessageComposer;
   private msgSec: ReturnType<typeof section>;
   private tasksSec: ReturnType<typeof section>;
+  private jobRow: HTMLElement;
+  private jobBtn: HTMLButtonElement;
+  private staffDel: HTMLButtonElement;
+  private jobInput: HTMLInputElement;
+  private jobList: HTMLDataListElement;
+  private jobEditing = false;
+  private jobFor: string | null = null;
+  private ia!: AgentAiPicker;
+  private iaSec!: ReturnType<typeof section>;
+  private askSec: ReturnType<typeof section>;
+  private askText: HTMLTextAreaElement;
+  private askKey: HTMLInputElement;
+  private askKeyRow: HTMLElement;
+  private askBtn: HTMLButtonElement;
+  private askMsg: HTMLElement;
+  private askBusy = false;
+  private askFor: string | null = null;
+  private askAlt: HTMLButtonElement;
+  private askLive = false;
+  private rotRow: HTMLElement;
+  private rotOn: HTMLInputElement;
+  private rotOpts: HTMLElement;
+  private rotDias: HTMLButtonElement[] = [];
+  private rotHora: HTMLInputElement;
+  private rotList: HTMLElement;
+  private rotSec: ReturnType<typeof section>;
+  private rotFor: string | null = null;
   private tasksBar: HTMLElement;
   private tasks: KeyedList<TaskItem>;
   private teamSec: ReturnType<typeof section>;
@@ -258,6 +290,28 @@ class AgentView {
     this.avatar = createAvatarPlaceholder('lg');
     this.name = h('h2', { class: 'ui-hero__name' });
     this.role = h('span', { class: 'ui-role' });
+    // Função dada pelo usuário: um botão que vira campo de texto (Enter grava, Esc desiste, vazio tira).
+    this.jobBtn = h('button', { class: 'ui-job__btn', type: 'button', on: { click: () => this.editJob() } });
+    // Agente fixo parado: apagar pela tela (ui/criar.ts confirma e manda o pedido).
+    this.staffDel = h('button', { class: 'ui-btn ui-rot__mini ui-job__del', type: 'button', hidden: true, text: 'Apagar agente', title: 'Tira este agente fixo da sala. O arquivo e o caderno dele vão para a lixeira da equipe', on: { click: () => this.apagarFixo() } });
+    this.jobList = h('datalist', { attrs: { id: 'ui-job-list' } });
+    this.jobInput = h('input', {
+      class: 'ui-job__input',
+      type: 'text',
+      hidden: true,
+      attrs: { maxlength: 40, list: 'ui-job-list', placeholder: 'Ex.: Estrategista', 'aria-label': 'Função do agente', autocomplete: 'off' },
+      on: {
+        keydown: (ev) => {
+          if (ev.key === 'Enter') void this.saveJob();
+          else if (ev.key === 'Escape') this.closeJob();
+          else return;
+          ev.preventDefault();
+          ev.stopPropagation();
+        },
+        blur: () => void this.saveJob(),
+      },
+    });
+    this.jobRow = h('div', { class: 'ui-hero__where ui-job' }, h('span', { class: 'ui-muted', text: 'Função' }), this.jobBtn, this.jobInput, this.jobList, this.staffDel);
     this.title = h('p', { class: 'ui-hero__title' });
     this.accChip = createAccountChip('md');
     this.accName = h('span', { class: 'ui-hero__acc-name' });
@@ -272,6 +326,7 @@ class AgentView {
       h('div', { class: 'ui-hero__line' }, this.name, this.character.button, this.role),
       h('div', { class: 'ui-hero__acc' }, this.accChip, this.accName, this.accProv, this.accEmail),
       h('div', { class: 'ui-hero__where' }, h('span', { class: 'ui-muted', text: 'Sala' }), this.roomBtn),
+      this.jobRow,
     );
     this.gone = h('p', { class: 'ui-gone', text: 'Este agente já saiu do escritório.', hidden: true });
 
@@ -290,6 +345,59 @@ class AgentView {
       h('span', { class: 'ui-status__label' }, this.dot, this.statusText, this.statusSince),
       h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn),
     );
+
+    // Nova demanda (só agentes fixos da equipe): o texto vai para a fila do servidor e o serviço do computador
+    // (`equipe servir`) abre o terminal do agente. Ctrl/Cmd+Enter envia.
+    this.askText = h('textarea', {
+      class: 'ui-ask__text',
+      attrs: { rows: 4, maxlength: 8000, placeholder: 'Escreva a demanda para este agente…', 'aria-label': 'Demanda para o agente' },
+      on: {
+        keydown: (ev) => {
+          ev.stopPropagation();
+          if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) {
+            ev.preventDefault();
+            void this.sendAsk();
+          }
+        },
+      },
+    });
+    this.askKey = h('input', {
+      class: 'ui-ask__key',
+      type: 'password',
+      attrs: { placeholder: 'Chave do escritório', 'aria-label': 'Chave do escritório', autocomplete: 'off', spellcheck: 'false' },
+      on: { keydown: (ev) => ev.stopPropagation() },
+    });
+    this.askKeyRow = h(
+      'div',
+      { class: 'ui-ask__keyrow', hidden: true },
+      this.askKey,
+      h('p', { class: 'ui-ask__dica', text: 'Uma vez por navegador. Para ver a chave, rode no terminal: equipe chave' }),
+    );
+    this.askBtn = h('button', { class: 'ui-btn ui-ask__send', type: 'button', text: 'Enviar demanda', title: 'Abre um terminal novo com este agente e a demanda (Ctrl/Cmd+Enter)', on: { click: () => void this.sendAsk() } });
+    this.askMsg = h('p', { class: 'ui-ask__msg', role: 'status', hidden: true });
+    // Com o agente trabalhando, o botão principal manda um recado para a sessão dele; este abre outra demanda.
+    this.askAlt = h('button', { class: 'ui-btn', type: 'button', text: 'Nova demanda', hidden: true, title: 'Abre outro terminal com este agente e este texto como demanda nova', on: { click: () => void this.sendAsk('demanda') } });
+    // Rotina: a mesma demanda, repetida nos dias e na hora marcados.
+    this.rotOn = h('input', { type: 'checkbox', attrs: { id: 'ui-rot-on' }, on: { change: () => this.syncRotina() } });
+    this.rotHora = h('input', { class: 'ui-rot__hora', type: 'time', attrs: { value: '09:00', 'aria-label': 'Hora da rotina' }, on: { keydown: (ev) => ev.stopPropagation() } });
+    const nomes = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+    const cheios = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+    this.rotDias = nomes.map((n, i) => {
+      const b = h('button', { class: 'ui-rot__dia', type: 'button', text: n, title: cheios[i], attrs: { 'aria-pressed': i >= 1 && i <= 5 ? 'true' : 'false', 'aria-label': cheios[i] } });
+      b.addEventListener('click', () => b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'));
+      return b;
+    });
+    this.rotOpts = h('span', { class: 'ui-rot__opts', hidden: true }, h('span', { class: 'ui-rot__dias' }, ...this.rotDias), this.rotHora);
+    this.rotRow = h('div', { class: 'ui-rot' }, h('label', { class: 'ui-rot__label', attrs: { for: 'ui-rot-on' } }, this.rotOn, h('span', { text: 'Repetir (rotina)' })), this.rotOpts);
+    this.askSec = section('Nova demanda', this.askText, this.rotRow, this.askKeyRow, h('div', { class: 'ui-ask__row' }, this.askBtn, this.askAlt, this.askMsg));
+    // Agente fixo: a IA e o nível dele, o mínimo e a permissão de escolher a IA do colega (ui/ia.ts).
+    this.ia = new AgentAiPicker((mudanca) => {
+      const a = this.last;
+      if (a?.staff) this.ctx.definirIA?.(a.roomId, a.staff, a.name, mudanca);
+    });
+    this.iaSec = section('IA do agente', this.ia.el);
+    this.rotList = h('div', { class: 'ui-rot__list' });
+    this.rotSec = section('Rotinas', this.rotList);
 
     // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
     this.termLabel = h('span', { class: 'ui-term-cta__label', text: 'Abrir terminal' });
@@ -392,6 +500,9 @@ class AgentView {
       this.gone,
       statusRow,
       this.termBtn,
+      this.askSec.el,
+      this.iaSec.el,
+      this.rotSec.el,
       this.alert,
       this.perm.el,
       this.shellBox,
@@ -439,6 +550,11 @@ class AgentView {
   /** Abre (ou fecha) o terminal deste agente; desligado sem acesso local ou depois que ele saiu. */
   toggleTerminal(): void {
     if (!this.id || this.termBtn.getAttribute('aria-disabled') === 'true') return;
+    // Agente fixo parado: abre a conversa do último trabalho dele (o terminal somente leitura do Histórico).
+    const a = this.ctx.agent(this.id);
+    if (a?.parked && a.lastSessionId) {
+      return this.terminal.openSession({ account: a.account, sessionId: a.lastSessionId, project: a.roomId, projectDir: '', title: a.title, lastAt: a.lastEndedAt ?? Date.now(), size: 0, open: false }, this.termBtn);
+    }
     this.terminal.toggle(this.id, this.termBtn);
   }
 
@@ -457,6 +573,17 @@ class AgentView {
 
   render(): void {
     const live = this.ctx.agent(this.id);
+    // Agente fixo: o personagem parado e a sessão da demanda são entradas diferentes do escritório. Quando um
+    // dá lugar ao outro (pegou a demanda, ou terminou), a gaveta acompanha o mesmo agente em vez de ficar no
+    // que saiu.
+    const antes = live ?? this.last;
+    if (antes?.staff && (!live || live.status === 'offline')) {
+      const outro = (this.ctx.store.snapshot?.agents ?? []).find((x) => x.id !== antes.id && x.staff === antes.staff && x.roomId === antes.roomId && x.status !== 'offline');
+      if (outro) {
+        this.ctx.select({ type: 'agent', id: outro.id });
+        return;
+      }
+    }
     if (live) this.last = live;
     const a = this.last;
     if (!a) return;
@@ -471,7 +598,27 @@ class AgentView {
     setText(this.name, a.name);
     this.character.render(a, !!live);
     setText(this.role, roleLabel(a));
-    setVariant(this.role, 'ui-role--', a.kind);
+    setVariant(this.role, 'ui-role--', a.kind === 'main' && a.job ? 'job' : a.kind);
+    // Função: só agentes principais de verdade, ao vivo (o servidor recusa os do modo demonstração).
+    setHidden(this.jobRow, a.kind !== 'main' || !live || this.ctx.store.replaying);
+    // Agente fixo: a função é o arquivo dele na equipe. O botão abre o editor da função (ui/criar.ts).
+    // O dono do escritório vem com o Habblaud: a função dele não se edita nem ele se apaga pela tela.
+    const doEscritorio = !!a.staff && !!this.ctx.store.room(a.roomId)?.office;
+    this.jobBtn.disabled = !!a.staff && (!this.ctx.editarFuncao || doEscritorio);
+    if (a.staff && this.jobEditing) this.closeJob();
+    setHidden(this.staffDel, !a.staff || !a.parked || doEscritorio || !this.ctx.apagarAgente || this.ctx.store.replaying);
+    if (!this.jobEditing) {
+      setText(this.jobBtn, a.job ?? 'Dar função');
+      setVariant(this.jobBtn, 'ui-job__btn--', a.staff ? 'fixed' : a.job ? 'set' : 'empty');
+      setTitle(
+        this.jobBtn,
+        a.staff
+          ? `Agente fixo da equipe (${a.staff})${a.parked ? ': parado, esperando demanda' : ''}. Clique para ver e editar a função dele`
+          : a.job
+            ? 'Editar a função deste agente'
+            : 'Dar uma função a este agente',
+      );
+    }
     setText(this.title, a.title ?? '');
     setHidden(this.title, !a.title);
     setTitle(this.title, a.title ?? '');
@@ -494,12 +641,43 @@ class AgentView {
     setText(this.statusText, statusLabel(status));
     // Parado num comando longo: o "desde" é o início do comando (o status do servidor continua 'working').
     const since = wait?.foreground ? wait.since : a.statusSince;
-    setText(this.statusSince, relativeTime(since, now));
-    setTitle(this.statusSince, `Desde ${formatClock(since)}`);
+    // Agente ocioso: só "Ocioso", sem o "há X"; nos outros estados o tempo importa.
+    const ocioso = status === 'idle';
+    setText(this.statusSince, ocioso ? '' : relativeTime(since, now));
+    setTitle(this.statusSince, ocioso ? '' : `Desde ${formatClock(since)}`);
     const following = this.ctx.world.getOptions().followSelected;
     setAttr(this.followBtn, 'aria-pressed', String(following));
     this.followBtn.classList.toggle('is-on', following);
-    this.renderTerminalButton(!!live);
+    this.renderTerminalButton(!!live, !!a.parked, !!a.lastSessionId);
+    // Demanda pela tela: só agente fixo, ao vivo. Trocar de agente limpa o aviso (o texto digitado fica).
+    setHidden(this.askSec.el, !a.staff || !live || this.ctx.store.replaying);
+    const mostrarIA = !!a.staff && a.kind === 'main' && !!live && !this.ctx.store.replaying && !!this.ctx.definirIA && !this.ctx.store.snapshot?.meta.demo;
+    setHidden(this.iaSec.el, !mostrarIA);
+    if (mostrarIA) {
+      this.ia.render(`${a.roomId}\n${a.staff}`, a.ai);
+      setText(this.iaSec.extra, aiLabel(a.ai) || 'automática');
+    }
+    // Parado: o texto vira demanda (ou rotina). Trabalhando: vira recado para a sessão dele, lido no meio do trabalho.
+    this.askLive = !!a.staff && !a.parked && a.status !== 'offline';
+    setText(this.askSec.title, this.askLive ? `Falar com ${a.name}` : 'Nova demanda');
+    this.askText.placeholder = this.askLive ? `Recado ou pergunta para ${a.name}: ele lê no meio do trabalho…` : 'Escreva a demanda para este agente…';
+    setHidden(this.askAlt, !this.askLive);
+    setHidden(this.rotRow, this.askLive);
+    this.syncRotina();
+    setHidden(this.rotSec.el, !a.staff || !live || this.ctx.store.replaying || !this.rotList.childElementCount);
+    const rotKey = a.staff ? `${a.roomId}:${a.staff}` : '';
+    if (rotKey && this.rotFor !== rotKey) {
+      this.rotFor = rotKey;
+      this.rotList.replaceChildren();
+      void this.loadRotinas();
+    }
+    // A chave é o agente fixo, não a entrada: o aviso continua quando o parado dá lugar à sessão da demanda.
+    const askKey = a.staff ? `${a.roomId}:${a.staff}` : a.id;
+    if (this.askFor !== askKey) {
+      this.askFor = askKey;
+      if (!this.askBusy) this.setAskMsg('');
+      setHidden(this.askKeyRow, !!this.ctx.store.equipeKey);
+    }
 
     // Alerta.
     const waiting = a.status === 'waiting' && !!live;
@@ -596,6 +774,194 @@ class AgentView {
     setHidden(this.codexHint, !codex || a.kind !== 'main' || !live || this.ctx.store.replaying);
   }
 
+  private setAskMsg(text: string, kind: 'ok' | 'erro' | 'info' = 'info'): void {
+    setText(this.askMsg, text);
+    setHidden(this.askMsg, !text);
+    setVariant(this.askMsg, 'ui-ask__msg--', kind);
+  }
+
+  /** Texto do botão principal conforme o que ele vai fazer. */
+  private syncRotina(): void {
+    const rotina = !this.askLive && this.rotOn.checked;
+    setHidden(this.rotOpts, !rotina);
+    setText(this.askBtn, this.askLive ? 'Enviar recado' : rotina ? 'Salvar rotina' : 'Enviar demanda');
+  }
+
+  /** Lista as rotinas deste agente (precisa da chave já guardada no navegador). */
+  private async loadRotinas(): Promise<void> {
+    const a = this.last;
+    if (!a?.staff) return;
+    const chave = `${a.roomId}:${a.staff}`;
+    const todas = await this.ctx.store.rotinas(a.roomId);
+    if (this.rotFor !== chave) return;
+    const minhas = (todas ?? []).filter((r) => r.slug === a.staff);
+    this.rotList.replaceChildren(
+      ...minhas.map((r) => {
+        const quando = quandoTexto(r);
+        const liga = h('button', { class: 'ui-btn ui-rot__mini', type: 'button', text: r.ativa ? 'Ligada' : 'Desligada', title: r.ativa ? 'Clique para desligar' : 'Clique para ligar', attrs: { 'aria-pressed': String(r.ativa) } });
+        liga.addEventListener('click', () => void this.ctx.store.mudarRotina(r.id, { ativa: !r.ativa }).then(() => this.loadRotinas()));
+        const apaga = h('button', { class: 'ui-btn ui-rot__mini', type: 'button', text: 'Apagar' });
+        apaga.addEventListener('click', () => void this.ctx.store.mudarRotina(r.id, { apagar: true }).then(() => this.loadRotinas()));
+        return h(
+          'div',
+          { class: `ui-rot__item${r.ativa ? '' : ' is-off'}` },
+          h('div', { class: 'ui-rot__head' }, h('strong', { text: quando }), liga, apaga),
+          h('p', { class: 'ui-rot__texto', text: r.pedido, title: r.pedido }),
+          r.ultimoAviso ? h('p', { class: 'ui-rot__aviso', text: `Última vez: ${r.ultimoAviso}` }) : null,
+        );
+      }),
+    );
+    this.ctx.invalidate();
+  }
+
+  /**
+   * Envia o texto: demanda nova (abre terminal), rotina (se "Repetir" estiver marcado) ou, com o agente
+   * trabalhando, recado para a sessão dele. `forcar: 'demanda'` abre demanda nova mesmo com ele trabalhando.
+   */
+  private async sendAsk(forcar?: 'demanda'): Promise<void> {
+    const a = this.last;
+    const store = this.ctx.store;
+    if (!a?.staff || this.askBusy) return;
+    const recado = this.askLive && forcar !== 'demanda';
+    const rotina = !this.askLive && this.rotOn.checked;
+    const pedido = this.askText.value.trim();
+    if (!pedido) return this.setAskMsg(recado ? 'Escreva o recado antes de enviar.' : 'Escreva a demanda antes de enviar.', 'erro');
+    const digitada = this.askKey.value.trim();
+    const chave = digitada || store.equipeKey;
+    if (!chave) {
+      setHidden(this.askKeyRow, false);
+      this.askKey.focus();
+      return this.setAskMsg('Cole a chave do escritório para enviar.', 'erro');
+    }
+    this.askBusy = true;
+    this.askBtn.disabled = true;
+    this.askAlt.disabled = true;
+    this.setAskMsg('Enviando…');
+    const chaveErrada = () => {
+      store.equipeKey = '';
+      setHidden(this.askKeyRow, false);
+      this.askKey.value = '';
+      this.askKey.focus();
+      this.setAskMsg('A chave não confere. Cole de novo (no terminal: equipe chave).', 'erro');
+    };
+    const guardarChave = () => {
+      if (!digitada) return;
+      store.equipeKey = digitada;
+      this.askKey.value = '';
+      setHidden(this.askKeyRow, true);
+    };
+    try {
+      if (rotina) {
+        const dias = this.rotDias.map((b, i) => (b.getAttribute('aria-pressed') === 'true' ? i : -1)).filter((i) => i >= 0);
+        if (digitada) store.equipeKey = digitada;
+        const r = await store.criarRotina({ room: a.roomId, slug: a.staff, pedido, dias, hora: this.rotHora.value });
+        if (r.status === 401) return chaveErrada();
+        if (!r.ok) return this.setAskMsg(r.error ?? 'Não foi possível salvar a rotina.', 'erro');
+        guardarChave();
+        this.askText.value = '';
+        this.rotOn.checked = false;
+        this.syncRotina();
+        this.setAskMsg('Rotina salva.', 'ok');
+        return void this.loadRotinas();
+      }
+      if (recado) {
+        const r = await store.enviarRecado(a.id, pedido, chave);
+        if (r.status === 401) return chaveErrada();
+        if (!r.id) return this.setAskMsg(r.error ?? 'Não foi possível enviar o recado.', 'erro');
+        guardarChave();
+        this.setAskMsg(`Enviando o recado para ${a.name}…`);
+        for (let i = 0; i < 65; i++) {
+          await new Promise((ok) => setTimeout(ok, 1_000));
+          const s = await store.recadoEstado(r.id, chave);
+          if (!s || s.estado === 'pendente') continue;
+          if (s.estado === 'entregue') {
+            this.askText.value = '';
+            return this.setAskMsg(`Recado entregue. A resposta de ${a.name} aparece em "Abrir terminal".`, 'ok');
+          }
+          return this.setAskMsg(s.erro ?? 'O recado não foi entregue.', 'erro');
+        }
+        return this.setAskMsg('A sessão do agente não buscou o recado.', 'erro');
+      }
+      const r = await store.enviarDemanda(a.roomId, a.staff, pedido, chave);
+      if (r.status === 401) {
+        store.equipeKey = '';
+        setHidden(this.askKeyRow, false);
+        this.askKey.value = '';
+        this.askKey.focus();
+        return this.setAskMsg('A chave não confere. Cole de novo (no terminal: equipe chave).', 'erro');
+      }
+      if (!r.id) return this.setAskMsg(r.error ?? 'Não foi possível enviar a demanda.', 'erro');
+      if (digitada) {
+        store.equipeKey = digitada;
+        this.askKey.value = '';
+        setHidden(this.askKeyRow, true);
+      }
+      this.setAskMsg(r.servico ? `Enviada. Abrindo o terminal de ${a.name}…` : 'Enviada, mas o serviço da equipe não está respondendo. Esperando…');
+      for (let i = 0; i < 70; i++) {
+        await new Promise((ok) => setTimeout(ok, 1_000));
+        const s = await store.demandaEstado(r.id, chave);
+        if (!s || s.estado === 'pendente') continue;
+        if (s.estado === 'aberta') {
+          this.askText.value = '';
+          return this.setAskMsg(s.aviso ? `Demanda criada. ${s.aviso}` : `Demanda aberta: ${a.name} começou a trabalhar.`, 'ok');
+        }
+        return this.setAskMsg(s.erro ?? 'A demanda não abriu.', 'erro');
+      }
+      this.setAskMsg('O serviço da equipe não buscou a demanda. No terminal: equipe servico status', 'erro');
+    } finally {
+      this.askBusy = false;
+      this.askBtn.disabled = false;
+      this.askAlt.disabled = false;
+    }
+  }
+
+  /** Apagar o agente fixo parado (a confirmação e o pedido ficam em ui/criar.ts). */
+  private apagarFixo(): void {
+    const a = this.last;
+    if (a?.staff && a.parked) this.ctx.apagarAgente?.(a.roomId, a.staff, a.job ? `${a.name} · ${a.job}` : a.name);
+  }
+
+  private editJob(): void {
+    const a = this.last;
+    if (!a || this.jobEditing) return;
+    // Agente fixo: a função é o arquivo dele; abre o editor da função.
+    if (a.staff) return void this.ctx.editarFuncao?.(a.roomId, a.staff, a.name);
+    this.jobEditing = true;
+    this.jobFor = a.id;
+    this.jobList.replaceChildren(...(this.ctx.store.room(a.roomId)?.jobs ?? []).map((j) => h('option', { attrs: { value: j } })));
+    this.jobInput.value = a.job ?? '';
+    setHidden(this.jobBtn, true);
+    setHidden(this.jobInput, false);
+    this.jobInput.focus();
+    this.jobInput.select();
+  }
+
+  private closeJob(): void {
+    if (!this.jobEditing) return;
+    this.jobEditing = false;
+    setHidden(this.jobInput, true);
+    setHidden(this.jobBtn, false);
+  }
+
+  private async saveJob(): Promise<void> {
+    if (!this.jobEditing) return;
+    const id = this.jobFor;
+    const value = this.jobInput.value;
+    this.closeJob();
+    const current = id ? this.ctx.agent(id)?.job : undefined;
+    if (!id || value.trim() === (current ?? '')) return;
+    let ok = false;
+    try {
+      ok = await this.ctx.store.setJob(id, value);
+    } catch {
+      ok = false;
+    }
+    if (!ok && this.last?.id === id) {
+      setText(this.jobBtn, 'Não foi possível gravar');
+      setVariant(this.jobBtn, 'ui-job__btn--', 'empty');
+    }
+  }
+
   /** Lista as perguntas pendentes com as opções, só para leitura (sem o pedido no escritório, a resposta é no Claude Code). */
   private renderQuestions(act: Activity | undefined): void {
     const qs = act?.questions ?? [];
@@ -623,27 +989,34 @@ class AgentView {
     );
   }
 
-  private renderTerminalButton(live: boolean, provider = providerOf(this.last)): void {
-    const available = !!this.ctx.store.snapshot?.meta.terminal;
+  private renderTerminalButton(live: boolean, parked = false, ultimo = false, provider = providerOf(this.last)): void {
+    const temTerminal = !!this.ctx.store.snapshot?.meta.terminal;
+    const available = temTerminal && !parked;
     const open = this.terminal.agentId === this.id;
+    // Parado com um trabalho guardado: o botão abre a conversa desse último trabalho.
+    const verUltimo = temTerminal && parked && ultimo;
     // aria-disabled (e não disabled): o botão continua focável e a dica do porquê aparece no hover.
-    const enabled = open || (available && live);
+    const enabled = open || (available && live) || verUltimo;
     setAttr(this.termBtn, 'aria-disabled', enabled ? null : 'true');
     this.termBtn.classList.toggle('is-disabled', !enabled);
     setAttr(this.termBtn, 'aria-pressed', String(open));
     this.termBtn.classList.toggle('is-on', open);
-    setText(this.termLabel, open ? 'Fechar terminal' : 'Abrir terminal');
+    setText(this.termLabel, open ? 'Fechar terminal' : verUltimo ? 'Ver o último trabalho' : 'Abrir terminal');
     setTitle(
       this.termBtn,
       open
         ? 'Fechar o terminal (T)'
-        : !available
-          ? this.ctx.store.replaying
-            ? 'Sem terminal no timelapse: a conversa é a de agora, não a do momento reproduzido.'
-            : TERMINAL_UNAVAILABLE_HINT
-          : !live
-            ? 'O agente já saiu do escritório.'
-            : `Ver a conversa desta sessão como no ${provider === 'codex' ? 'Codex' : 'terminal do Claude Code'}, ao vivo (T)`,
+        : verUltimo
+          ? 'Agente parado: abre a conversa do último trabalho dele, só para leitura. A linha do tempo abaixo também é a desse trabalho.'
+          : parked
+            ? 'Agente fixo parado: ele abre uma sessão nova a cada demanda, e aí o terminal aparece aqui.'
+          : !available
+            ? this.ctx.store.replaying
+              ? 'Sem terminal no timelapse: a conversa é a de agora, não a do momento reproduzido.'
+              : TERMINAL_UNAVAILABLE_HINT
+            : !live
+              ? 'O agente já saiu do escritório.'
+              : `Ver a conversa desta sessão como no ${provider === 'codex' ? 'Codex' : 'terminal do Claude Code'}, ao vivo (T)`,
     );
   }
 
@@ -720,6 +1093,26 @@ class RoomView {
   private swatch: HTMLElement;
   private name: HTMLElement;
   private renameBtn: HTMLButtonElement;
+  /** Sala de equipe: criar agente e excluir a sala (ui/criar.ts confirma). Aparecem ao clicar na sala. */
+  private teamRow: HTMLElement;
+  private novoAgenteBtn!: HTMLButtonElement;
+  private lotacaoSec!: ReturnType<typeof section>;
+  private lotacaoTexto!: HTMLElement;
+  private limiteInput!: HTMLInputElement;
+  private limiteBtn!: HTMLButtonElement;
+  private limiteDica!: HTMLElement;
+  private limiteDe = '';
+  private mesas = new MesasPicker();
+  /** Sala do dono: daqui se abre a conversa com ele. */
+  private officeRow: HTMLElement;
+  /** "Conversa com": as outras salas de equipe; clicar liga ou desliga (ui/criar.ts confirma). */
+  private linksSec: ReturnType<typeof section>;
+  private links: KeyedList<{ id: string; name: string; ligada: boolean }>;
+  private linksEmpty: HTMLElement;
+  /** "Aparência da sala": layout (com ícone), cor e lado das mesas (ui/roomstyle.ts). */
+  private estilo = new RoomStylePicker();
+  private estiloSec: ReturnType<typeof section>;
+  private iconeDoLayout = '';
   private path: HTMLElement;
   private gone: HTMLElement;
   private accs: KeyedList<string>;
@@ -750,6 +1143,62 @@ class RoomView {
     centerBtn.innerHTML = ICONS.center;
     centerBtn.append(h('span', { text: 'Centralizar' }));
     this.gone = h('p', { class: 'ui-gone', text: 'Esta sala foi fechada: todos os agentes saíram.', hidden: true });
+    // Sala de equipe: os botões dela ficam aqui, no painel que abre ao clicar na sala.
+    this.novoAgenteBtn = h('button', { class: 'ui-btn', type: 'button', text: '+ Novo agente', title: 'Criar um agente fixo nesta sala a partir de uma descrição', on: { click: () => ctx.novoAgente?.(this.id) } });
+    // Configurações da sala: quantos agentes fixos ela pode ter (até o número de mesas do layout).
+    this.lotacaoTexto = h('strong', { class: 'ui-room-lotacao__tem' });
+    this.limiteInput = h('input', { class: 'ui-rotp__field ui-room-lotacao__num', attrs: { type: 'number', min: '1', max: '12', step: '1', inputmode: 'numeric', 'aria-label': 'Limite de agentes desta sala' }, on: { input: () => this.syncLimite(), keydown: (ev: Event) => ev.stopPropagation() } });
+    this.limiteBtn = h('button', { class: 'ui-btn', type: 'button', text: 'Definir limite', on: { click: () => ctx.definirLimite?.(this.id, Number(this.limiteInput.value)) } });
+    this.limiteDica = h('p', { class: 'ui-muted ui-small' });
+    this.lotacaoSec = section(
+      'Agentes da sala',
+      h('div', { class: 'ui-room-lotacao' }, this.lotacaoTexto, h('label', { class: 'ui-room-lotacao__campo' }, h('span', { text: 'Limite' }), this.limiteInput), this.limiteBtn),
+      this.limiteDica,
+      this.mesas.el,
+    );
+    this.teamRow = h(
+      'div',
+      { class: 'ui-room-team', hidden: true },
+      this.novoAgenteBtn,
+      h('button', {
+        class: 'ui-btn ui-criar__perigo',
+        type: 'button',
+        text: 'Excluir sala',
+        title: 'Exclui esta sala do escritório, com os agentes dela. A pasta e os arquivos continuam onde estão',
+        on: { click: () => ctx.removerSala?.(this.id, this.last?.name ?? '') },
+      }),
+    );
+
+    this.officeRow = h(
+      'div',
+      { class: 'ui-room-team', hidden: true },
+      h('button', { class: 'ui-btn ui-ask__send', type: 'button', text: 'Conversar com o dono', title: 'Peça uma mudança no escritório ou mande um recado a qualquer agente: o dono faz por você', on: { click: () => ctx.abrirEscritorio?.() } }),
+    );
+    const linksList = h('div', { class: 'ui-room-links' });
+    this.linksEmpty = h('p', { class: 'ui-muted ui-small', text: 'Não há outra sala de equipe para ligar. Crie uma em "+ Nova sala".' });
+    this.linksSec = section(
+      'Conversa com',
+      h('p', { class: 'ui-muted ui-small ui-room-links__dica', text: 'Clique numa sala para os agentes desta e os dela poderem passar trabalho uns para os outros. Clique de novo para desligar.' }),
+      linksList,
+      this.linksEmpty,
+    );
+    this.links = new KeyedList(linksList, {
+      animate: false,
+      key: (s) => s.id,
+      create: (s) => {
+        const b = h('button', { class: 'ui-room-link', type: 'button' }, h('span', { class: 'ui-room-link__marca', attrs: { 'aria-hidden': 'true' } }), h('span', { class: 'ui-room-link__nome' }));
+        b.addEventListener('click', () => ctx.ligarSalas?.(this.id, s.id, b.getAttribute('aria-pressed') !== 'true'));
+        return b;
+      },
+      update: (el, s) => {
+        setAttr(el, 'aria-pressed', String(s.ligada));
+        setText(el.lastElementChild!, s.name);
+        setText(el.firstElementChild!, s.ligada ? '✓' : '+');
+        setTitle(el, s.ligada ? `Esta sala conversa com "${s.name}". Clique para desligar` : `Clique para esta sala conversar com "${s.name}"`);
+      },
+    });
+
+    this.estiloSec = section('Aparência da sala', this.estilo.el);
 
     const accsEl = h('div', { class: 'ui-acc-list' });
     this.accs = new KeyedList<string>(accsEl, {
@@ -793,10 +1242,24 @@ class RoomView {
       ),
       this.gone,
       h('div', { class: 'ui-status' }, accsEl, h('span', { class: 'ui-status__actions' }, centerBtn)),
+      this.teamRow,
+      this.officeRow,
+      this.lotacaoSec.el,
+      this.linksSec.el,
+      this.estiloSec.el,
       this.agentsSec.el,
       this.tasksSec.el,
       this.feedSec.el,
     );
+  }
+
+  /** O botão "Definir limite" só acende com um número novo, dentro do que a sala aceita. */
+  private syncLimite(): void {
+    const n = Number(this.limiteInput.value);
+    const min = Number(this.limiteInput.min) || 1;
+    const max = Number(this.limiteInput.max) || 12;
+    const atual = Number(this.limiteDe.split('|')[1]);
+    this.limiteBtn.disabled = !Number.isInteger(n) || n < min || n > max || n === atual;
   }
 
   get roomId(): string {
@@ -808,6 +1271,7 @@ class RoomView {
     this.id = id;
     this.last = null;
     this.agents.clear();
+    this.links.clear();
     this.tasks.clear();
     this.feed.clear();
   }
@@ -821,12 +1285,51 @@ class RoomView {
     setText(this.path, shortPath(r.path));
     setTitle(this.path, r.path);
     try {
-      setStyleVar(this.swatch, '--room', roomTheme(r.seed).accent);
+      setStyleVar(this.swatch, '--room', accentOf(r));
     } catch {
       // Sem tema: cor padrão.
     }
+    // O ícone do layout da sala, ao lado do nome.
+    const layout = layoutOf(r);
+    if (layout !== this.iconeDoLayout) {
+      this.iconeDoLayout = layout;
+      this.swatch.innerHTML = LAYOUT_ICONS[layout];
+    }
     setHidden(this.gone, !!live);
     setHidden(this.renameBtn, !live || !canRenameRoom(this.ctx, r.id));
+    const personalizar = !!live && canStyleRoom(this.ctx, r.id);
+    setHidden(this.estiloSec.el, !personalizar);
+    if (personalizar) this.estilo.render(r, this.ctx.store.snapshot?.meta.officeStyle, this.ctx.store.snapshot?.meta.officeColors);
+    const gerir = !!live && !!r.team && !this.ctx.store.replaying;
+    setHidden(this.teamRow, !gerir || !!r.office || !this.ctx.removerSala);
+    setHidden(this.officeRow, !gerir || !r.office || !this.ctx.abrirEscritorio);
+    // Lotação: quantos agentes fixos a sala tem e quantos pode ter; cheia, não se cria mais agente nela.
+    const mostrarLotacao = gerir && !r.office && !!this.ctx.definirLimite;
+    setHidden(this.lotacaoSec.el, !mostrarLotacao);
+    if (gerir && !r.office) {
+      const l = lotacao(r, this.ctx.store.snapshot?.agents ?? []);
+      setText(this.lotacaoTexto, textoDaLotacao(l));
+      this.novoAgenteBtn.disabled = l.livres === 0;
+      setTitle(this.novoAgenteBtn, l.livres === 0 ? `${textoDaLotacao(l)}. Aumente o limite abaixo, ou apague um agente` : 'Criar um agente fixo nesta sala a partir de uma descrição');
+      // O campo acompanha o limite em vigor; enquanto a pessoa digita outro número, ele fica como ela deixou.
+      const de = `${r.id}|${l.limite}|${l.mesas}|${l.tem}`;
+      if (de !== this.limiteDe) {
+        this.limiteDe = de;
+        this.limiteInput.value = String(l.limite);
+        setAttr(this.limiteInput, 'min', String(Math.max(1, l.tem)));
+        setAttr(this.limiteInput, 'max', String(l.mesas));
+        setText(this.limiteDica, `O layout desta sala tem ${l.mesas} ${l.mesas === 1 ? 'mesa' : 'mesas'}: o limite vai até aí. Para mais agentes, escolha um layout com mais mesas em "Aparência da sala".`);
+      }
+      this.syncLimite();
+      // Mesas: quem senta onde se organiza arrastando o agente no escritório (ui/mesas.ts); aqui, a dica e o desfazer.
+      setHidden(this.mesas.el, !personalizar || !this.ctx.world.roomDesks);
+      if (personalizar && this.ctx.world.roomDesks) this.mesas.render(r, l.tem > 0);
+    }
+    const outras = gerir && this.ctx.ligarSalas ? salasParaLigar(this.ctx.store.snapshot?.rooms ?? [], r.id) : [];
+    setHidden(this.linksSec.el, !gerir || !!r.office || !this.ctx.ligarSalas);
+    setHidden(this.linksEmpty, outras.length > 0);
+    setText(this.linksSec.extra, outras.some((s) => s.ligada) ? String(outras.filter((s) => s.ligada).length) : '');
+    this.links.sync(outras);
 
     const snap = this.ctx.store.snapshot;
     const agents = (snap?.agents ?? []).filter((a) => a.roomId === r.id);

@@ -27,6 +27,9 @@ function deskMats(variant: string | undefined): DeskMats {
       return { top: M.white, edge: ramp('#d7d6d1', 0.05), legs: M.steel, ped: ramp('#dcdbd6', 0.05) };
     case 'dark':
       return { top: M.walnut, edge: ramp('#5f4535', 0.06), legs: M.graphite, ped: ramp('#5a4334', 0.06) };
+    case 'black':
+      // (aditivo) tampo preto fosco com pés de aço escovado
+      return { top: ramp('#3a3e48', 0.05), edge: ramp('#23262d', 0.05), legs: M.steelDark, ped: ramp('#2d3038', 0.055) };
     default:
       return { top: M.oak, edge: M.oakDark, legs: ramp('#e9e8e4', 0.05), ped: ramp('#e6e4de', 0.05) };
   }
@@ -35,22 +38,22 @@ function deskMats(variant: string | undefined): DeskMats {
 const MUG_COLORS = ['#e2604f', '#3f7fd8', '#f2c14e', '#4cae6a', '#f4f2ee', '#8d66cf'] as const;
 
 /** Sombra de contato da mesa e sombra do vão sob o tampo (compostas por baixo, após o contorno). */
-function deskShadow(b: PixelBuf): void {
-  underRect(b, 3, 8, 26, 7, 'rgba(30,34,52,0.2)');
-  contact(b, -1, 13, 34, 4, 0.2);
+function deskShadow(b: PixelBuf, w = 32): void {
+  underRect(b, 3, 8, w - 6, 7, 'rgba(30,34,52,0.2)');
+  contact(b, -1, 13, w + 2, 4, 0.2);
 }
 
-/** Tampo + bordas + pernas + gaveteiro (comum a desk e desk_back). */
-function deskBody(s: BufSprite, m: DeskMats, seed: number, back: boolean): void {
+/** Tampo + bordas + pernas + gaveteiro (comum a desk, desk_back e desk_exec). `w` = largura em px (2 tiles = 32). */
+function deskBody(s: BufSprite, m: DeskMats, seed: number, back: boolean, w = 32): void {
   const b = s.buf;
   if (back) {
     // Painel frontal (lado de quem olha) cobrindo o vão.
-    frontFace(b, 1, 8, 30, 6, m.ped);
-    b.hline(1, 30, 8, m.ped.dk);
-    b.hline(2, 29, 11, m.ped.lt);
+    frontFace(b, 1, 8, w - 2, 6, m.ped);
+    b.hline(1, w - 2, 8, m.ped.dk);
+    b.hline(2, w - 3, 11, m.ped.lt);
   }
   // Pernas (laterais) com brilho.
-  for (const x of [0, 29]) {
+  for (const x of [0, w - 3]) {
     b.rect(x, 8, 3, 8, m.legs.base);
     b.vline(x, 8, 15, m.legs.lt);
     b.vline(x + 2, 8, 15, m.legs.dk);
@@ -65,10 +68,10 @@ function deskBody(s: BufSprite, m: DeskMats, seed: number, back: boolean): void 
     b.hline(22, 25, 13, m.ped.dd);
   }
   // Tampo (12 linhas) + espessura da borda (2 linhas).
-  topFace(b, 0, -6, 32, 12, m.top);
-  woodGrain(b, 1, -5, 30, 10, m.top, seed);
-  b.hline(0, 31, 6, m.edge.base);
-  b.hline(0, 31, 7, m.edge.dk);
+  topFace(b, 0, -6, w, 12, m.top);
+  woodGrain(b, 1, -5, w - 2, 10, m.top, seed);
+  b.hline(0, w - 1, 6, m.edge.base);
+  b.hline(0, w - 1, 7, m.edge.dk);
   b.set(0, 6, m.edge.lt);
 }
 
@@ -191,6 +194,110 @@ export function deskBack(variant: string | undefined, seed: number): BufFurnitur
   }
   b.outline();
   deskShadow(b);
+  return { base: s };
+}
+
+/**
+ * Mesa executiva (4x1), peça única: um tampo inteiro de quatro tiles, laterais fechadas (painéis no lugar de pés),
+ * painel frontal em três almofadas com um friso de metal, três monitores escuros de costas (o do meio na frente
+ * de quem senta), luminária de mesa numa ponta e pasta de couro na outra. Vista pelo mesmo lado da desk_back (a
+ * pessoa fica ao norte, de frente para a câmera).
+ */
+export function deskExec(variant: string | undefined, seed: number): BufFurniture {
+  const W = 64;
+  const s = floorSheet(4, 1, 13);
+  const m = deskMats(variant);
+  const b = s.buf;
+  const metal = variant === 'white' ? M.steelDark : M.steel;
+  // Painel frontal fechado até o chão, em três almofadas rebaixadas.
+  frontFace(b, 2, 8, W - 4, 8, m.ped);
+  for (const [x0, x1] of [[5, 21], [24, 39], [42, 58]] as const) {
+    b.hline(x0, x1, 10, m.ped.dk);
+    b.vline(x0, 10, 13, m.ped.dk);
+    b.hline(x0, x1, 13, m.ped.lt);
+    b.vline(x1, 10, 13, m.ped.lt);
+  }
+  // Friso de metal logo abaixo do tampo e rodapé escuro.
+  b.hline(2, W - 3, 8, metal.lt);
+  b.hline(2, W - 3, 15, m.ped.dd);
+  // Laterais fechadas (painéis), com a quina iluminada.
+  for (const x of [0, W - 3]) {
+    b.rect(x, 8, 3, 8, m.ped.base);
+    b.vline(x, 8, 15, m.ped.lt);
+    b.vline(x + 2, 8, 15, m.ped.dd);
+    b.hline(x, x + 2, 15, m.ped.dd);
+  }
+  // Tampo largo (com uma aba de 1px para cada lado) e borda grossa.
+  topFace(b, -1, -6, W + 2, 12, m.top);
+  if (variant !== 'black') woodGrain(b, 0, -5, W, 10, m.top, seed);
+  b.hline(-1, W, 6, m.edge.base);
+  b.hline(-1, W, 7, m.edge.dk);
+  b.set(-1, 6, m.edge.lt);
+  // Três monitores escuros: os dos lados um pouco menores, o do meio maior.
+  monitorBack(b, 9, -6, 14, 9, 'dark');
+  monitorBack(b, 41, -6, 14, 9, 'dark');
+  monitorBack(b, 24, -7, 16, 10, 'dark');
+  // Luminária de mesa (cúpula dourada) na ponta esquerda.
+  b.rect(2, 2, 5, 2, '#2a2d35');
+  b.hline(2, 6, 2, '#4a505d');
+  b.vline(4, -3, 1, metal.base);
+  b.rect(1, -6, 7, 3, '#d9b25a');
+  b.hline(1, 7, -6, '#efd58a');
+  b.hline(2, 6, -3, '#fff2c0');
+  // Pasta de couro com caneta na ponta direita.
+  b.rect(56, 0, 7, 4, '#5a3a2a');
+  b.hline(56, 62, 0, '#7a5240');
+  b.set(62, 3, '#d9b25a');
+  b.hline(57, 61, -2, metal.lt);
+  b.set(61, -2, '#d9b25a');
+  b.outline();
+  underRect(b, 3, 9, W - 6, 6, 'rgba(30,34,52,0.12)');
+  contact(b, -2, 13, W + 4, 4, 0.22);
+  return { base: s };
+}
+
+/**
+ * Mesa de conferência (6x2), peça única: tampo longo com as quinas chanfradas, faixa central (passa-fios) com
+ * viva-voz, blocos de notas e copos nos lugares, e dois pedestais fechados. As cadeiras ficam nos lados compridos.
+ */
+export function conferenceTable(variant: string | undefined, seed: number): BufFurniture {
+  const W = 96;
+  const s = floorSheet(6, 2, 8);
+  const m = deskMats(variant);
+  const b = s.buf;
+  const metal = variant === 'white' ? M.steelDark : M.steel;
+  // Pedestais fechados (dois), recuados das pontas.
+  for (const x of [14, W - 26]) {
+    frontFace(b, x, 22, 12, 9, m.ped);
+    b.vline(x, 22, 30, m.ped.lt);
+    b.hline(x, x + 11, 30, m.ped.dd);
+  }
+  // Tampo (26 linhas) com as quinas chanfradas + borda grossa.
+  topFace(b, 0, -4, W, 24, m.top);
+  if (variant !== 'black') woodGrain(b, 1, -3, W - 2, 22, m.top, seed);
+  b.hline(0, W - 1, 20, m.edge.base);
+  b.hline(0, W - 1, 21, m.edge.dk);
+  for (const [x, y] of [[0, -4], [1, -4], [0, -3], [W - 1, -4], [W - 2, -4], [W - 1, -3]] as const) b.clear(x, y);
+  // Faixa central: passa-fios em metal escovado, com o viva-voz no meio.
+  b.rect(10, 7, W - 20, 3, metal.dk);
+  b.hline(10, W - 11, 7, metal.lt);
+  b.rect(W / 2 - 4, 5, 8, 6, '#2f343f');
+  b.hline(W / 2 - 4, W / 2 + 3, 5, '#4d5464');
+  b.set(W / 2 - 1, 8, '#5fd07a');
+  b.set(W / 2 + 1, 8, '#5fd07a');
+  // Um bloco de notas e um copo por lugar (seis de cada lado).
+  const r = rngOf(seed, 37);
+  const tone = itemTone(variant);
+  for (let i = 0; i < 6; i++) {
+    const x = 4 + i * 16;
+    papers(b, x, -2, 6, 4, tone);
+    papers(b, x + 1, 13, 6, 4, tone);
+    if (r() < 0.6) b.rect(x + 9, 0, 2, 2, '#bcd6ea');
+    if (r() < 0.6) b.rect(x + 10, 15, 2, 2, '#bcd6ea');
+  }
+  b.outline();
+  underRect(b, 4, 22, W - 8, 8, 'rgba(30,34,52,0.14)');
+  contact(b, -2, 28, W + 4, 5, 0.22);
   return { base: s };
 }
 

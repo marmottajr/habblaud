@@ -1,4 +1,5 @@
 // Estado de uma sala de projeto no mundo: ciclo de vida (construção/desmontagem) e luz.
+import { roomStyleKey } from '../../../../shared/roomstyle';
 import type { RoomInfo } from '../../../../shared/types';
 import type { RoomTheme } from '../../art/api';
 import { BUILD_MS, DISMANTLE_MS } from '../constants';
@@ -21,6 +22,8 @@ export class RoomState {
   slot: number;
   theme: RoomTheme;
   layout: AreaLayout;
+  /** A aparência (layout, cor, lado) com que a sala está desenhada: quando a do servidor é outra, a sala é refeita. */
+  styleKey: string;
   phase: RoomPhase;
   phaseAt: number;
   listed = true;
@@ -49,6 +52,7 @@ export class RoomState {
     this.slot = slot;
     this.theme = theme;
     this.layout = layout;
+    this.styleKey = roomStyleKey(info.style);
     this.phase = phase;
     this.phaseAt = now;
     this.lightOn = lit;
@@ -89,6 +93,8 @@ export class RoomState {
   }
 
   setLight(on: boolean, now: number): void {
+    // a sala de cenário fica sempre acesa: quem sai dela por último não a apaga (só apaga para ser desmontada)
+    if (this.info.decor && !on && this.listed) return;
     if (this.lightOn === on) return;
     this.lightOn = on;
     this.lightAt = now;

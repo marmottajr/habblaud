@@ -50,6 +50,9 @@ const ENV_FILE = join(ROOT, '.env');
 const USAGE_DIR = process.env.HABBLAUD_USAGE_DIR?.trim() ? resolve(process.env.HABBLAUD_USAGE_DIR.trim()) : join(STATE_DIR, 'usage');
 /** Onde essa pasta aparece no container. */
 const CONTAINER_USAGE_DIR = '/usage';
+/** Registro da equipe (agentes fixos), mantido no host pelo comando `equipe` (equipe/equipe.mjs). */
+const EQUIPE_DIR = process.env.HABBLAUD_EQUIPE_DIR?.trim() ? resolve(process.env.HABBLAUD_EQUIPE_DIR.trim()) : join(STATE_DIR, 'equipe');
+const CONTAINER_EQUIPE_DIR = '/equipe';
 const SERVICE = 'habblaud';
 /** Raiz das montagens dentro do container: /claude/<conta>/{projects,sessions}. */
 const CONTAINER_ROOT = '/claude';
@@ -306,15 +309,17 @@ export function hostTimeZone(env: NodeJS.ProcessEnv = process.env): string | und
 /**
  * `usageDir`: pasta do host com o uso capturado pelo tap de statusline (já existente; caminho real),
  * montada somente leitura em /usage. `timeZone`: fuso do host, repassado como TZ. `codex`: montagens das contas do
- * Codex (planCodexMounts).
+ * Codex (planCodexMounts). `equipeDir`: pasta do host com o registro da equipe (agentes fixos), montada somente
+ * leitura em /equipe.
  */
-export function renderOverride(mounts: AccountMount[], generatedAt: Date = new Date(), usageDir?: string, timeZone?: string, codex: AccountMount[] = []): string {
+export function renderOverride(mounts: AccountMount[], generatedAt: Date = new Date(), usageDir?: string, timeZone?: string, codex: AccountMount[] = [], equipeDir?: string): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
     ['HABBLAUD_ACCOUNTS', JSON.stringify([...accountsPayload(mounts), ...codexAccountsPayload(codex)])],
   ];
   if (codex.length) env.push(['HABBLAUD_CODEX_DIRS', codex.map((m) => m.mountDir).join(',')]);
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
+  if (equipeDir) env.push(['HABBLAUD_EQUIPE_DIR', CONTAINER_EQUIPE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
   const lines = [
     `# Gerado por scripts/docker-up.ts em ${generatedAt.toISOString()} — não edite: é recriado a cada \`npm run docker:up\`.`,
@@ -328,6 +333,7 @@ export function renderOverride(mounts: AccountMount[], generatedAt: Date = new D
   ];
   const binds = [...mounts, ...codex].flatMap((m) => m.binds);
   if (usageDir) binds.push({ source: usageDir, target: CONTAINER_USAGE_DIR });
+  if (equipeDir) binds.push({ source: equipeDir, target: CONTAINER_EQUIPE_DIR });
   if (binds.length) {
     lines.push('    volumes:');
     for (const b of binds) {
@@ -456,6 +462,17 @@ function migrateStateDir(): void {
   const result = migrateLegacyStateDir(HOME);
   const msg = describeStateMigration(result);
   if (msg) (result.error ? warn : say)(msg);
+}
+
+/** Cria a pasta do registro da equipe se faltar e devolve o caminho real (ou undefined, se falhar). */
+function ensureEquipeDir(): string | undefined {
+  try {
+    mkdirSync(EQUIPE_DIR, { recursive: true, mode: 0o700 });
+    return realDir(EQUIPE_DIR);
+  } catch (err) {
+    warn(`não consegui criar ${tildify(EQUIPE_DIR)} (${(err as Error).message}); os agentes fixos não vão aparecer no escritório.`);
+    return undefined;
+  }
 }
 
 /** Cria a pasta do uso do statusline se faltar e devolve o caminho real (ou undefined, se falhar). */
@@ -670,7 +687,9 @@ async function up(opts: Options, port: number): Promise<void> {
   const usageDir = ensureUsageDir();
   if (usageDir) say(`Uso ao vivo (mod ou tap de statusline): monta ${tildify(USAGE_DIR)} em ${CONTAINER_USAGE_DIR}, somente leitura.`);
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts), { mode: 0o600 });
+  const equipeDir = ensureEquipeDir();
+  if (equipeDir) say(`Equipe (agentes fixos): monta ${tildify(EQUIPE_DIR)} em ${CONTAINER_EQUIPE_DIR}, somente leitura.`);
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, equipeDir), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say('docker-compose.override.yml gerado.');

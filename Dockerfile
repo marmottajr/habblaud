@@ -31,7 +31,8 @@ ENV NODE_ENV=production \
     HABBLAUD_PORT=4747 \
     HABBLAUD_IN_DOCKER=1 \
     HABBLAUD_DATA_DIR=/data \
-    HABBLAUD_USAGE_DIR=/usage
+    HABBLAUD_USAGE_DIR=/usage \
+    HABBLAUD_EQUIPE_DIR=/equipe
 
 WORKDIR /app
 

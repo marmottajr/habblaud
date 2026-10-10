@@ -12,6 +12,15 @@ export interface InputHandlers {
   interact(): void;
   overview(): void;
   zoomStep(steps: number, sx?: number, sy?: number): void;
+  /**
+   * Há neste ponto algo que se arrasta (um agente, com a sala dele aberta para organizar as mesas)? Se sim, arrastar
+   * a partir dele não move a câmera: vai para `grabMove`, e soltar chama `grabEnd`. Um clique sem arrastar continua
+   * sendo clique.
+   */
+  grab?(sx: number, sy: number): boolean;
+  grabMove?(sx: number, sy: number): void;
+  /** `soltou`: true = soltou o que arrastava; false = o arrasto foi cancelado. */
+  grabEnd?(sx: number, sy: number, soltou: boolean): void;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -35,6 +44,8 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
   let downX = 0;
   let downY = 0;
   let dragging = false;
+  /** O arrasto começou em cima de algo que se arrasta (em vez de mover a câmera). */
+  let grabbed = false;
   let pinch: { dist: number; zoom: number; cx: number; cy: number } | null = null;
   let wheelAcc = 0;
   let wheelSettle: ReturnType<typeof setTimeout> | null = null;
@@ -60,7 +71,13 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
       downX = p.x;
       downY = p.y;
       dragging = false;
+      grabbed = !!h.grab?.(p.x, p.y);
     } else if (pointers.size === 2) {
+      // segundo dedo: vira pinça, e o que estava sendo arrastado é solto sem efeito
+      if (grabbed) {
+        if (dragging) h.grabEnd?.(p.x, p.y, false);
+        grabbed = false;
+      }
       const [a, b] = [...pointers.values()];
       pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: camera.zoom, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       dragging = true;
@@ -90,9 +107,10 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     if (!dragging && Math.hypot(p.x - downX, p.y - downY) > DRAG_THRESHOLD) {
       dragging = true;
       canvas.style.cursor = 'grabbing';
-      h.interact();
+      if (!grabbed) h.interact();
     }
-    if (dragging) camera.panBy(p.x - prev.x, p.y - prev.y);
+    if (dragging && grabbed) h.grabMove?.(p.x, p.y);
+    else if (dragging) camera.panBy(p.x - prev.x, p.y - prev.y);
   };
 
   const onUp = (e: PointerEvent) => {
@@ -108,8 +126,11 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     canvas.style.cursor = 'grab';
     if (dragging) {
       dragging = false;
+      if (grabbed) h.grabEnd?.(p.x, p.y, true);
+      grabbed = false;
       return;
     }
+    grabbed = false;
     const hit = h.pick(p.x, p.y);
     if (e.pointerType !== 'mouse') {
       // duplo toque
@@ -128,6 +149,8 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinch = null;
     if (!pointers.size) {
+      if (dragging && grabbed) h.grabEnd?.(0, 0, false);
+      grabbed = false;
       dragging = false;
       canvas.style.cursor = 'grab';
     }

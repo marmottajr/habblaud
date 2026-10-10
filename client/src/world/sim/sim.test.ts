@@ -5,7 +5,7 @@ import type { AgentInfo, OfficeSnapshot, RoomInfo, ShellJob } from '../../../../
 import type { Appearance, ArtModule, RoomTheme } from '../../art/api';
 import { DEFAULT_WORLD_OPTIONS } from '../api';
 import type { Character } from './character';
-import { SHELL_DONE_TOOL, Sim } from './sim';
+import { MEETING_SLOT, MEETING_SUFFIX, OWNER_SLOT, SHELL_DONE_TOOL, Sim } from './sim';
 
 const theme: RoomTheme = {
   carpet: '#4f6d8f',
@@ -764,3 +764,338 @@ describe('espera de shell', () => {
     expect(ana.pose).toBe('wait');
   });
 });
+
+describe('a sala do dono mora ao lado do lounge, com a sala de reunião de cenário em frente', () => {
+  const dono = (slot: number): RoomInfo => ({ ...room('/dono', slot), office: true, team: true, style: { layout: 'individual' } });
+  const vaga = (sim: Sim, id: string) => sim.rooms.get(id)?.slot;
+  const REUNIAO = `/dono${MEETING_SUFFIX}`;
+
+  it('na carga, a sala do dono fica ao lado do lounge, a de reunião em frente, e as outras pulam as duas vagas', () => {
+    const sim = newSim();
+    // O dono chegou por último (slot 2 do servidor): mesmo assim a vaga 1 é dele.
+    sim.applySnapshot(snap([room('/a', 0), room('/b', 1), dono(2), room('/c', 3)], []), T0);
+    expect([OWNER_SLOT, MEETING_SLOT]).toEqual([1, 0]);
+    expect(vaga(sim, '/dono')).toBe(OWNER_SLOT);
+    expect(vaga(sim, REUNIAO)).toBe(MEETING_SLOT);
+    expect([vaga(sim, '/a'), vaga(sim, '/b'), vaga(sim, '/c')]).toEqual([2, 3, 4]);
+    // A próxima sala comum vai para a primeira vaga livre que não é nenhuma das duas.
+    expect(sim.freeSlot()).toBe(5);
+    // A sala de reunião é só cenário: mesa de conferência, acesa, sem ninguém, e fora da lista do servidor.
+    const reuniao = sim.rooms.get(REUNIAO)!;
+    expect(reuniao.info).toMatchObject({ decor: true, name: 'Sala de reunião', style: { layout: 'conferencia' } });
+    expect(reuniao.layout.furniture.some((f) => f.kind === 'conference_table')).toBe(true);
+    expect(reuniao.lightOn).toBe(true);
+    expect(sim.occupants(reuniao)).toBe(0);
+  });
+
+  it('só a sala do dono no prédio: as duas ficam no lugar, e ninguém as tira de lá', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    sim.applySnapshot(snap([dono(0)], []), T0);
+    expect(vaga(sim, '/dono')).toBe(OWNER_SLOT);
+    expect(vaga(sim, REUNIAO)).toBe(MEETING_SLOT);
+    expect(sim.freeSlot()).toBe(2);
+    run(sim, clock, 60);
+    expect(vaga(sim, '/dono')).toBe(OWNER_SLOT);
+    expect(vaga(sim, REUNIAO)).toBe(MEETING_SLOT);
+    expect(sim.rooms.get(REUNIAO)!.lightOn).toBe(true);
+  });
+
+  it('sem sala do dono, nada muda: as salas ocupam as vagas na ordem de chegada, e não há sala de reunião', () => {
+    const sim = newSim();
+    sim.applySnapshot(snap([room('/a', 0), room('/b', 1), room('/c', 2)], []), T0);
+    expect([vaga(sim, '/a'), vaga(sim, '/b'), vaga(sim, '/c')]).toEqual([0, 1, 2]);
+    expect(sim.freeSlot()).toBe(3);
+    expect(sim.rooms.size).toBe(3);
+  });
+
+  it('a sala do dono criada com o escritório aberto: quem estava nas duas vagas sai, e as duas salas se mudam para lá', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    sim.applySnapshot(snap([room('/a', 0), room('/b', 1)], []), T0);
+    expect([vaga(sim, '/a'), vaga(sim, '/b')]).toEqual([0, 1]);
+    // A sala do dono aparece depois (a pessoa instalou a equipe): as vagas estão ocupadas, as duas entram nas seguintes.
+    sim.applySnapshot(snap([room('/a', 0), room('/b', 1), dono(2)], [], 2), clock.now);
+    expect(vaga(sim, '/dono')).not.toBe(OWNER_SLOT);
+    run(sim, clock, 480, () => vaga(sim, '/dono') === OWNER_SLOT && vaga(sim, REUNIAO) === MEETING_SLOT);
+    expect(vaga(sim, '/dono')).toBe(OWNER_SLOT);
+    expect(vaga(sim, REUNIAO)).toBe(MEETING_SLOT);
+    expect([OWNER_SLOT, MEETING_SLOT]).not.toContain(vaga(sim, '/a'));
+    expect([OWNER_SLOT, MEETING_SLOT]).not.toContain(vaga(sim, '/b'));
+    // Depois da mudança, a sala de reunião continua acesa.
+    run(sim, clock, 10);
+    expect(sim.rooms.get(REUNIAO)!.lightOn).toBe(true);
+  });
+
+  it('a sala do dono some (a equipe foi desinstalada): a sala de reunião sai junto', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    sim.applySnapshot(snap([room('/a', 0), dono(1)], []), T0);
+    expect(sim.rooms.has(REUNIAO)).toBe(true);
+    sim.applySnapshot(snap([room('/a', 0)], [], 2), clock.now);
+    run(sim, clock, 60, () => !sim.rooms.has(REUNIAO) && !sim.rooms.has('/dono'));
+    expect(sim.rooms.has(REUNIAO)).toBe(false);
+  });
+});
+
+describe('aparência da sala na simulação', () => {
+  it('trocar o layout, o estilo ou a cor refaz a sala no lugar, e quem estava sentado senta de novo', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    const r = room('/a', 0);
+    sim.applySnapshot(snap([r], [agent('ana', '/a', 'working')]), T0);
+    run(sim, clock, 5);
+    const sala = sim.rooms.get('/a')!;
+    expect(sala.layout.spots.filter((s) => s.kind === 'desk')).toHaveLength(6);
+    expect(sala.theme.floor).toBeUndefined();
+    const versao = sala.version;
+    sim.applySnapshot(snap([{ ...r, style: { layout: 'individual', look: 'moderno', color: '#12ab9c' } }], [agent('ana', '/a', 'working')], 2), clock.now);
+    expect(sala.version).toBeGreaterThan(versao);
+    expect(sala.layout.spots.filter((s) => s.kind === 'desk')).toHaveLength(1);
+    expect(sala.theme).toMatchObject({ floor: 'concrete', accent: '#12ab9c', deskVariant: 'white' });
+    expect(sala.slot).toBe(0);
+    // A Ana volta a ter lugar na sala nova e senta.
+    run(sim, clock, 40, () => !!sim.chars.get('ana')?.seated);
+    const ana = sim.chars.get('ana')!;
+    expect(ana.homeSpot && sala.layout.spots.some((s) => s.id === ana.homeSpot)).toBe(true);
+    expect(ana.seated).toBe(true);
+    // A mesma aparência de novo não refaz nada.
+    const depois = sala.version;
+    sim.applySnapshot(snap([{ ...r, style: { layout: 'individual', look: 'moderno', color: '#12ab9c' } }], [agent('ana', '/a', 'working')], 3), clock.now);
+    expect(sala.version).toBe(depois);
+  });
+
+  it('o estilo geral do escritório vale nas salas sem estilo próprio e nas áreas comuns, e muda ao vivo', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    const com = (estilo: string | undefined, rev: number) => {
+      const s = snap([room('/a', 0), { ...room('/b', 1), style: { look: 'vidro' } }], [], rev);
+      return { ...s, meta: { ...s.meta, officeStyle: estilo } } as OfficeSnapshot;
+    };
+    sim.applySnapshot(com(undefined, 1), T0);
+    const a = sim.rooms.get('/a')!;
+    const b = sim.rooms.get('/b')!;
+    expect(a.theme.floor).toBeUndefined();
+    expect(b.theme.wall.pattern).toBe('glass');
+    const recepcao = sim.building.core[0];
+    const [va, vb] = [a.version, b.version];
+    sim.applySnapshot(com('corporativo', 2), clock.now);
+    // A sala sem estilo próprio vira corporativa (formal: sem banquetas); a que escolheu "Vidro" fica como está.
+    expect(a.theme).toMatchObject({ floor: 'carpet', formal: true });
+    expect(a.version).toBeGreaterThan(va);
+    expect(a.layout.furniture.some((f) => f.kind === 'stool' || f.kind === 'beanbag')).toBe(false);
+    expect(b.theme.wall.pattern).toBe('glass');
+    expect(b.version).toBe(vb);
+    // As áreas comuns foram refeitas no estilo.
+    expect(sim.building.core[0]).not.toBe(recepcao);
+    expect(sim.building.core[0].id).toBe(recepcao.id);
+    // De volta ao clássico: tudo como era.
+    sim.applySnapshot(com('classico', 3), clock.now);
+    expect(a.theme.floor).toBeUndefined();
+    expect(sim.building.core[0]).toBe(recepcao);
+    // Valor estranho vindo do servidor é tratado como clássico.
+    sim.applySnapshot(com('rococó', 4), clock.now);
+    expect(a.theme.floor).toBeUndefined();
+  });
+});
+
+describe('reunião: demanda entre salas leva os envolvidos para a sala de reunião', () => {
+  const dono = (slot: number): RoomInfo => ({ ...room('/dono', slot), office: true, team: true, style: { layout: 'individual' } });
+  const REUNIAO = `/dono${MEETING_SUFFIX}`;
+  const salas = [room('/mkt', 0), room('/dir', 1), dono(2)];
+  const dentro = (sim: Sim, id: string, sala: string) => {
+    const ch = sim.chars.get(id)!;
+    const r = sim.rooms.get(sala)!.layout.rect;
+    return ch.tx >= r.x && ch.tx < r.x + r.w && ch.ty >= r.y && ch.ty < r.y + r.h;
+  };
+
+  it('quem entra na reunião vai sentar na sala de reunião; quando a demanda termina, volta para a sala dele', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    const gente = (reuniao: boolean) => [
+      agent('ana', '/mkt', 'working', { staff: 'copywriter', meeting: reuniao || undefined }),
+      agent('bia', '/dir', 'idle', { staff: 'cmo', parked: true, meeting: reuniao || undefined }),
+      agent('caio', '/mkt', 'working', { staff: 'designer' }),
+    ];
+    sim.applySnapshot(snap(salas, gente(false)), T0);
+    run(sim, clock, 5);
+    expect(sim.chars.get('ana')!.roomId).toBe('/mkt');
+    expect(sim.inMeeting(sim.chars.get('ana')!)).toBe(false);
+    // A demanda passou a envolver as duas salas.
+    sim.applySnapshot(snap(salas, gente(true), 2), clock.now);
+    expect(sim.chars.get('ana')!.roomId).toBe(REUNIAO);
+    expect(sim.chars.get('bia')!.roomId).toBe(REUNIAO);
+    expect(sim.chars.get('caio')!.roomId).toBe('/mkt');
+    run(sim, clock, 90, () => !!sim.chars.get('ana')!.seated && !!sim.chars.get('bia')!.seated && dentro(sim, 'ana', REUNIAO) && dentro(sim, 'bia', REUNIAO));
+    for (const id of ['ana', 'bia']) {
+      const ch = sim.chars.get(id)!;
+      expect(dentro(sim, id, REUNIAO), id).toBe(true);
+      expect(ch.seated, id).toBe(true);
+      expect(sim.rooms.get(REUNIAO)!.layout.spots.some((s) => s.id === ch.homeSpot), id).toBe(true);
+      expect(sim.inMeeting(ch), id).toBe(true);
+    }
+    expect(dentro(sim, 'caio', '/mkt')).toBe(true);
+    // Acabou: cada um volta para a sua sala, e a sala de reunião continua acesa.
+    sim.applySnapshot(snap(salas, gente(false), 3), clock.now);
+    expect(sim.chars.get('ana')!.roomId).toBe('/mkt');
+    expect(sim.chars.get('bia')!.roomId).toBe('/dir');
+    run(sim, clock, 90, () => dentro(sim, 'ana', '/mkt') && dentro(sim, 'bia', '/dir') && !!sim.chars.get('ana')!.seated);
+    expect(dentro(sim, 'ana', '/mkt')).toBe(true);
+    expect(dentro(sim, 'bia', '/dir')).toBe(true);
+    run(sim, clock, 20);
+    expect(sim.rooms.get(REUNIAO)!.lightOn).toBe(true);
+  });
+
+  it('em reunião, o ocioso só sai para a água ou o banheiro, não entra em roda, e volta para a sala de reunião', () => {
+    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'lively' }));
+    const clock = { now: T0 };
+    const gente = [agent('bia', '/dir', 'idle', { staff: 'cmo', parked: true, meeting: true }), agent('davi', '/dir', 'idle', { staff: 'cto', parked: true, meeting: true })];
+    sim.applySnapshot(snap(salas, gente), T0);
+    // Todos começam sentados na sala de reunião.
+    for (const ch of sim.chars.values()) expect(dentro(sim, ch.id, REUNIAO), ch.id).toBe(true);
+    const usados = new Set<string>();
+    let proibido = '';
+    let saidas = 0;
+    const fora = new Map<string, boolean>();
+    // Vinte minutos de escritório agitado: fora da sala de reunião, só param no bebedouro e no banheiro; nunca em roda.
+    for (let i = 0; i < 1200 * 30 && !proibido; i++) {
+      clock.now += 1000 / 30;
+      sim.update(1 / 30, clock.now);
+      for (const ch of sim.chars.values()) {
+        if (ch.gathering) proibido = `${ch.id} entrou numa roda`;
+        const saiu = !dentro(sim, ch.id, REUNIAO);
+        if (saiu && !fora.get(ch.id)) saidas++;
+        fora.set(ch.id, saiu);
+        const lugar = ch.atSpot ? sim.building.spots.find((sp) => sp.id === ch.atSpot) : undefined;
+        if (!lugar || lugar.areaId === REUNIAO) continue;
+        usados.add(lugar.kind);
+        if (!['water', 'stall', 'sink'].includes(lugar.kind)) proibido = `${ch.id} parou em ${lugar.kind} (${lugar.areaId})`;
+      }
+    }
+    expect(proibido).toBe('');
+    // Saíram de verdade (água ou banheiro) e voltaram: a sala deles continua sendo a de reunião.
+    expect(saidas).toBeGreaterThan(0);
+    expect([...usados].every((k) => k === 'water' || k === 'stall' || k === 'sink')).toBe(true);
+    for (const ch of sim.chars.values()) expect(ch.roomId).toBe(REUNIAO);
+    run(sim, clock, 120, () => [...sim.chars.values()].every((ch) => dentro(sim, ch.id, REUNIAO) && ch.seated));
+    for (const ch of sim.chars.values()) expect(dentro(sim, ch.id, REUNIAO), ch.id).toBe(true);
+  });
+
+  it('em reunião, o ocioso passa quase o tempo todo sentado na sala de reunião (as saídas são raras)', () => {
+    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'lively' }));
+    const clock = { now: T0 };
+    const gente = [agent('bia', '/dir', 'idle', { staff: 'cmo', parked: true, meeting: true }), agent('davi', '/dir', 'idle', { staff: 'cto', parked: true, meeting: true })];
+    sim.applySnapshot(snap(salas, gente), T0);
+    let sentados = 0;
+    let total = 0;
+    for (let i = 0; i < 1200 * 30; i++) {
+      clock.now += 1000 / 30;
+      sim.update(1 / 30, clock.now);
+      for (const ch of sim.chars.values()) {
+        total++;
+        if (ch.seated && dentro(sim, ch.id, REUNIAO)) sentados++;
+      }
+    }
+    expect(sentados / total).toBeGreaterThan(0.75);
+  });
+
+  it('sem sala de reunião no escritório (não há sala do dono), quem está em reunião fica na sala dele', () => {
+    const sim = newSim();
+    sim.applySnapshot(snap([room('/mkt', 0), room('/dir', 1)], [agent('ana', '/mkt', 'working', { staff: 'copywriter', meeting: true })]), T0);
+    expect(sim.chars.get('ana')!.roomId).toBe('/mkt');
+    expect(sim.inMeeting(sim.chars.get('ana')!)).toBe(false);
+  });
+});
+
+describe('mesas livres da sala (o "+" de criar agente)', () => {
+  it('lista as mesas sem dono na ordem em que seriam ocupadas; quem chega tira a dele da lista', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    const diretoria: RoomInfo = { ...room('/dir', 0), team: true, style: { layout: 'diretoria' }, maxAgents: 4 };
+    const equipe: RoomInfo = { ...room('/mkt', 1), team: true, style: { layout: 'equipe' }, maxAgents: 12 };
+    sim.applySnapshot(snap([diretoria, equipe], [agent('cmo', '/dir', 'idle', { staff: 'cmo', parked: true })]), T0);
+    run(sim, clock, 3);
+    // Diretoria: quatro gabinetes, um ocupado. Equipe: doze mesas, todas livres.
+    const livres = sim.freeDesks('/dir');
+    expect(livres).toHaveLength(3);
+    expect(livres.every((s) => s.kind === 'desk')).toBe(true);
+    expect(livres.map((s) => s.rank)).toEqual([...livres.map((s) => s.rank)].sort((a, b) => (a ?? 0) - (b ?? 0)));
+    expect(livres.some((s) => s.id === sim.chars.get('cmo')!.homeSpot)).toBe(false);
+    expect(sim.freeDesks('/mkt')).toHaveLength(12);
+    expect(sim.freeDesks('/nao-existe')).toEqual([]);
+    // Chegou mais um diretor: sobram dois gabinetes.
+    sim.applySnapshot(snap([diretoria, equipe], [agent('cmo', '/dir', 'idle', { staff: 'cmo', parked: true }), agent('cto', '/dir', 'idle', { staff: 'cto', parked: true })], 2), clock.now);
+    run(sim, clock, 3);
+    expect(sim.freeDesks('/dir')).toHaveLength(2);
+  });
+});
+
+describe('mesas marcadas (a pessoa organiza quem senta onde)', () => {
+  const dir = (seats?: Record<string, number>): RoomInfo => ({ ...room('/dir', 0), team: true, style: { layout: 'diretoria', ...(seats ? { seats } : {}) }, maxAgents: 4 });
+  const gente = () => [agent('cmo', '/dir', 'idle', { staff: 'cmo', parked: true }), agent('cto', '/dir', 'idle', { staff: 'cto', parked: true })];
+  /** Em que mesa (número) cada agente fixo está, pelo mapa das mesas. */
+  const mapa = (sim: Sim) => Object.fromEntries(sim.deskMap('/dir').filter((m) => m.staff).map((m) => [m.staff!, m.n]));
+  const sentadoNaDele = (sim: Sim, id: string) => {
+    const ch = sim.chars.get(id)!;
+    return !!ch.seated && ch.atSpot === ch.homeSpot;
+  };
+
+  it('as mesas são numeradas como se lê, e o mapa diz onde cada uma fica e de quem é', () => {
+    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }));
+    sim.applySnapshot(snap([dir()], gente()), T0);
+    const mesas = sim.deskMap('/dir');
+    expect(mesas.map((m) => m.n)).toEqual([1, 2, 3, 4]);
+    // 1 e 2 em cima (esquerda e direita), 3 e 4 embaixo; tudo dentro da sala.
+    expect(mesas[0].y).toBe(mesas[1].y);
+    expect(mesas[2].y).toBe(mesas[3].y);
+    expect(mesas[0].y).toBeLessThan(mesas[2].y);
+    expect(mesas[0].x).toBeLessThan(mesas[1].x);
+    for (const m of mesas) expect(m.x > 0 && m.x < 1 && m.y > 0 && m.y < 1, `mesa ${m.n}`).toBe(true);
+    // Sem nada marcado, o mapa mostra onde cada um sentou.
+    expect(Object.keys(mapa(sim)).sort()).toEqual(['cmo', 'cto']);
+    expect(sim.deskMap('/nao-existe')).toEqual([]);
+  });
+
+  it('marcou a mesa: o agente vai para ela; trocar dois de lugar funciona; quem estava na mesa de outro sai', () => {
+    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }));
+    const clock = { now: T0 };
+    sim.applySnapshot(snap([dir()], gente()), T0);
+    run(sim, clock, 3);
+    const antes = mapa(sim);
+    // Os dois trocam de mesa.
+    const troca = { cmo: antes.cto, cto: antes.cmo };
+    sim.applySnapshot(snap([dir(troca)], gente(), 2), clock.now);
+    run(sim, clock, 60, () => sentadoNaDele(sim, 'cmo') && sentadoNaDele(sim, 'cto'));
+    expect(mapa(sim)).toEqual(troca);
+    const lugares = sim.deskMap('/dir');
+    for (const id of ['cmo', 'cto']) {
+      expect(sentadoNaDele(sim, id), id).toBe(true);
+      // ...e a mesa em que ele está é a do número marcado
+      const ch = sim.chars.get(id)!;
+      const n = lugares.find((m) => m.staff === id)!.n;
+      expect(sim.rooms.get('/dir')!.layout.spots.filter((s) => s.kind === 'desk').sort((a, b) => a.ty - b.ty || a.tx - b.tx)[n - 1].id, id).toBe(ch.homeSpot);
+    }
+    // Só o CTO marcado, na mesa em que o CMO está: o CMO levanta e acha outra, que não é a 4.
+    sim.applySnapshot(snap([dir({ cto: troca.cmo })], gente(), 3), clock.now);
+    run(sim, clock, 60, () => sentadoNaDele(sim, 'cmo') && sentadoNaDele(sim, 'cto'));
+    expect(mapa(sim).cto).toBe(troca.cmo);
+    expect(mapa(sim).cmo).not.toBe(troca.cmo);
+    expect(sentadoNaDele(sim, 'cmo')).toBe(true);
+    // A mesa marcada não aparece como livre, e o "+" vai para as outras duas.
+    expect(sim.freeDesks('/dir')).toHaveLength(2);
+  });
+
+  it('mesa marcada fica guardada para o dono dela: quem chega depois não senta ali; mesa que o layout não tem é ignorada', () => {
+    const sim = new Sim(art, () => ({ ...DEFAULT_WORLD_OPTIONS, liveliness: 'calm' }));
+    const clock = { now: T0 };
+    // A mesa 1 (a primeira que qualquer um pegaria... ou não) é do CTO, que ainda não chegou; a 9 não existe.
+    sim.applySnapshot(snap([dir({ cto: 1, cfo: 9 })], [agent('cmo', '/dir', 'idle', { staff: 'cmo', parked: true }), agent('cfo', '/dir', 'idle', { staff: 'cfo', parked: true })]), T0);
+    run(sim, clock, 3);
+    const m = sim.deskMap('/dir');
+    expect(m[0].staff).toBe('cto');
+    expect(m.filter((x) => x.staff === 'cmo' || x.staff === 'cfo').map((x) => x.n).sort()).not.toContain(1);
+    expect(m.filter((x) => x.staff).length).toBe(3);
+    expect(sim.freeDesks('/dir')).toHaveLength(1);
+  });
+});
+

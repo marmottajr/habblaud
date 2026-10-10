@@ -18,8 +18,16 @@ import { DayStatsService } from './history/daystats';
 import { describeStateMigration, legacyEnvWarning, migrateLegacyStateDir } from './legacy';
 import { errMsg, log } from './log';
 import { NameStore } from './model/names';
+import { JobStore } from './model/jobs';
+import { StaffHistory } from './model/staffhistory';
+import { EquipeRegistro, estiloDaSala, limiteDaSala } from './equipe/registro';
+import { roomCapacity } from '../shared/roomstyle';
+import { readdirSync, statSync } from 'node:fs';
+import { agentesEmReuniao, createEquipeRoutes, FilaDePedidos, lerHistorico } from './equipe/pedidos';
+import { Rotinas } from './equipe/rotinas';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
+import { RoomStyles } from './model/room-styles';
 import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { createPermissionRoutes } from './permissions/http';
@@ -51,9 +59,17 @@ if (legacyEnv) log.warn(legacyEnv);
 
 const names = new NameStore(join(config.dataDir, 'names.json'));
 names.load();
+const jobs = new JobStore(join(config.dataDir, 'jobs.json'));
+// Último trabalho de cada agente fixo: a gaveta de quem está parado continua mostrando o que ele fez.
+const ultimos = new StaffHistory(join(config.dataDir, 'equipe-ultimos.json'));
+ultimos.load();
+jobs.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
+// Aparência das salas escolhida pela pessoa (layout dos móveis, cor, lado).
+const roomStyles = new RoomStyles(join(config.dataDir, 'room-styles.json'));
+roomStyles.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry } = {};
@@ -73,9 +89,50 @@ const accounts = new AccountsService({
   usageDir: config.usageDir,
   onChange: () => late.office?.markDirty(),
 });
+// Equipe: agentes fixos de cada projeto, lidos do registro que o comando `equipe` mantém no host.
+const equipe = new EquipeRegistro({ file: join(config.equipeDir, 'registro.json'), onChange: () => late.office?.syncEquipe() });
+equipe.load();
+// Reuniões: os agentes das demandas em andamento que envolvem mais de uma sala (do histórico que o serviço da
+// equipe publica). Relido a cada 3 s, e só quando algum arquivo mudou; mudou a lista, a tela é avisada.
+const historicoDir = join(config.equipeDir, 'demandas');
+let reunioes: ReadonlySet<string> = new Set();
+let reunioesSig = '';
+let reunioesKey = '';
+const lerReunioes = (): void => {
+  let sig = '';
+  try {
+    sig = readdirSync(historicoDir)
+      .filter((n) => n.endsWith('.json'))
+      .sort()
+      .map((n) => {
+        const st = statSync(join(historicoDir, n));
+        return `${n}:${st.mtimeMs}:${st.size}`;
+      })
+      .join('|');
+  } catch {
+    // sem a pasta: ninguém em reunião
+  }
+  if (sig === reunioesSig) return;
+  reunioesSig = sig;
+  const novo = sig ? agentesEmReuniao(lerHistorico(historicoDir), equipe.equipes()) : new Set<string>();
+  const key = [...novo].sort().join('|');
+  if (key === reunioesKey) return;
+  reunioesKey = key;
+  reunioes = novo;
+  late.office?.markDirty();
+};
+lerReunioes();
+setInterval(lerReunioes, 3_000).unref();
 const office = new Office({
   names,
+  jobs,
+  equipe: () => equipe.equipes(),
+  meetings: () => reunioes,
+  ultimos,
   roomAlias: (path) => roomAliases.get(path),
+  roomStyle: (path) => roomStyles.get(path),
+  officeStyle: () => roomStyles.office(),
+  officeColors: () => roomStyles.colors(),
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
@@ -88,6 +145,8 @@ const office = new Office({
   messages: config.messages ? () => late.messages?.reachable() ?? new Set() : undefined,
   updates: () => updates.status(),
 });
+office.syncEquipe();
+equipe.start();
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
@@ -102,8 +161,10 @@ const codexLive: CodexLive | undefined = codex;
 late.office = office;
 late.agents = agents;
 const hub = new Hub(office);
+// Agente fixo parado não é sessão: fica fora da conta de tempo do "Meu dia".
+const semParados = <T extends { agents: Array<{ parked?: boolean }> } | null>(s: T): T => (s && s.agents.some((a) => a.parked) ? { ...s, agents: s.agents.filter((a) => !a.parked) } : s);
 // "Meu dia": amostra o escritório a cada segundo e persiste em <dataDir>/stats/ (ver history/daystats.ts).
-const stats = new DayStatsService({ dir: join(config.dataDir, 'stats'), snapshot: () => hub.current() });
+const stats = new DayStatsService({ dir: join(config.dataDir, 'stats'), snapshot: () => semParados(hub.current()) });
 stats.load();
 // Terminal: só existe com bind local (ver terminalOffReason em config.ts).
 // Cada agente com o parser da ferramenta dele (o do Claude Code por padrão).
@@ -172,7 +233,36 @@ const ticker = setInterval(() => {
   }
 }, 250);
 
+// Equipe pela tela: fila de demandas e recados (o host é quem abre terminal e digita) e rotinas com hora marcada.
+const fila = new FilaDePedidos({
+  equipes: () => equipe.equipes(),
+  keyFile: join(config.equipeDir, 'chave'),
+  agentes: () => office.list(),
+  // Limite de agentes da sala: o escolhido nas configurações dela, sem passar das mesas do layout.
+  limite: (room) => limiteDaSala(equipe.equipes(), room, roomStyles.get(room)),
+  mesas: (room) => roomCapacity(estiloDaSala(equipe.equipes(), room, roomStyles.get(room))),
+});
+const rotinas = new Rotinas({
+  file: join(config.dataDir, 'rotinas.json'),
+  existe: (room, slug) => !!equipe.equipes().get(room)?.agentes.some((a) => a.slug === slug),
+  disparar: (r, pedido) => void fila.criar({ room: r.room, slug: r.slug, pedido: pedido ?? r.pedido }),
+});
+rotinas.load();
+if (config.terminal) rotinas.start();
 const api = createApiHandler({
+  styleOffice: (body) => {
+    if ('style' in body) roomStyles.setOffice(body.style);
+    if ('primary' in body || 'secondary' in body) roomStyles.setColors(body);
+    office.markDirty();
+    return { style: roomStyles.office(), colors: roomStyles.colors() };
+  },
+  styleRoom: (id, style) => {
+    const path = office.roomPath(id);
+    if (!path) return undefined;
+    const ficou = roomStyles.set(path, style);
+    office.markDirty();
+    return { style: ficou };
+  },
   renameRoom: (id, name) => {
     const path = office.roomPath(id);
     if (!path) return undefined;
@@ -190,9 +280,16 @@ const api = createApiHandler({
   terminals,
   sessions: history,
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
-  permissions: permissions ? createPermissionRoutes(permissions) : undefined,
-  messages: messages ? createMessageRoutes(messages) : undefined,
+  permissions: permissions ? createPermissionRoutes(permissions, { conferirChave: (k) => fila.conferirChave(k) }) : undefined,
+  messages: messages ? createMessageRoutes(messages, { conferirChave: (k) => fila.conferirChave(k) }) : undefined,
   codexLive,
+  // Demandas, recados e rotinas pela tela: a fila que o serviço do host (`equipe servir`) consulta. Mesma trava do terminal.
+  equipe: config.terminal ? createEquipeRoutes(fila, rotinas, {
+        historicoDir: join(config.equipeDir, 'demandas'),
+        dono: () => equipe.dono(),
+        // Sessão já fechada: o que ficou guardado. Sessão aberta: o número de agora.
+        numeros: (sessao) => ultimos.numeros(sessao) ?? office.list().find((a) => a.kind === 'main' && a.sessionId === sessao)?.stats,
+      }) : undefined,
   stats,
   updates,
 });
@@ -311,6 +408,8 @@ function shutdown(signal: string): void {
   messages?.stop();
   updates.stop();
   names.flush();
+  ultimos.flush();
+  jobs.flush();
   void closeVite?.();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1_500).unref();

@@ -1,8 +1,10 @@
 // Configurações (popover): opções do escritório, avisos, modo demonstração e Sobre (versão).
+import { OFFICE_STYLE_INFO, OFFICE_STYLES, officePalette, parseOfficeColors, parseOfficeStyle, ROOM_COLOR_RE, type OfficeStyleId } from '../../../shared/roomstyle';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText } from './dom';
 import { ICONS } from './icons';
 import { notificationState, type Notifier } from './notify';
+import { isLocalHostname } from './permission';
 import type { UiPrefs } from './prefs';
 import { SoundSettingsGroup } from './settings-sound';
 import type { SoundControl } from './sound';
@@ -61,6 +63,14 @@ export class SettingsPopover implements UiComponent {
   private bubbles: ReturnType<typeof segmented<UiPrefs['bubbles']>>;
   private liveliness: ReturnType<typeof segmented<UiPrefs['liveliness']>>;
   private daylight: ReturnType<typeof segmented<UiPrefs['daylight']>>;
+  /** Estilo geral do escritório: fica no servidor (vale para todas as abas), não nas preferências do navegador. */
+  private officeStyle: ReturnType<typeof segmented<OfficeStyleId>>;
+  private officeHint: HTMLElement;
+  /** As duas cores do escritório (principal e de apoio): o seletor de cores do sistema, e "Cores do estilo". */
+  private officeCores: HTMLElement;
+  private corPrincipal: HTMLInputElement;
+  private corApoio: HTMLInputElement;
+  private coresPadrao: HTMLButtonElement;
   private soundGroup: SoundSettingsGroup;
   private demoGroup: HTMLElement;
   private about: AboutGroup;
@@ -107,6 +117,27 @@ export class SettingsPopover implements UiComponent {
       (v) => ctx.updatePrefs({ daylight: v }),
     );
     this.daylight.row.append(h('span', { class: 'ui-set__hint', text: 'Automático: céu, luzes e sol nas janelas seguem a hora local.' }));
+    this.officeStyle = segmented<OfficeStyleId>(
+      'Estilo do escritório',
+      OFFICE_STYLES.map((id) => [id, OFFICE_STYLE_INFO[id].nome] as [OfficeStyleId, string]),
+      (v) => void this.setOfficeStyle({ style: v }),
+    );
+    this.officeHint = h('span', { class: 'ui-set__hint' });
+    this.officeStyle.row.append(this.officeHint);
+    const cor = (campo: 'primary' | 'secondary', rotulo: string, dica: string) => {
+      const input = h('input', { type: 'color', attrs: { 'aria-label': rotulo } });
+      // A cor vale quando a pessoa fecha a escolha.
+      input.addEventListener('change', () => {
+        if (ROOM_COLOR_RE.test(input.value.toLowerCase())) void this.setOfficeStyle({ [campo]: input.value.toLowerCase() });
+      });
+      return { input, label: h('label', { class: 'ui-set-cor', title: dica }, input, h('span', { text: rotulo })) };
+    };
+    const principal = cor('primary', 'Principal: piso e paredes', 'A cor do piso e das paredes do escritório inteiro, exatamente como você escolher');
+    const apoio = cor('secondary', 'Apoio: tapetes e frisos', 'A cor dos tapetes e dos frisos do escritório inteiro, exatamente como você escolher');
+    this.corPrincipal = principal.input;
+    this.corApoio = apoio.input;
+    this.coresPadrao = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: 'Cores do estilo', title: 'Volta às duas cores de fábrica do estilo escolhido', on: { click: () => void this.setOfficeStyle({ primary: null, secondary: null }) } });
+    this.officeCores = h('div', { class: 'ui-set ui-set--stack' }, h('span', { class: 'ui-set__label', text: 'Cores do escritório' }), h('div', { class: 'ui-set-cores' }, principal.label, apoio.label, this.coresPadrao));
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
 
     this.demoGroup = h(
@@ -127,6 +158,8 @@ export class SettingsPopover implements UiComponent {
         'div',
         { class: 'ui-set-group' },
         h('h3', { text: 'Escritório' }),
+        this.officeStyle.row,
+        this.officeCores,
         sw('showNames', 'Mostrar nomes', 'Etiqueta com o nome acima de cada personagem.', flip('showNames')),
         this.bubbles.row,
         this.liveliness.row,
@@ -197,6 +230,19 @@ export class SettingsPopover implements UiComponent {
       setAttr(r.btn, 'aria-checked', String(on));
       r.btn.disabled = key === 'demo' && this.demoBusy;
     }
+    const estilo = parseOfficeStyle(this.ctx.store.liveSnapshot?.meta.officeStyle);
+    this.officeStyle.set(estilo);
+    if (!this.officeErro) setText(this.officeHint, `${OFFICE_STYLE_INFO[estilo].dica}. Vale nas áreas comuns e nas salas que não escolheram um estilo próprio.`);
+    // Como personalizar sala: só com o Habblaud acessível apenas pelo próprio computador, e fora do modo de teste.
+    const semEstilo = this.ctx.store.mock || !this.ctx.store.liveSnapshot?.meta.terminal || !isLocalHostname(location.hostname);
+    setHidden(this.officeStyle.row, semEstilo);
+    setHidden(this.officeCores, semEstilo);
+    // As cores em uso: as escolhidas, ou as do estilo. No clássico sem escolha, cada sala tem a sua.
+    const escolhidas = parseOfficeColors(this.ctx.store.liveSnapshot?.meta.officeColors);
+    const emUso = officePalette(estilo, escolhidas);
+    if (document.activeElement !== this.corPrincipal) this.corPrincipal.value = emUso.primary ?? '#ece4d6';
+    if (document.activeElement !== this.corApoio) this.corApoio.value = emUso.secondary ?? '#3d5a80';
+    setHidden(this.coresPadrao, !escolhidas.primary && !escolhidas.secondary);
     this.bubbles.set(p.bubbles);
     this.liveliness.set(p.liveliness);
     this.daylight.set(p.daylight);
@@ -224,6 +270,21 @@ export class SettingsPopover implements UiComponent {
     const state = await this.notifier.enableBrowserNotifications();
     this.ctx.updatePrefs({ browserNotifications: state === 'granted' });
     if (state === 'denied') this.ctx.announce('Notificações bloqueadas pelo navegador.');
+  }
+
+  private officeErro = false;
+
+  /** Grava o estilo geral do escritório ou as cores dele (POST /api/office/style); a tela muda quando o servidor confirma. */
+  private async setOfficeStyle(mudanca: { style?: OfficeStyleId; primary?: string | null; secondary?: string | null }): Promise<void> {
+    this.officeErro = false;
+    try {
+      const res = await fetch('/api/office/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mudanca) });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `erro ${res.status}`);
+    } catch (err) {
+      this.officeErro = true;
+      setText(this.officeHint, `Não foi possível mudar o estilo: ${err instanceof Error ? err.message : 'erro'}.`);
+    }
+    this.ctx.invalidate();
   }
 
   private async toggleDemo(): Promise<void> {

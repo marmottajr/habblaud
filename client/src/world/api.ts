@@ -2,6 +2,17 @@
 // Implementação: client/src/world/index.ts -> createWorld().
 // Regra: mudanças aqui devem ser ADITIVAS.
 
+/** Um agente fixo sendo arrastado para outra mesa (WorldApi.onSeatDrag). */
+export interface SeatDrag {
+  roomId: string;
+  agentId: string;
+  staff: string;
+  /** O cursor, em px da janela. */
+  x: number;
+  y: number;
+  fim?: 'soltou' | 'cancelou';
+}
+
 export type Selection = { type: 'agent'; id: string } | { type: 'room'; id: string } | null;
 
 export interface WorldOptions {
@@ -64,6 +75,33 @@ export interface WorldApi {
   social?(agentId: string): AgentSocial | null;
   /** (Opcional, aditivo) Botão direito numa sala do escritório: id da sala e o ponto do clique (px da janela). */
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
+  /**
+   * Onde está na tela (px CSS do canvas) a primeira vaga sem sala do prédio, se ela existe e está à vista: é ali
+   * que a interface põe o "+" de criar sala. null = prédio cheio, fora da tela ou timelapse.
+   */
+  freeSlotScreen?(): { x: number; y: number; w: number; h: number } | null;
+  /**
+   * Onde estão na tela as mesas sem dono de uma sala (no máximo `max`), na ordem em que seriam ocupadas: a
+   * interface põe um "+" de criar agente sobre cada uma. `tile` = o tamanho de um quadrado do piso na tela.
+   */
+  freeDesksScreen?(roomId: string, max: number): { x: number; y: number; tile: number }[];
+  /**
+   * O mapa das mesas de uma sala: o número de cada uma, a posição dentro da sala (de 0 a 1) e o agente fixo que é
+   * dela (`staff`). A interface usa para a pessoa organizar quem senta onde.
+   */
+  roomDesks?(roomId: string): { n: number; x: number; y: number; staff?: string }[];
+  /**
+   * Organizar as mesas arrastando: com uma sala aqui, os agentes fixos dela podem ser arrastados pelo escritório
+   * (o arrasto não move a câmera). `null` desliga.
+   */
+  seatEditing?(roomId: string | null): void;
+  /** As mesas de uma sala na tela: o número, o centro (px da janela), o tamanho de um quadrado do piso e de quem é. */
+  roomDesksScreen?(roomId: string): { n: number; x: number; y: number; tile: number; staff?: string }[];
+  /**
+   * O arrasto de um agente (ver seatEditing): chamado a cada movimento, com a posição do cursor; no fim, com
+   * `fim` = 'soltou' ou 'cancelou'. A interface desenha o agente na mão e as mesas, e grava a mesa nova.
+   */
+  onSeatDrag?(cb: (d: SeatDrag) => void): () => void;
   /** (Opcional, aditivo) Acontecimentos sociais (partidas e apostas) para o feed. */
   onSocialEvent?(cb: (e: SocialEvent) => void): () => void;
   /**

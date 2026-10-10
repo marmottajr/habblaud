@@ -3,12 +3,12 @@
 import * as artModule from '../art';
 import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
-import { DEFAULT_WORLD_OPTIONS, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
+import { DEFAULT_WORLD_OPTIONS, type SeatDrag, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
 import { Camera, overviewFrame } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
-import { inRect } from './layout/geometry';
+import { inRect, slotRect } from './layout/geometry';
 import { attachInput, type Hit } from './input';
 import { rebaseSnapshot } from './playback';
 import { Overlay } from './render/overlay';
@@ -163,7 +163,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
     if (best) return { type: 'agent', id: best };
     const tx = Math.floor(w.x / TILE);
     const ty = Math.floor(w.y / TILE);
-    for (const room of sim.rooms.values()) if (room.present && !room.ghost && inRect(room.layout.rect, tx, ty)) return { type: 'room', id: room.id };
+    // (a sala de cenário não se seleciona: não há o que mostrar sobre ela)
+    for (const room of sim.rooms.values()) if (room.present && !room.ghost && !room.info.decor && inRect(room.layout.rect, tx, ty)) return { type: 'room', id: room.id };
     return null;
   };
 
@@ -174,8 +175,33 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
     hoverCbs.forEach((cb) => cb(id));
   };
 
+  // ---- organizar as mesas arrastando: com a sala aberta, o agente fixo dela é arrastado até outra mesa
+  let seatRoom: string | null = null;
+  let seatGrab: { agentId: string; staff: string } | null = null;
+  const seatCbs = new Set<(d: SeatDrag) => void>();
+  const emitSeat = (sx: number, sy: number, fim?: SeatDrag['fim']) => {
+    if (!seatGrab || !seatRoom) return;
+    const d: SeatDrag = { roomId: seatRoom, agentId: seatGrab.agentId, staff: seatGrab.staff, x: sx, y: sy, ...(fim ? { fim } : {}) };
+    for (const cb of seatCbs) cb(d);
+  };
+
   const detachInput = attachInput(canvas, camera, {
     pick,
+    grab: (sx, sy) => {
+      seatGrab = null;
+      if (!seatRoom || playback) return false;
+      const hit = pick(sx, sy);
+      const a = hit?.type === 'agent' ? sim.chars.get(hit.id)?.info : undefined;
+      // só o agente fixo da própria sala (subagente e sessão solta não têm mesa marcada)
+      if (!a || a.kind !== 'main' || !a.staff || a.roomId !== seatRoom) return false;
+      seatGrab = { agentId: a.id, staff: a.staff };
+      return true;
+    },
+    grabMove: (sx, sy) => emitSeat(sx, sy),
+    grabEnd: (sx, sy, soltou) => {
+      emitSeat(sx, sy, soltou ? 'soltou' : 'cancelou');
+      seatGrab = null;
+    },
     click: (hit) => setSelection(hit),
     doubleClick: (hit) => {
       if (hit?.type === 'agent') {
@@ -295,7 +321,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
         ? hit.id
         : hit?.type === 'agent'
           ? (sim.chars.get(hit.id)?.roomId ?? null)
-          : ([...sim.rooms.values()].find((room) => room.present && !room.ghost && inRect(room.layout.rect, Math.floor(w.x / TILE), Math.floor(w.y / TILE)))?.id ?? null);
+          : ([...sim.rooms.values()].find((room) => room.present && !room.ghost && !room.info.decor && inRect(room.layout.rect, Math.floor(w.x / TILE), Math.floor(w.y / TILE)))?.id ?? null);
     if (!roomId || !sim.rooms.has(roomId)) return;
     e.preventDefault();
     roomMenuCbs.forEach((cb) => cb(roomId, { x: e.clientX, y: e.clientY }));
@@ -383,6 +409,42 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
     onRoomContextMenu: (cb) => {
       roomMenuCbs.add(cb);
       return () => void roomMenuCbs.delete(cb);
+    },
+    freeSlotScreen: () => {
+      if (playback || !sim.initialized) return null;
+      const slot = sim.freeSlot();
+      // Com o prédio cheio, a próxima vaga fica no gramado ao lado dele: é onde a sala nova vai ser erguida.
+      const r = slotRect(slot);
+      const a = camera.worldToScreen(r.x * TILE, r.y * TILE);
+      const b = camera.worldToScreen((r.x + r.w) * TILE, (r.y + r.h) * TILE);
+      // Fora da vista (câmera em outro canto, ou prédio cheio e a vaga além da borda): a interface encosta o "+" na borda.
+      return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+    },
+    roomDesks: (roomId) => (playback || !sim.initialized ? [] : sim.deskMap(roomId)),
+    seatEditing: (roomId) => {
+      seatRoom = roomId;
+    },
+    roomDesksScreen: (roomId) => {
+      if (playback || !sim.initialized) return [];
+      const room = sim.rooms.get(roomId);
+      if (!room) return [];
+      const r = room.layout.rect;
+      const tile = camera.worldToScreen(TILE, 0).x - camera.worldToScreen(0, 0).x;
+      // (deskMap dá a posição dentro da sala, de 0 a 1: volta para o mundo e daí para a tela)
+      return sim.deskMap(roomId).map((m) => ({ n: m.n, tile, ...camera.worldToScreen((m.x * 14 + r.x + 1) * TILE, (m.y * 9 + r.y + 2) * TILE - TILE * 0.5), ...(m.staff ? { staff: m.staff } : {}) }));
+    },
+    onSeatDrag: (cb) => {
+      seatCbs.add(cb);
+      return () => void seatCbs.delete(cb);
+    },
+    freeDesksScreen: (roomId, max) => {
+      if (playback || !sim.initialized || max <= 0) return [];
+      const tile = camera.worldToScreen(TILE, 0).x - camera.worldToScreen(0, 0).x;
+      return sim
+        .freeDesks(roomId)
+        .slice(0, max)
+        .map((s) => ({ ...camera.worldToScreen(s.x, s.y - TILE * 0.75), tile }))
+        .filter((p) => p.x >= 0 && p.y >= 0 && p.x <= camera.viewW && p.y <= camera.viewH);
     },
     onSocialEvent: (cb) => {
       socialCbs.add(cb);

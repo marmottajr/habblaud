@@ -103,7 +103,8 @@ export class HoverTip implements UiComponent {
     setHidden(this.task, !title);
     if (title) setText(this.task, title);
     const inStatus = now - a.statusSince;
-    setText(this.since, a.statusSince && inStatus >= 60_000 ? `há ${formatDuration(inStatus)}` : '');
+    // Tempo ocioso não aparece; o de quem trabalha ou espera, sim.
+    setText(this.since, a.statusSince && a.status !== 'idle' && inStatus >= 60_000 ? `há ${formatDuration(inStatus)}` : '');
     if (wait) updateShellActivityLine(this.activity, wait, now);
     else updateActivityLine(this.activity, a.activity);
     setHidden(this.mood, !wait);

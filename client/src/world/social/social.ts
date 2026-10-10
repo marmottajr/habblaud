@@ -106,6 +106,8 @@ export class Social {
    */
   canJoin(c: Character, now: number): boolean {
     if (c.gone || c.leaving || c.arriving || c.inside || c.gathering) return false;
+    // em reunião (demanda entre salas): não entra em roda nenhuma, fica na sala de reunião
+    if (this.sim.inMeeting(c)) return false;
     if (c.mode !== 'idle' && c.mode !== 'shell') return false;
     if (c.step || c.queue.length) return false;
     if (!c.homeSpot || c.atSpot !== c.homeSpot) return false;

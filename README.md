@@ -327,8 +327,23 @@ um **chip colorido com a letra da conta** (C, D…).
 - **Painel lateral:** busca, filtro por conta e a lista de salas com seus agentes e subagentes.
 - **Gaveta de detalhes:** clique num personagem (no prédio ou na lista) para ver atividade, tarefas, subagentes,
   linha do tempo e estatísticas (ferramentas, tokens, custo, linhas alteradas, modelo, branch).
+- **Painel da sala:** clique numa sala (no prédio ou na lista). Em **Aparência da sala** você escolhe:
+  o **layout** dos móveis (Equipe, com doze mesas; Criativo; Reuniões; Operação; Diretoria, em quatro gabinetes; Conferência; Individual; ou Automático), cada um com um ícone
+  que aparece ao lado do nome da sala; o **estilo**, que combina piso, parede e móveis ("Do escritório", que segue o estilo
+  geral das Configurações, ou um próprio: Clássico, Corporativo, Moderno, Futurista, Minimalista, Industrial,
+  Executivo, Vidro, Noturno, Aconchegante; cor escura puxa mesa e cadeiras pretas); a **cor** (dez prontas ou **Outra cor**, com
+  o seletor de cores); e o lado da ilha de mesas. A sala muda na hora, e a escolha fica guardada (só com o
+  Habblaud acessível apenas pelo próprio computador, como renomear a sala).
+  Numa sala de equipe, a seção **Agentes da sala** mostra quantos agentes fixos ela tem e deixa definir o **limite**
+  (até o número de mesas do layout); com a sala selecionada, aparece um **+** sobre cada mesa livre, que abre
+  "Novo agente" já nela. Sala cheia não aceita agente novo. Para organizar quem senta onde, com a sala aberta,
+  **arraste o agente até a mesa** no próprio escritório (se a mesa for de outro, os dois trocam).
 - **Feed:** as últimas atividades de todo o escritório.
-- **Configurações (⚙):** nomes, balões, quanto os ociosos passeiam, ciclo dia/noite, sons, notificações do navegador,
+- **Configurações (⚙):** **estilo do escritório** (Clássico, Corporativo, Moderno ou Futurista: vale nas áreas
+  comuns e em toda sala que não escolheu um estilo próprio; fica guardado no servidor) e **cores do escritório**
+  (a principal pinta o piso e as paredes do escritório inteiro e a de apoio pinta os tapetes e os frisos,
+  exatamente na cor escolhida; cada estilo guarda as suas cores; "Cores do estilo" volta às de fábrica). À noite, o
+  Clássico tem a luz amarelada de sempre e os outros estilos têm a noite azul-marinho com luz branca. Nomes, balões, quanto os ociosos passeiam, ciclo dia/noite, sons, notificações do navegador,
   modo demonstração e **Sobre** (versão em uso e versão nova). **Ajuda (?):** legenda completa e atalhos.
 - **Meu dia (📊):** para onde foi o tempo do dia (veja [Meu dia](#meu-dia)). **Timelapse** e **Histórico** (os relógios
   da barra superior): veja [Timelapse do dia](#timelapse-do-dia) e [Terminal](#terminal).
@@ -338,6 +353,121 @@ um **chip colorido com a letra da conta** (C, D…).
 **Atalhos:** `/` busca · `F` seguir o selecionado · `T` terminal · `L` timelapse · `M` meu dia · `P` próximo pedido
 (permissão ou pergunta) · `O` ou `0` visão geral · `Esc` limpar seleção · `[` painel lateral · `]` feed · setas/`WASD` mover ·
 `+` `-` zoom · `?` ajuda.
+
+### Funções dos agentes
+
+Cada agente principal pode ter uma **função** dada por você (Estrategista, Roteirista, Dev…). Clique no
+personagem e, na gaveta de detalhes, use **Função → Dar função**: digite, `Enter` grava, `Esc` desiste e
+deixar vazio tira a função. O campo sugere as funções já usadas naquele projeto (sala).
+
+A função aparece ao lado do nome na etiqueta do personagem e na lista lateral (`Lara · Estrategista`) e no topo
+da gaveta. Ela acompanha a sessão: continua depois de reiniciar o Habblaud e depois de um `/clear`. O nome
+continua sorteado. É só um rótulo no escritório: nada é enviado à sessão do Claude Code.
+
+### Equipe: agentes fixos
+
+> Só no **macOS** por enquanto: as demandas abrem no app Terminal e o serviço roda pelo `launchd`.
+
+Um projeto pode ter **agentes fixos** (Roteirista, Dev, Analista…). Eles ficam na sala do projeto o tempo todo:
+parados quando não há demanda, trabalhando quando há. Cada demanda abre uma sessão nova do Claude Code
+(`claude --agent <nome>`) num terminal, que fecha quando o agente termina. O que passa de um agente para o
+outro passa por arquivo, então nenhuma sessão fica aberta gastando contexto.
+
+**Instalar** (uma vez):
+
+```bash
+npm run equipe:install   # cria o comando `equipe` em ~/.local/bin e liga o serviço que abre os terminais
+equipe chave             # mostra a chave do escritório: cole no Habblaud quando ele pedir, uma vez por navegador
+equipe dono "Seu nome"   # opcional: como os agentes chamam você (--a para o feminino)
+```
+
+Sem `equipe dono`, os agentes chamam você pelo **primeiro nome do usuário do computador**. Dá para trocar também
+pela tela, na conversa com o dono (o balão da barra de cima). O agente que é o **dono do escritório** leva esse nome.
+
+A **chave do escritório** existe porque, com a equipe, a página passa a agir no computador (abre terminal com
+agente, cria sala, apaga agente). Tudo o que age exige a chave; o servidor continua sem rodar nada: ele só guarda
+o pedido, e quem executa é o serviço, no seu usuário.
+
+**Pela tela:**
+
+- **Nova sala**: o `+ Nova sala` sobre a primeira vaga livre do prédio (ou no fim da lista lateral). Dê um nome e
+  escolha a pasta em que a equipe vai trabalhar, na janela do sistema. A sala fica no escritório mesmo vazia.
+- **Novo agente**: `+ Novo agente` na sala. Diga a função ("Designer") e descreva em poucas frases o que ele
+  faz. O agente entra na sala na hora, e a primeira demanda dele é **escrever a própria função completa**,
+  seguindo o guia em [`equipe/skills/escrever-funcao/SKILL.md`](equipe/skills/escrever-funcao/SKILL.md) (edite o
+  guia para mudar como todo agente novo é escrito).
+- **Demanda**: clique no agente → **Nova demanda**. Com ele trabalhando, a mesma caixa manda um **recado**, lido
+  no meio do trabalho.
+- **Demandas** (botão no topo): em andamento, concluídas e arquivadas; em cada etapa, o que o agente recebeu, o
+  que entregou e o terminal dela. Dá para perguntar a quem fez uma etapa, reabrir o trabalho, arquivar e excluir.
+  Demanda parada mostra **por que parou** (login vencido, limite do plano, conexão, janela fechada) e o botão
+  **Retomar**.
+- **Rotinas** (aba do painel **Demandas**, ao lado de "Arquivadas"): onde se define uma demanda de rotina, que
+  se repete em dias e hora, a cada intervalo, ou **quando chega item novo** numa pasta ou numa planilha `.csv`.
+- **Editar a função** e **Apagar agente**: na gaveta do agente fixo. **Excluir sala**: no painel que abre ao
+  clicar na sala.
+- **Conversa com**: no painel da sala, as outras salas de equipe aparecem como botões. Clicar numa liga as duas:
+  os agentes de uma passam a poder chamar os da outra com `equipe passar`. Quem é chamado trabalha na pasta da
+  sala que chamou, com as permissões dela, e continua morando na própria sala. Clicar de novo desliga.
+- **Conversa com o dono** (o balão na barra de cima): o **dono do escritório** é um agente fixo que representa
+  você. O personagem dele leva o seu nome (o do usuário do computador; clique no nome para trocar) e ele tem uma
+  sala só dele. Escreva como numa conversa ("crie uma sala Vendas na pasta tal, com um agente que responde os
+  contatos novos", "pergunte à analista como foi a campanha de ontem", "deixe Vendas conversar com Marketing"):
+  ele muda o escritório e **fala com qualquer agente de qualquer sala**, com o comando `equipe`, e a resposta
+  aparece na conversa. Antes de apagar ou desfazer algo, ele pergunta. A função dele está em
+  [`equipe/skills/dono-do-escritorio/SKILL.md`](equipe/skills/dono-do-escritorio/SKILL.md).
+
+**Pelo terminal** (o mesmo que a tela faz, e mais):
+
+```bash
+equipe sala criar "Equipe de Vendas" ~/projetos/vendas
+equipe agente "Pré-vendas" "Atende quem chega pelo WhatsApp e marca a visita. Não passa preço." --projeto ~/projetos/vendas
+equipe demanda pre-vendas "Responda os leads de hoje" --projeto ~/projetos/vendas
+equipe status --projeto ~/projetos/vendas
+equipe ligar ~/projetos/marketing --projeto ~/projetos/vendas   # as duas salas passam a conversar (equipe desligar desfaz)
+equipe limite 4 --projeto ~/projetos/diretoria                   # quantos agentes fixos a sala pode ter (equipe limite padrao desfaz)
+equipe ia                                                        # a IA e o nível de cada agente e como está a triagem
+equipe ia --triagem ia                                           # liga a triagem (vem desligada)
+equipe ia roteirista --modelo sonnet --nivel medio               # fixa a IA e o nível de um agente
+equipe ia --triagem desligada                                    # volta ao padrão do Claude Code em toda etapa
+equipe funcao pre-vendas --projeto ~/projetos/vendas            # mostra a função; --de arquivo.md grava a do arquivo
+equipe --help            # todos os comandos
+```
+
+Outras peças:
+
+- **Passar trabalho**: dentro de uma demanda, o agente chama o colega com `equipe passar <colega> "…"`; um
+  **fluxo** (`equipe fluxo criar`) fixa a sequência. `equipe chefe <nome>` define quem confere tudo antes de
+  chegar a você.
+- **IA e nível de cada trabalho** (opcional; liga-se com `equipe ia --triagem ia`): antes de cada etapa, uma
+  triagem curta (a IA mais barata lê o pedido e a função do agente) escolhe a IA (Haiku, Sonnet ou Opus) e o nível de esforço (baixo, médio, alto, extra, máximo)
+  mais baratos que entregam com qualidade. Quem dirige ou confere pode escolher ao passar trabalho (`equipe passar
+  <colega> "..." --ia sonnet --nivel medio`); cada agente pode ter IA e nível fixos, um mínimo e a permissão de
+  escolher a IA do colega (gaveta do agente, "IA do agente", ou `equipe ia`). Travas de qualidade: o que vai para
+  o público ou mexe com dinheiro tem mínimo; quem confere não roda no barato; trabalho devolvido roda um degrau
+  acima; e o agente pode pedir mais com `equipe subir "motivo"`. O painel de Demandas mostra a IA e o nível de
+  cada etapa e o motivo. Com a triagem desligada (o padrão), cada etapa abre com o padrão do Claude Code, e
+  continua valendo o que estiver fixo no agente ou pedido por quem passou o trabalho.
+- **Diretoria**: uma pasta à parte cujos agentes trabalham dentro das equipes que dirigem (`equipe diretoria
+  <pasta>`), mas moram na sala própria.
+- **Sala do dono**: `npm run equipe:install` cria a sala do dono em `~/.habblaud/escritorio`, com o agente
+  `dono` (`equipe escritorio` recria). No prédio, ela fica sempre na vaga ao lado do lounge, e a vaga em frente,
+  do outro lado do corredor, recebe uma **sala de reunião** só de cenário (mesa de conferência com doze cadeiras;
+  ninguém mora nela, e ela não aparece na lista). Quando uma demanda em andamento junta agentes de duas salas ou
+  mais, todos os envolvidos vão para essa sala de reunião e ficam lá até a demanda terminar, saindo só para a água
+  e o banheiro. Só as sessões da sala do dono rodam o comando `equipe` sem perguntar. As demandas do
+  dono têm fila própria: ele manda uma demanda a um agente, espera (`equipe esperar`) e lê a resposta
+  (`equipe ver <id>`) sem segurar a fila das equipes. De dentro da sessão de qualquer agente, o comando recusa o
+  que mexe em chave, login, serviço e permissão (`equipe chave`, `login`, `servico`, `permissao`, `liberar`,
+  `negar`, `proteger`): isso é só de quem usa o computador. Na primeira vez, o Claude Code pergunta se a pasta
+  dela é de confiança: responda no terminal que abrir.
+- **Uma demanda por vez**: as novas esperam a que está trabalhando e começam sozinhas (`equipe fila livre`
+  desliga).
+- **Permissões**: `equipe permissao automatico --todos` (ou por projeto, ou por agente). Os modos que nunca
+  perguntam são recusados. Toda sala nova nasce sem ler `.env`, `~/.ssh` nem a chave do escritório; `equipe
+  proteger "Edit(~/Documents/Financeiro/**)"` acrescenta pastas que as salas novas não podem editar.
+- **Onde ficam as coisas**: no projeto, `.claude/agents/<nome>.md` (a função), `.equipe/` (demandas, cadernos,
+  memória do time, lixeira); no computador, `~/.habblaud/equipe/` (registro, preferências, chave).
 
 ### Dia, noite e sons
 
@@ -714,6 +844,14 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   `127.0.0.1`. Não lê a conversa, não chama o modelo e não envia nada para fora do computador. Ele é lido desta
   pasta: o que estiver nela (inclusive depois de um `git pull`) é o que roda. O plugin de mensagens
   (`habblaud-mensagens`) é separado justamente porque age: digita na sessão o que você mandou pelo escritório.
+- **A equipe (opcional):** com os agentes fixos, a página passa a pedir ações no computador (abrir terminal com
+  agente, criar sala, apagar agente). O servidor continua sem executar nada: ele guarda o pedido, e quem executa é
+  o serviço `equipe servir`, no seu usuário, só para projeto e agente que estão no registro. Toda rota que age
+  exige a **chave do escritório** (`~/.habblaud/equipe/chave`, comparada em tempo constante), além das travas de
+  sempre. A pasta `~/.habblaud/equipe` entra no container somente leitura. A pasta de uma sala nova só vale se foi
+  escolhida na janela de escolher pasta do sistema, e toda sala nasce sem ler `.env`, `~/.ssh` nem a chave.
+  O dono do escritório é o único agente que roda o comando `equipe` sem perguntar, e o comando recusa, de
+  dentro da sessão de qualquer agente, o que mexe em chave, login, serviço e permissões.
 - **Só local, por padrão:** o servidor só aceita conexões do próprio computador; liberar a rede local é opcional.
   Não há telemetria. A única chamada externa é a verificação de versão nova: a cada 6 horas, uma consulta anônima,
   sem token, à API pública do GitHub (`api.github.com/repos/marmottajr/habblaud/releases/latest`). Ela não envia nada

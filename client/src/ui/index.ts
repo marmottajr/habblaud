@@ -18,6 +18,11 @@ import { Drawer } from './drawer';
 import { FeedPanel } from './feed';
 import { HelpDialog } from './help';
 import { HistoryPopover } from './history';
+import { CriarPopover } from './criar';
+import { MesasDrag } from './mesas';
+import { DemandasPopover } from './demandas';
+import { EscritorioPopover } from './escritorio';
+import { RotinasPainel } from './rotinas';
 import { HoverTip } from './hovertip';
 import { hasRunningShells } from './model';
 import { hasCodexPermission } from './provider';
@@ -153,6 +158,16 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   // Histórico de sessões (terminal): botão no grupo dos painéis da barra superior.
   const history = new HistoryPopover(ctx, terminal);
   topbar.panelGroup.prepend(history.button);
+  // Rotinas dos agentes fixos: um bloco do painel de Demandas, ao lado de "Arquivadas", onde se define a demanda
+  // que se repete.
+  const rotinas = new RotinasPainel(ctx);
+  // Demandas da equipe: o que está em andamento, o que foi concluído, o que foi arquivado e as rotinas.
+  const demandas = new DemandasPopover(ctx, terminal, rotinas);
+  topbar.panelGroup.prepend(demandas.button);
+  // Conversa com o dono do escritório (o balão): o agente que leva o nome de quem usa e age por ele.
+  const escritorio = new EscritorioPopover(ctx);
+  topbar.panelGroup.prepend(escritorio.button);
+  ctx.abrirEscritorio = () => escritorio.abrir();
   drawer = new Drawer(ctx, terminal);
   const feed = new FeedPanel(ctx);
   const toasts = new Toasts(ctx);
@@ -160,6 +175,19 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   settings = new SettingsPopover(ctx, notifier, sound);
   help = new HelpDialog();
   const day = new DayLauncher(ctx, (el) => root.append(el));
+  // Criar sala e agente pela tela: o "+" sobre a vaga livre do prédio e os botões da lista.
+  const criar = new CriarPopover(ctx);
+  // Organizar as mesas arrastando o agente no escritório, com a sala dele aberta.
+  const mesasDrag = new MesasDrag(ctx);
+  ctx.novaSala = () => criar.abrirSala();
+  ctx.novoAgente = (roomId) => criar.abrirAgente(roomId);
+  ctx.editarFuncao = (roomId, slug, nome) => void criar.editarFuncao(roomId, slug, nome);
+  ctx.apagarAgente = (roomId, slug, nome) => criar.pedirApagarAgente(roomId, slug, nome);
+  ctx.removerSala = (roomId, nome) => criar.pedirRemoverSala(roomId, nome);
+  ctx.ligarSalas = (roomId, outra, ligar) => criar.pedirLigacao(roomId, outra, ligar);
+  ctx.definirLimite = (roomId, limite) => criar.pedirLimite(roomId, limite);
+  ctx.definirIA = (roomId, slug, nome, mudanca) => criar.pedirIA(roomId, slug, nome, mudanca);
+  root.append(demandas.el, escritorio.el, criar.el);
   topbar.addPanelButton(day.button);
   // Botão direito numa sala (lista lateral ou escritório): renomear.
   const renamer = new RoomRenamer(ctx);
@@ -174,7 +202,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(timelapse.vignette, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, live, splash.el);
+  root.append(timelapse.vignette, criar.plus, criar.vagas, mesasDrag.el, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, live, splash.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -183,7 +211,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, rotinas, demandas, escritorio, criar, mesasDrag, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster];
 
   // ---------------------------------------------------------------- renderização agrupada por quadro
   let rafId = 0;
@@ -264,7 +292,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   function onKey(e: KeyboardEvent): void {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape') {
-      if (help.isOpen || settings.isOpen || history.isOpen) return; // diálogo/popover tratam o próprio Esc
+      if (help.isOpen || settings.isOpen || history.isOpen || demandas.isOpen || escritorio.isOpen || criar.isOpen) return; // diálogo/popover tratam o próprio Esc
       // O terminal flutua sobre tudo: fecha primeiro (a busca dele, depois ele; a gaveta continua aberta).
       if (terminal.isOpen) {
         terminal.escape();

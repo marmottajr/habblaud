@@ -51,10 +51,11 @@ export function createRoleBadge(): HTMLElement {
   return h('span', { class: 'ui-role' });
 }
 
-export function updateRoleBadge(badge: HTMLElement, agent: Pick<AgentInfo, 'kind' | 'role' | 'background'>): void {
-  setText(badge, agent.kind === 'main' ? 'Principal' : agent.role || 'Subagente');
-  setVariant(badge, 'ui-role--', agent.kind);
-  setTitle(badge, agent.kind === 'main' ? 'Agente principal' : `Subagente: ${agent.role}${agent.background ? ' (em segundo plano)' : ''}`);
+export function updateRoleBadge(badge: HTMLElement, agent: Pick<AgentInfo, 'kind' | 'role' | 'background' | 'job' | 'staff'>): void {
+  const job = agent.kind === 'main' ? agent.job : undefined;
+  setText(badge, agent.kind === 'main' ? (job ?? 'Principal') : agent.role || 'Subagente');
+  setVariant(badge, 'ui-role--', job ? 'job' : agent.kind);
+  setTitle(badge, agent.kind === 'main' ? (job ? `${agent.staff ? 'Agente fixo' : 'Função'}: ${job}` : 'Agente principal') : `Subagente: ${agent.role}${agent.background ? ' (em segundo plano)' : ''}`);
 }
 
 /** Barra de progresso fina; `value` 0–1. */

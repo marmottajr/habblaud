@@ -463,6 +463,1158 @@
   background: rgba(170, 140, 255, 0.16);
 }
 
+/* Nova demanda para um agente fixo da equipe (gaveta do agente). */
+.ui-ask__text,
+.ui-ask__key {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ui-text);
+  background: rgba(5, 7, 12, 0.42);
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.ui-ask__text {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.ui-ask__text:focus,
+.ui-ask__key:focus {
+  border-color: rgba(242, 179, 61, 0.7);
+}
+
+.ui-ask__keyrow {
+  margin-top: 8px;
+}
+
+.ui-ask__dica {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ui-faint);
+}
+
+.ui-ask__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ui-ask__send {
+  flex: none;
+  color: #1d2330;
+  background: #f2b33d;
+  border-color: #f2b33d;
+  font-weight: 600;
+}
+
+.ui-ask__send:hover:not(:disabled) {
+  background: #ffc65a;
+  border-color: #ffc65a;
+}
+
+.ui-ask__send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ui-ask__msg {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ui-faint);
+}
+
+.ui-ask__msg--ok {
+  color: #7fd6a0;
+}
+
+.ui-ask__msg--erro {
+  color: #ff9d8a;
+}
+
+/* Bloco "Rotinas" do painel de Demandas (ui/rotinas.ts): definir e gerir as demandas que se repetem. */
+.ui-rotp__painel[hidden],
+.ui-dem__list[hidden] {
+  display: none;
+}
+
+.ui-rotp__painel > .ui-ask__dica {
+  margin: 0 0 4px;
+}
+
+.ui-rotp-btn {
+  height: 28px;
+  font-weight: 600;
+  color: #ffdc9a;
+  border-color: rgba(242, 179, 61, 0.45);
+  background: rgba(242, 179, 61, 0.1);
+}
+
+.ui-rotp-btn.is-on,
+.ui-rotp-btn:hover {
+  background: rgba(242, 179, 61, 0.22);
+}
+
+/* Os botões Escritório e Demandas ocupam uns 150px da barra de cima, e as larguras em que a barra do autor se ajusta não
+   contam com eles. Com duas contas (ex.: Claude Code e Codex) os cartões de uso ficavam por baixo dos botões de zoom:
+   aqui a barra cede um pouco antes, do mesmo jeito que o autor faz com 4 contas (contadores de salas e subagentes somem,
+   os cartões podem estreitar, e o zoom fica na rolagem do mouse e nos atalhos + / −). Com uma conta só, nada muda. */
+@media (max-width: 1560px) {
+  .ui-topbar:has(.ui-usage-card:nth-child(2)) :is(.ui-counter--rooms, .ui-counter--subagents) {
+    display: none;
+  }
+
+  .ui-topbar:has(.ui-usage-card:nth-child(2)) .ui-usage-card {
+    min-width: 128px;
+  }
+}
+
+@media (max-width: 1340px) {
+  .ui-topbar:has(.ui-usage-card:nth-child(2)) .ui-topbar__right .ui-btn-group:first-child .ui-icon-btn:not(:first-child),
+  .ui-topbar:has(.ui-usage-card:nth-child(2)) :is(.ui-counter--agents, .ui-counter--working) {
+    display: none;
+  }
+}
+
+.ui-popover.ui-rotp {
+  width: 470px;
+  max-width: calc(100vw - 16px);
+  max-height: min(760px, calc(100vh - var(--top-h) - 24px));
+}
+
+.ui-rotp__key,
+.ui-rotp__body {
+  padding: 0 16px 12px;
+}
+
+.ui-rotp__keyline {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ui-rotp__sub {
+  margin: 10px 0 6px;
+  font: 700 12px/1.2 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+.ui-rotp__label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 11.5px;
+  color: var(--ui-faint);
+}
+
+.ui-rotp__field {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ui-text);
+  background: rgba(5, 7, 12, 0.42);
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  color-scheme: dark;
+}
+
+.ui-rotp__modos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+}
+
+.ui-rotp__quando {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.ui-rotp__num {
+  width: 64px;
+}
+
+.ui-rotp__unidade {
+  width: auto;
+}
+
+.ui-rotp__form {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-rotp__quem {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ui-rotp__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ui-faint);
+}
+
+.ui-rotp__meta strong {
+  color: #ffdc9a;
+  font-weight: 600;
+}
+
+.ui-rotp__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ui-rotp__vazio {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--ui-faint);
+}
+
+.ui-rot__item.is-editing {
+  border-color: rgba(242, 179, 61, 0.7);
+}
+
+.ui-rotp__gatilho {
+  margin-top: 8px;
+}
+
+/* Painel "Demandas" (ui/demandas.ts): histórico das demandas da equipe, etapa por etapa. */
+.ui-popover.ui-dem {
+  width: 600px;
+  max-width: calc(100vw - 16px);
+}
+
+.ui-dem__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 8px;
+}
+
+.ui-dem__tab[aria-pressed='true'] {
+  color: #ffdc9a;
+  border-color: rgba(242, 179, 61, 0.6);
+  background: rgba(242, 179, 61, 0.16);
+}
+
+.ui-dem__item.is-open {
+  border-color: rgba(242, 179, 61, 0.55);
+}
+
+.ui-dem__head,
+.ui-dem__etapa-head {
+  display: flex;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.ui-dem__head {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ui-dem__titulo {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ui-dem__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ui-faint);
+}
+
+.ui-dem__chip {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  color: var(--ui-muted);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ui-dem__chip--rodando {
+  color: #9ad1ff;
+  background: rgba(74, 134, 216, 0.22);
+}
+
+.ui-dem__chip--concluida {
+  color: #a5e3b9;
+  background: rgba(75, 171, 114, 0.2);
+}
+
+.ui-dem__chip--parada {
+  color: #ff9d8a;
+  background: rgba(226, 96, 79, 0.2);
+}
+
+/* Criar sala e agente pela tela (ui/criar.ts). O "+" fica sobre a vaga livre do prédio, por baixo dos painéis. */
+.ui-novasala {
+  position: fixed;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px 7px 9px;
+  border: 2px dashed rgba(255, 255, 255, 0.75);
+  border-radius: 999px;
+  background: rgba(14, 18, 28, 0.72);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  backdrop-filter: blur(3px);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.ui-novasala[hidden] {
+  display: none;
+}
+
+.ui-novasala:hover,
+.ui-novasala:focus-visible {
+  background: rgba(28, 36, 56, 0.92);
+  border-color: var(--ui-accent, #f5a524);
+}
+
+.ui-novasala__mais {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ui-accent, #f5a524);
+  color: #1a1305;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ui-novasala.is-compacto {
+  padding: 5px;
+}
+
+.ui-novasala.is-compacto .ui-novasala__texto {
+  display: none;
+}
+
+/* Os "+" sobre as mesas livres da sala selecionada (cada um cria um agente nela). */
+.ui-vagas[hidden],
+.ui-vaga[hidden] {
+  display: none;
+}
+
+.ui-vaga {
+  position: fixed;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  background: rgba(14, 18, 28, 0.78);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.ui-vaga:hover,
+.ui-vaga:focus-visible {
+  background: var(--ui-accent, #f5a524);
+  border-color: var(--ui-accent, #f5a524);
+  color: #1a1305;
+}
+
+/* Gaveta do agente fixo: IA, nível, mínimo e permissão. */
+.ui-ia__linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 4px 0 10px;
+}
+
+.ui-ia__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 120px;
+  font-size: 12px;
+}
+
+.ui-ia__campo > span {
+  opacity: 0.75;
+}
+
+/* Painel de Demandas: a IA e o nível de cada etapa. */
+.ui-dem__ia {
+  padding: 1px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* Painel da sala: a dica de como organizar as mesas. */
+.ui-mesas {
+  margin-top: 12px;
+}
+
+.ui-mesas[hidden] {
+  display: none;
+}
+
+/* Organizar as mesas arrastando o agente no escritório: o agente "na mão" e as mesas da sala. */
+.ui-mesa-arrasto {
+  pointer-events: none;
+}
+
+.ui-mesa-mao {
+  position: fixed;
+  z-index: 7;
+  transform: translate(12px, -110%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 5px;
+  border: 2px solid var(--ui-accent, #f5a524);
+  border-radius: 999px;
+  background: rgba(14, 18, 28, 0.94);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.ui-mesa-mao[hidden],
+.ui-mesa-alvos[hidden],
+.ui-mesa-alvo[hidden],
+.ui-mesa-aviso[hidden] {
+  display: none;
+}
+
+.ui-mesa-alvo {
+  position: fixed;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  padding: 2px 8px;
+  border: 2px dashed rgba(255, 255, 255, 0.8);
+  border-radius: 999px;
+  background: rgba(14, 18, 28, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ui-mesa-alvo.is-minha {
+  border-style: solid;
+  opacity: 0.6;
+}
+
+.ui-mesa-alvo.is-alvo {
+  border-style: solid;
+  border-color: var(--ui-accent, #f5a524);
+  background: var(--ui-accent, #f5a524);
+  color: #1a1305;
+  font-size: 12px;
+}
+
+.ui-mesa-aviso {
+  position: fixed;
+  z-index: 7;
+  left: 50%;
+  top: 84px;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(120, 28, 28, 0.95);
+  color: #fff;
+  font-size: 13px;
+}
+
+/* Painel da sala: lotação e limite de agentes. */
+.ui-room-lotacao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.ui-room-lotacao__campo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ui-room-lotacao__num {
+  width: 64px;
+}
+
+.ui-popover.ui-criar {
+  width: min(460px, calc(100vw - 24px));
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ui-popover.ui-criar.is-largo {
+  width: min(720px, calc(100vw - 24px));
+}
+
+.ui-criar__funcao {
+  font-family: var(--ui-mono, ui-monospace, 'SF Mono', Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 300px;
+  max-height: calc(100vh - 380px);
+  resize: vertical;
+}
+
+.ui-criar__confirmar {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ui-text);
+}
+
+.ui-criar__confirmar:empty {
+  display: none;
+}
+
+.ui-btn.ui-criar__perigo {
+  border-color: #e2604f;
+  color: #ff9d8a;
+}
+
+.ui-btn.ui-criar__perigo:hover:not(:disabled) {
+  background: rgba(226, 96, 79, 0.18);
+}
+
+.ui-btn.ui-criar__perigo[hidden] {
+  display: none;
+}
+
+.ui-room__add.ui-room__add--remover {
+  border-style: solid;
+  border-color: rgba(226, 96, 79, 0.45);
+  color: #ff9d8a;
+}
+
+.ui-room__add.ui-room__add--remover:hover,
+.ui-room__add.ui-room__add--remover:focus-visible {
+  border-color: #e2604f;
+  color: #ffb4a4;
+  background: rgba(226, 96, 79, 0.12);
+}
+
+/* Painel da sala: "Conversa com" (as outras salas de equipe, cada uma um botão de ligar e desligar). */
+.ui-room-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ui-room-links__dica {
+  margin: 0 0 8px;
+}
+
+.ui-room-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 7px;
+  border: 1px dashed var(--ui-line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-muted);
+  font: 600 12px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-room-link:hover,
+.ui-room-link:focus-visible {
+  border-color: var(--ui-accent);
+  color: var(--ui-text);
+  background: var(--ui-bg-hover);
+}
+
+.ui-room-link[aria-pressed='true'] {
+  border-style: solid;
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+}
+
+.ui-room-link__marca {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ui-bg-hover);
+  font: 700 11px/1 var(--font-ui);
+}
+
+.ui-room-link[aria-pressed='true'] .ui-room-link__marca {
+  background: var(--ui-accent);
+  color: #0d1420;
+}
+
+/* Conversa com o dono do escritório: o nome dele e o campo de trocar. */
+.ui-esc__donolinha {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ui-esc__dono {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 7px;
+  background: var(--ui-bg-soft);
+  color: var(--ui-text);
+  font: 700 13px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-esc__dono:hover,
+.ui-esc__dono:focus-visible {
+  border-color: var(--ui-accent);
+  background: var(--ui-bg-hover);
+}
+
+.ui-esc__dono .ui-px-icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+}
+
+.ui-esc__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ui-esc__form[hidden],
+.ui-esc__responder[hidden] {
+  display: none;
+}
+
+.ui-esc__linha {
+  display: flex;
+  gap: 8px;
+}
+
+.ui-esc__linha .ui-esc__artigo {
+  flex: 0 0 138px;
+}
+
+.ui-esc__linha input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ui-btn.ui-esc__responder {
+  border-color: #f2b33d;
+  color: #ffdc9a;
+}
+
+/* A conversa: a fala de quem usa à direita, a do dono à esquerda. */
+.ui-esc__conversa {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(46vh, 420px);
+  margin: 10px 0 8px;
+  padding: 2px 2px 2px 0;
+  overflow-y: auto;
+}
+
+.ui-esc__fala {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 88%;
+}
+
+.ui-esc__fala--eu {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.ui-esc__fala--dono {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.ui-esc__quem {
+  color: var(--ui-faint);
+  font: 600 10.5px/1.2 var(--font-ui);
+}
+
+.ui-esc__fala--dono .ui-esc__quem {
+  color: #ffdc9a;
+}
+
+.ui-esc__balao {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font: 12.5px/1.45 var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ui-text);
+}
+
+.ui-esc__fala--eu .ui-esc__balao {
+  border-bottom-right-radius: 3px;
+  background: var(--ui-accent-soft);
+  border: 1px solid rgba(124, 200, 255, 0.28);
+}
+
+.ui-esc__fala--dono .ui-esc__balao {
+  border-bottom-left-radius: 3px;
+  background: var(--ui-bg-soft);
+  border: 1px solid var(--ui-line-strong);
+}
+
+.ui-esc__fala.is-espera .ui-esc__balao {
+  color: var(--ui-muted);
+  font-style: italic;
+}
+
+.ui-esc__texto {
+  min-height: 62px;
+}
+
+.ui-btn.ui-esc__responder {
+  align-self: flex-start;
+  margin-bottom: 6px;
+}
+
+/* Painel da sala (abre ao clicar nela): os botões da sala de equipe. */
+.ui-room-team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 2px;
+}
+
+.ui-room-team[hidden] {
+  display: none;
+}
+
+/* Sala de equipe sem ninguém não fica apagada: os botões de criar agente e de excluir precisam estar à vista. */
+.ui-room.is-team.is-empty {
+  opacity: 1;
+}
+
+.ui-job__del {
+  margin-left: 8px;
+  color: #ff9d8a;
+}
+
+.ui-job__del[hidden] {
+  display: none;
+}
+
+.ui-criar__form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.ui-criar__form[hidden] {
+  display: none;
+}
+
+.ui-criar__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ui-criar__campo .ui-dem__rot {
+  margin: 0;
+}
+
+.ui-criar__linha {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ui-criar__pasta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.ui-criar__pasta.is-ok {
+  color: var(--ui-text);
+}
+
+.ui-criar .ui-ask__text {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Botões "+ Novo agente" (na sala de equipe) e "+ Nova sala" (fim da lista lateral). */
+.ui-room__add {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 4px 10px 8px;
+  padding: 5px 8px;
+  border: 1px dashed var(--ui-line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ui-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ui-room__add[hidden] {
+  display: none;
+}
+
+.ui-room__add:hover,
+.ui-room__add:focus-visible {
+  color: var(--ui-text);
+  border-color: var(--ui-accent, #f5a524);
+}
+
+.ui-room__add--sala {
+  margin-top: 10px;
+  padding: 8px;
+  font-weight: 650;
+}
+
+/* A função ao lado do nome, na lista, no dourado do selo de função (.ui-role--job). */
+.ui-agent__job {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+  color: #ffdc9a;
+  background: rgba(242, 179, 61, 0.16);
+}
+
+.ui-agent__job[hidden] {
+  display: none;
+}
+
+/* Por que a demanda não anda (login vencido, limite do plano, janela fechada): à vista na lista. */
+.ui-dem__motivo {
+  margin: 6px 0 2px;
+  padding: 7px 9px;
+  border-left: 3px solid #e2604f;
+  border-radius: 4px;
+  background: rgba(226, 96, 79, 0.12);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ui-text);
+}
+
+.ui-dem__motivo strong {
+  color: #ff9d8a;
+}
+
+.ui-dem__motivo-acoes {
+  margin-top: 7px;
+}
+
+.ui-dem__motivo-cmd {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--ui-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--ui-muted);
+  user-select: all;
+}
+
+.ui-dem__rot {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+}
+
+.ui-dem__texto {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  font: 12px/1.5 var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ui-text);
+  background: rgba(5, 7, 12, 0.42);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--radius-sm);
+}
+
+.ui-dem__etapa {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--radius-sm);
+}
+
+.ui-dem__etapa.is-open {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ui-dem__etapa-head {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ui-dem__n {
+  flex: none;
+  width: 20px;
+  color: var(--ui-faint);
+}
+
+.ui-dem__quem {
+  font-weight: 600;
+}
+
+.ui-dem__tempo {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ui-faint);
+}
+
+.ui-dem__pergunta {
+  margin-top: 8px;
+}
+
+/* Rotina (demanda que se repete) e lista de rotinas do agente fixo. */
+.ui-rot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ui-faint);
+}
+
+.ui-rot__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.ui-rot__opts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-rot__dias {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.ui-rot__dia {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-faint);
+  background: rgba(5, 7, 12, 0.42);
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.ui-rot__dia[aria-pressed='true'] {
+  color: #1d2330;
+  background: #f2b33d;
+  border-color: #f2b33d;
+}
+
+.ui-rot__hora {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ui-text);
+  background: rgba(5, 7, 12, 0.42);
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  color-scheme: dark;
+}
+
+.ui-rot__item {
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: rgba(5, 7, 12, 0.3);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--radius-sm);
+}
+
+.ui-rot__item.is-off {
+  opacity: 0.6;
+}
+
+.ui-rot__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ui-rot__head strong {
+  flex: 1;
+  font-weight: 600;
+}
+
+.ui-rot__mini {
+  height: 22px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.ui-rot__texto {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ui-faint);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ui-rot__aviso {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #ff9d8a;
+}
+
+/* Função dada pelo usuário ao agente principal ("Estrategista"). */
+.ui-role--job {
+  color: #ffdc9a;
+  background: rgba(242, 179, 61, 0.16);
+}
+
+.ui-job__btn {
+  font: inherit;
+  color: #ffdc9a;
+  background: rgba(242, 179, 61, 0.12);
+  border: 1px solid rgba(242, 179, 61, 0.28);
+  border-radius: 4px;
+  padding: 1px 7px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-job__btn--empty {
+  color: var(--ui-faint);
+  background: none;
+  border-style: dashed;
+  border-color: rgba(139, 152, 179, 0.4);
+}
+
+.ui-job__btn--fixed,
+.ui-job__btn:disabled {
+  cursor: default;
+  border-style: solid;
+  opacity: 1;
+}
+
+.ui-job__btn:not(:disabled):hover,
+.ui-job__btn:not(:disabled):focus-visible {
+  border-color: rgba(242, 179, 61, 0.7);
+  color: #ffe9bf;
+}
+
+.ui-job__input {
+  font: inherit;
+  color: #f5f7fb;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(242, 179, 61, 0.6);
+  border-radius: 4px;
+  padding: 1px 6px;
+  min-width: 0;
+  width: 170px;
+  outline: none;
+}
+
 .ui-progress {
   position: relative;
   display: block;
@@ -2475,6 +3627,286 @@
   box-shadow:
     inset 0 -4px 0 rgba(0, 0, 0, 0.22),
     0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* O ícone do layout da sala, dentro do quadrado colorido ao lado do nome. */
+.ui-room-hero__swatch {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: rgba(12, 16, 24, 0.82);
+}
+
+.ui-room-hero__swatch .ui-px-icon {
+  width: 26px;
+  height: 26px;
+}
+
+/* "Aparência da sala" (ui/roomstyle.ts): layouts com ícone, cores e o lado das mesas. */
+.ui-estilo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-estilo .ui-dem__rot {
+  margin: 2px 0 0;
+}
+
+.ui-estilo__layouts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ui-estilo__layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px 6px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 8px;
+  background: var(--ui-bg-soft);
+  color: var(--ui-muted);
+  font: 600 11px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-estilo__layout .ui-px-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.ui-estilo__layout:hover,
+.ui-estilo__layout:focus-visible {
+  border-color: var(--ui-accent);
+  color: var(--ui-text);
+  background: var(--ui-bg-hover);
+}
+
+.ui-estilo__layout[aria-pressed='true'] {
+  border-color: rgba(242, 179, 61, 0.7);
+  background: rgba(242, 179, 61, 0.16);
+  color: #ffdc9a;
+}
+
+/* Configurações: as duas cores do escritório (o seletor de cores do sistema dentro de um rótulo). */
+.ui-set-cores {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-set-cor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 4px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 999px;
+  background: var(--ui-bg-soft);
+  color: var(--ui-text);
+  font: 600 11.5px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-set-cor:hover {
+  border-color: var(--ui-accent);
+}
+
+.ui-set-cor input {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.ui-set-cor input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.ui-set-cor input::-webkit-color-swatch {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+}
+
+.ui-set-cores [hidden] {
+  display: none;
+}
+
+/* Estilos: cada botão tem uma miniatura da sala (parede, rodapé, piso e a mesa). */
+.ui-estilo__looks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ui-estilo__look {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 5px 3px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 8px;
+  background: var(--ui-bg-soft);
+  color: var(--ui-muted);
+  font: 600 10.5px/1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-estilo__look:hover,
+.ui-estilo__look:focus-visible {
+  border-color: var(--ui-accent);
+  color: var(--ui-text);
+  background: var(--ui-bg-hover);
+}
+
+.ui-estilo__look[aria-pressed='true'] {
+  border-color: rgba(242, 179, 61, 0.7);
+  background: rgba(242, 179, 61, 0.16);
+  color: #ffdc9a;
+}
+
+.ui-estilo__mini {
+  --parede: #eef1f4;
+  --rodape: #9fb0c4;
+  --piso: #e7e8ea;
+  --mesa: #f3f4f6;
+  position: relative;
+  width: 100%;
+  height: 30px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--parede) 0 44%, var(--rodape) 44% 52%, var(--piso) 52% 100%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.ui-estilo__mesa {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: 44%;
+  height: 7px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--mesa);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+}
+
+.ui-estilo__cores {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-estilo__cor {
+  --cor: var(--ui-muted);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--cor);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+
+.ui-estilo__cor--auto {
+  width: auto;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--ui-bg-soft);
+  color: var(--ui-muted);
+  font: 600 11px/1 var(--font-ui);
+}
+
+.ui-estilo__cor:hover,
+.ui-estilo__cor:focus-visible {
+  box-shadow: 0 0 0 2px var(--ui-accent);
+}
+
+.ui-estilo__cor[aria-pressed='true'] {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(242, 179, 61, 0.9);
+}
+
+.ui-estilo__cor--auto[aria-pressed='true'] {
+  border-color: transparent;
+  color: #ffdc9a;
+}
+
+/* Cor livre: o seletor de cores do sistema, dentro de um botão. */
+.ui-estilo__cor--livre {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+  width: auto;
+  height: 22px;
+  padding: 0 9px 0 4px;
+  border-radius: 999px;
+  background: var(--ui-bg-soft);
+  color: var(--ui-muted);
+  font: 600 11px/1 var(--font-ui);
+}
+
+.ui-estilo__cor--livre::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: conic-gradient(#e2604f, #f2c14e, #4cae6a, #36b0b0, #5b8fe0, #8d66cf, #e47aa8, #e2604f);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.ui-estilo__cor--livre[data-on='true'] {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px rgba(242, 179, 61, 0.9);
+  color: #ffdc9a;
+}
+
+.ui-estilo__cor--livre[data-on='true']::before {
+  background: var(--cor);
+}
+
+.ui-estilo__cor--livre input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ui-estilo__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ui-estilo__acoes [hidden] {
+  display: none;
+}
+
+/* O botão da conversa com o dono do escritório, na barra de cima: só o balão, em dourado. */
+.ui-icon-btn.ui-esc-btn {
+  color: #ffdc9a;
+  border-color: rgba(242, 179, 61, 0.45);
+  background: rgba(242, 179, 61, 0.1);
+}
+
+.ui-icon-btn.ui-esc-btn.is-on,
+.ui-icon-btn.ui-esc-btn:hover {
+  background: rgba(242, 179, 61, 0.22);
 }
 
 /* Nome da sala com o lápis de renomear ao lado. */

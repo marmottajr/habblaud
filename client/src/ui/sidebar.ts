@@ -1,7 +1,8 @@
 // Barra lateral: busca, filtro por conta e a lista de salas -> agentes -> subagentes.
 import type { AccountInfo, AgentInfo } from '../../../shared/types';
-import { roomTheme } from '../art';
+import { accentOf } from './roomstyle';
 import type { UiComponent, UiContext } from './context';
+import { lotacao } from './criar';
 import { moveAgent, orderAgents } from './agentorder';
 import { moveRoom, orderRooms } from './roomorder';
 import { h, iconButton, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle } from './dom';
@@ -102,7 +103,9 @@ export class Sidebar implements UiComponent {
 
     this.scroller = h('div', { class: 'ui-side__scroll' });
     const list = h('div', { class: 'ui-rooms', role: 'list', attrs: { 'aria-label': 'Salas' } });
-    this.scroller.append(list);
+    // Criar sala fixa (ui/criar.ts): o mesmo que o "+" sobre a vaga livre do prédio.
+    const addRoom = h('button', { class: 'ui-room__add ui-room__add--sala', type: 'button', text: '+ Nova sala', title: 'Criar uma sala fixa: uma equipe de agentes numa pasta sua', on: { click: () => this.ctx.novaSala?.() } });
+    this.scroller.append(list, addRoom);
     this.rooms = new KeyedList<RoomGroup>(list, {
       key: (g) => g.room.id,
       create: (g) => this.createRoom(g),
@@ -219,12 +222,15 @@ export class Sidebar implements UiComponent {
       this.ctx.renameRoom(g.room.id, { x: r.left + 12, y: r.bottom + 4 });
     });
     try {
-      setStyleVar(head, '--room', roomTheme(g.room.seed).accent);
+      setStyleVar(head, '--room', accentOf(g.room));
     } catch {
       // Sem tema: mantém a cor padrão do CSS.
     }
     const agentsEl = h('ul', { class: 'ui-nodes' });
-    const section = h('section', { class: 'ui-room', role: 'listitem' }, head, agentsEl);
+    // Sala de equipe: criar agente fixo a partir de uma descrição (ui/criar.ts).
+    const addAgent = h('button', { class: 'ui-room__add', type: 'button', hidden: true, text: '+ Novo agente', title: 'Criar um agente fixo nesta sala a partir de uma descrição', on: { click: () => this.ctx.novoAgente?.(g.room.id) } });
+    // "Excluir sala" fica no painel da sala, que abre ao clicar nela (drawer.ts, RoomView).
+    const section = h('section', { class: 'ui-room', role: 'listitem' }, head, agentsEl, addAgent);
     const accs = new KeyedList<AccountInfo | string>(accsEl, {
       animate: false,
       key: (a) => (typeof a === 'string' ? a : a.id),
@@ -255,6 +261,11 @@ export class Sidebar implements UiComponent {
     r.head.classList.toggle('is-selected', selected);
     setAttr(r.head, 'aria-current', selected ? 'true' : null);
     section.classList.toggle('is-empty', present === 0);
+    const addAgent = section.querySelector<HTMLElement>(':scope > .ui-room__add');
+    // (sala cheia, no limite de agentes dela: o botão some; o limite muda no painel da sala)
+    if (addAgent) setHidden(addAgent, !g.room.team || !!g.room.office || !this.ctx.novoAgente || lotacao(g.room, g.agents).livres === 0);
+    // Sala de equipe vazia não fica apagada na lista: os botões dela precisam estar à vista.
+    section.classList.toggle('is-team', !!g.room.team);
 
     const t = g.tasks;
     setHidden(r.tasks, t.total === 0);

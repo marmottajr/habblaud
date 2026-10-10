@@ -1,4 +1,5 @@
 // Contexto compartilhado entre os componentes da interface.
+import type { AgentAiChange } from '../../../shared/ia';
 import type { AccountInfo, AgentInfo } from '../../../shared/types';
 import type { OfficeStore } from '../net/store';
 import type { Selection, WorldApi } from '../world/api';
@@ -48,6 +49,21 @@ export interface UiContext {
   toggleSettings(): void;
   /** Abre o campo de renomear a sala perto do ponto (px da janela); botão direito na sala (ui/roomrename.ts). */
   renameRoom?(roomId: string, at: { x: number; y: number }): void;
+  /** Abre "Nova sala" e "Novo agente" (ui/criar.ts). */
+  novaSala?(): void;
+  novoAgente?(roomId?: string): void;
+  /** Agente fixo: editar a função e apagar; sala de equipe sem agentes: remover (ui/criar.ts). */
+  editarFuncao?(roomId: string, slug: string, nome: string): void;
+  apagarAgente?(roomId: string, slug: string, nome: string): void;
+  removerSala?(roomId: string, nome: string): void;
+  /** "Conversa com": liga (ou desliga) duas salas de equipe, depois de confirmar (ui/criar.ts). */
+  ligarSalas?(roomId: string, outra: string, ligar: boolean): void;
+  /** Gaveta do agente fixo: muda a IA, o nível, o mínimo e a permissão dele, depois de confirmar (ui/criar.ts). */
+  definirIA?(roomId: string, slug: string, nome: string, mudanca: AgentAiChange): void;
+  /** Configurações da sala: define quantos agentes fixos ela pode ter, depois de confirmar (ui/criar.ts). */
+  definirLimite?(roomId: string, limite: number): void;
+  /** Abre a conversa com o dono do escritório (ui/escritorio.ts). */
+  abrirEscritorio?(): void;
   /** Abre as configurações na seção "Sobre" (versão em uso e versão nova). */
   openAbout(): void;
   /** Abre/fecha o timelapse do dia (ui/timelapse.ts). */

@@ -546,13 +546,14 @@ export class DayPanel implements UiComponent {
           'span',
           { class: 'ui-day__bar-head' },
           h('span', { class: 'ui-day__bar-name', text: r.name, title: r.id }),
-          h('span', { class: 'ui-day__bar-value' }, this.visible.has('waiting') ? h('strong', { text: r.waiting }) : null, h('span', { class: 'ui-day__muted', text: r.totalText })),
+          h('span', { class: 'ui-day__bar-value' }, this.visible.has('waiting') ? h('strong', { text: r.waiting }) : null, h('span', { class: 'ui-day__muted', text: r.totalText }), r.tokens ? h('span', { class: 'ui-day__muted', text: `· ${r.tokens}`, title: r.tokensDetail }) : null),
         ),
         track,
       );
       const tipRows = (): TipRow[] => [
         ...TIMED_STATUSES.filter((s) => this.visible.has(s) && r.ms[s] > 0).map((s) => ({ status: s, label: STATUS_TEXT[s], value: formatAgentTime(r.ms[s]) })),
         { label: 'Total', value: formatAgentTime(visibleTotal(r.ms, this.visible)) },
+        ...(r.tokens ? [{ label: 'Tokens', value: r.tokens.replace(' tokens', '') }] : []),
       ];
       this.bindTip(li, () => r.name, tipRows);
       list.append(li);

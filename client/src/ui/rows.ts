@@ -19,6 +19,8 @@ import {
 interface RowRefs {
   avatar: HTMLElement;
   name: HTMLElement;
+  /** A função ao lado do nome. */
+  job: HTMLElement;
   chip: HTMLElement;
   role: HTMLElement;
   dot: HTMLElement;
@@ -35,6 +37,8 @@ const refs = new WeakMap<HTMLElement, RowRefs>();
 export function createAgentRow(agent: AgentInfo, onPick: (id: string) => void, size: AvatarSize = 'md'): HTMLButtonElement {
   const avatar = createAvatar(agent, size);
   const name = h('span', { class: 'ui-agent__name' });
+  // A função dada pelo usuário (ou a do agente fixo) fica sempre ao lado do nome, em dourado: "Ana [Vendedora]".
+  const job = h('span', { class: 'ui-agent__job', hidden: true });
   const chip = createAccountChip('sm');
   const role = createRoleBadge();
   const dot = createStatusDot();
@@ -45,12 +49,12 @@ export function createAgentRow(agent: AgentInfo, onPick: (id: string) => void, s
     'button',
     { class: 'ui-agent', type: 'button' },
     avatar,
-    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, chip, since, role), task, activity),
+    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, job, chip, since, role), task, activity),
     dot,
   );
   row.dataset.id = agent.id;
   row.addEventListener('click', () => onPick(row.dataset.id!));
-  refs.set(row, { avatar, name, chip, role, dot, activity, task, since, size });
+  refs.set(row, { avatar, name, job, chip, role, dot, activity, task, since, size });
   return row;
 }
 
@@ -72,19 +76,24 @@ export function updateAgentRow(
   updateAvatar(r.avatar, agent, r.size);
   setStyleVar(row, '--acc', account?.color ?? '#8b98b3');
   setText(r.name, agent.name);
+  const job = agent.kind === 'main' ? (agent.job?.trim() ?? '') : '';
+  setText(r.job, job);
+  setTitle(r.job, job ? `Função: ${job}` : '');
+  setHidden(r.job, !job);
   updateAccountChip(r.chip, account, agent.account, agent.provider);
   updateRoleBadge(r.role, agent);
   const title = agent.title?.trim() ?? '';
   setText(r.task, title);
   setTitle(r.task, title);
   setHidden(r.task, !title);
-  // Agente principal ocioso há 1 min ou mais: o tempo aparece no lugar do "Principal".
-  const idleFor = agent.kind === 'main' && agent.status === 'idle' && agent.statusSince ? now - agent.statusSince : 0;
-  const showIdle = idleFor >= 60_000;
-  setText(r.since, showIdle ? `ocioso ${formatDuration(idleFor)}` : '');
-  setTitle(r.since, showIdle ? `Ocioso há ${formatDuration(idleFor)}` : '');
-  setHidden(r.since, !showIdle);
-  setHidden(r.role, showIdle);
+  // Aqui aparecia há quanto tempo o agente está ocioso ("ocioso 12 min"), no lugar do "Principal". Saiu: o
+  // tempo de quem está trabalhando ou esperando, que é o que importa, continua na linha de atividade.
+  const showIdle = false;
+  setText(r.since, '');
+  setTitle(r.since, '');
+  setHidden(r.since, true);
+  // Com a função já escrita ao lado do nome, o selo repetiria a mesma palavra.
+  setHidden(r.role, showIdle || !!job);
   // Esperando um shell (ou parado num comando longo): ampulheta no ponto e o cronômetro na linha de atividade.
   const wait = shellWaitIn(agent, agents, now);
   const status = wait ? 'shell' : agent.status;
@@ -99,6 +108,6 @@ export function updateAgentRow(
   setAttr(
     row,
     'aria-label',
-    `${agent.name}, ${agent.kind === 'main' ? 'agente principal' : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
+    `${agent.name}, ${agent.kind === 'main' ? (job ? job : 'agente principal') : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
   );
 }
