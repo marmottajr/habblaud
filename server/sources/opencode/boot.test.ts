@@ -1,4 +1,4 @@
-// Registro da fonte do OpenCode no boot: OC-07, OC-08, OC-10, e as outras fontes seguem rodando.
+// Registro da fonte do OpenCode no boot, com as outras fontes seguindo normalmente.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from '../../accounts/service';
 import { setQuiet } from '../../log';
@@ -26,7 +26,7 @@ function deps() {
 }
 
 describe('createOpencodeSource', () => {
-  it('OC-10: HABBLAUD_OPENCODE=0 (config.opencode false) não cria a fonte nem abre o banco', () => {
+  it('HABBLAUD_OPENCODE=0 (config.opencode false) não cria a fonte nem abre o banco', () => {
     const importer = vi.fn(async () => {
       throw new Error('não deveria importar');
     });
@@ -34,7 +34,7 @@ describe('createOpencodeSource', () => {
     expect(importer).not.toHaveBeenCalled();
   });
 
-  it('OC-08: sem opencode.db a fonte fica dormente: nada registrado e nada logado', async () => {
+  it('sem opencode.db a fonte fica dormente: nada registrado e nada logado', async () => {
     setQuiet(false);
     const spies = (['log', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
     const t = tempDir();
@@ -56,7 +56,7 @@ describe('createOpencodeSource', () => {
     expect(src?.provider).toBe('opencode');
   });
 
-  it.skipIf(!HAS_SQLITE)('OC-07: node:sqlite ausente loga uma linha e as outras fontes continuam no SourceSet', async () => {
+  it.skipIf(!HAS_SQLITE)('node:sqlite ausente loga uma linha e as outras fontes continuam no SourceSet', async () => {
     setQuiet(false);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -85,7 +85,7 @@ describe('createOpencodeSource', () => {
   });
 });
 
-describe.skipIf(!HAS_SQLITE)('createOpencodeSource: banco que ainda não existe no boot (OC-08)', () => {
+describe.skipIf(!HAS_SQLITE)('createOpencodeSource: banco que ainda não existe no boot', () => {
   afterEach(() => vi.useRealTimers());
 
   it('o banco aparece depois: as sessões entram em um re-check mais um ciclo, sem log', async () => {

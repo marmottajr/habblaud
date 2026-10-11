@@ -13,7 +13,7 @@ import {
   showsProviderTag,
 } from './provider';
 
-// OC-11: "OpenCode" onde o nome da ferramenta aparece.
+// "OpenCode" onde o nome da ferramenta aparece.
 describe('ferramenta OpenCode no cliente', () => {
   it('nome da ferramenta e reconhecimento do provider', () => {
     expect(PROVIDER_NAME.opencode).toBe('OpenCode');

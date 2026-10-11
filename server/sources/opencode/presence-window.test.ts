@@ -1,4 +1,4 @@
-// OC-01/OC-05: a janela de presença é de 30 minutos. O valor literal fica fixado aqui (sem importar PRESENCE_MS, que
+// A janela de presença é de 30 minutos. O valor literal fica fixado aqui (sem importar PRESENCE_MS, que
 // tornaria o teste uma tautologia): sessão atualizada há 29 min aparece, há 31 min não, com o relógio injetado.
 import { afterEach, describe, expect, it } from 'vitest';
 import { AccountsService } from '../../accounts/service';
@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: janela de presença de 30 minutos (literal)', () => {
-  it('OC-01/OC-05: atualizada há 29 min aparece; há 31 min não aparece', async () => {
+  it('atualizada há 29 min aparece; há 31 min não aparece', async () => {
     const fx = buildOpencodeDb();
     cleanups.push(fx.cleanup);
     const now = () => NOW;

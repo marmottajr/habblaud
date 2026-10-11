@@ -10,7 +10,7 @@ const SENTINEL = 'SEGREDO-NAO-PODE-VAZAR';
 const NOW = 1_800_000_000_000;
 
 describe('openDb sem banco ou sem node:sqlite', () => {
-  it('OC-08: sem opencode.db devolve missing, sem chamar o import nem o onError', async () => {
+  it('sem opencode.db devolve missing, sem chamar o import nem o onError', async () => {
     const t = tempDir();
     try {
       const importer = vi.fn(async () => {
@@ -25,7 +25,7 @@ describe('openDb sem banco ou sem node:sqlite', () => {
     }
   });
 
-  it.skipIf(!HAS_SQLITE)('OC-07: import de node:sqlite falhando devolve unsupported', async () => {
+  it.skipIf(!HAS_SQLITE)('import de node:sqlite falhando devolve unsupported', async () => {
     const fx = buildOpencodeDb();
     try {
       const r = await openDb(fx.dir, {
@@ -58,13 +58,13 @@ describe.skipIf(!HAS_SQLITE)('leitor do opencode.db', () => {
     fx?.cleanup();
   });
 
-  it('OC-06: abre somente leitura (escrever falha)', async () => {
+  it('abre somente leitura (escrever falha)', async () => {
     setup();
     const d = await open();
     expect(() => d.raw.exec("INSERT INTO todo VALUES ('x','y','z','w',0)")).toThrow();
   });
 
-  it('OC-01/OC-05: lista só sessões não arquivadas e recentes, com room e parent', async () => {
+  it('lista só sessões não arquivadas e recentes, com room e parent', async () => {
     setup();
     const parent = fx.addSession({ updated: NOW, directory: '/p/a' });
     const child = fx.addSession({ updated: NOW - 1000, parent, directory: '/p/a' });
@@ -86,7 +86,7 @@ describe.skipIf(!HAS_SQLITE)('leitor do opencode.db', () => {
     expect(s.worktree).toBe('/p/worktree');
   });
 
-  it('OC-03: última mensagem do assistente com e sem time.completed', async () => {
+  it('última mensagem do assistente com e sem time.completed', async () => {
     setup();
     const s = fx.addSession({ updated: NOW });
     fx.addMessage({ session: s, role: 'assistant', created: 100, completed: 150 });
@@ -99,7 +99,7 @@ describe.skipIf(!HAS_SQLITE)('leitor do opencode.db', () => {
     expect(lastMessage(d, ocId('ses', 77))).toBeUndefined();
   });
 
-  it('OC-04: última parte tool traz tool, status e state.title; sem state vale hasState false', async () => {
+  it('última parte tool traz tool, status e state.title; sem state vale hasState false', async () => {
     setup();
     const s = fx.addSession({ updated: NOW });
     const m = fx.addMessage({ session: s, role: 'assistant' });
@@ -143,7 +143,7 @@ describe.skipIf(!HAS_SQLITE)('leitor do opencode.db', () => {
     expect(sql).not.toMatch(/auth\.json|opencode\.jsonc|tool-output|\baccount\b|\bevent\b/);
   });
 
-  it('OC-09: data malformado é pulado e vale a última linha válida', async () => {
+  it('data malformado é pulado e vale a última linha válida', async () => {
     setup();
     const s = fx.addSession({ updated: NOW });
     const m = fx.addMessage({ session: s, role: 'assistant', created: 100, completed: 120 });
@@ -155,7 +155,7 @@ describe.skipIf(!HAS_SQLITE)('leitor do opencode.db', () => {
     expect(lastPart(d, s)?.tool).toBe('grep');
   });
 
-  it('OC-09: leitura que falha (banco ocupado/fechado) devolve o último resultado e avisa onError', async () => {
+  it('leitura que falha (banco ocupado/fechado) devolve o último resultado e avisa onError', async () => {
     setup();
     const s = fx.addSession({ updated: NOW });
     fx.addMessage({ session: s, role: 'assistant', created: 5 });

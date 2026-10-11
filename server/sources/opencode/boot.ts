@@ -1,6 +1,6 @@
-// Quando a fonte do OpenCode entra no servidor (server/index.ts): HABBLAUD_OPENCODE ligado (OC-10). Sem opencode.db
-// a fonte fica dormente e confere o arquivo de tempos em tempos (OC-08: nada é registrado nem logado até ele existir). A checagem de `node:sqlite` fica na
-// própria fonte (OC-07: uma linha no log, o resto segue).
+// Quando a fonte do OpenCode entra no servidor (server/index.ts): com HABBLAUD_OPENCODE ligado. Sem opencode.db a
+// fonte fica dormente e confere o arquivo de tempos em tempos (nada é registrado nem logado até ele existir). A checagem
+// de `node:sqlite` fica na própria fonte (uma linha no log, o resto segue).
 import { OpencodeSource, type OpencodeSourceOptions } from './source';
 
 export function createOpencodeSource(

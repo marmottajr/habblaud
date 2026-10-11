@@ -50,7 +50,7 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
-  /** Observa as sessões do OpenCode (sources/opencode/) e aceita os eventos dele; HABBLAUD_OPENCODE=0 desliga. */
+  /** Observa as sessões do OpenCode (sources/opencode/); HABBLAUD_OPENCODE=0 desliga. */
   opencode: boolean;
   /** Pasta de dados do OpenCode (onde fica o opencode.db): HABBLAUD_OPENCODE_DIR, $XDG_DATA_HOME/opencode ou ~/.local/share/opencode. */
   opencodeDir: string;

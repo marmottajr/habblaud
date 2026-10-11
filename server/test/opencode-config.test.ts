@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../config';
 
-// OC-10: HABBLAUD_OPENCODE liga/desliga; a pasta de dados vem do ambiente, do XDG ou da casa do usuário.
+// HABBLAUD_OPENCODE liga/desliga; a pasta de dados vem do ambiente, do XDG ou da casa do usuário.
 const base = { HOME: '/home/fulano' } as NodeJS.ProcessEnv;
 
 describe('config do OpenCode', () => {

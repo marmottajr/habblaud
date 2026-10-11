@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { describeTool } from '../../../shared/activity';
 import { describeOpencodePart, describeOpencodeTool, GENERIC_WORKING } from './activity';
 
-// OC-04: as mesmas legendas do Claude/Codex para ferramentas equivalentes.
+// As mesmas legendas do Claude/Codex para ferramentas equivalentes.
 describe('describeOpencodeTool', () => {
   it.each([
     ['bash', 'npm test', 'Bash', { command: 'npm test' }],

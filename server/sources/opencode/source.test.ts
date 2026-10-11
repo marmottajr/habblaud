@@ -78,7 +78,7 @@ const S2 = ocId('ses', 2);
 const key = (id: string) => `opencode:${id}`;
 
 describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
-  it('OC-01/OC-02/OC-03: principal e subagente na sala do projeto, com provider, conta, pai e status', async () => {
+  it('principal e subagente na sala do projeto, com provider, conta, pai e status', async () => {
     const ctx = setup();
     const t = ctx.now();
     ctx.fx.addSession({ id: S1, directory: '/projetos/loja', updated: t, title: 'Loja' });
@@ -97,7 +97,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(ctx.accounts.find('opencode')?.detected.name).toBe('OpenCode');
   });
 
-  it('OC-03: assistente sem completed = working; ao completar vira idle, e uma nova rodada volta a working', async () => {
+  it('assistente sem completed = working; ao completar vira idle, e uma nova rodada volta a working', async () => {
     const ctx = setup();
     const t = ctx.now();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: t });
@@ -110,7 +110,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(ctx.poll().agents.find((a) => a.id === key(S1))?.status).toBe('working');
   });
 
-  it('OC-04: a atividade vem do nome da ferramenta e do state.title, com o rótulo do Claude Code', async () => {
+  it('a atividade vem do nome da ferramenta e do state.title, com o rótulo do Claude Code', async () => {
     const ctx = setup();
     const t = ctx.now();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: t });
@@ -134,7 +134,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(ctx.agent(S1)?.activity).toMatchObject({ kind: 'other', text: 'Trabalhando' });
   });
 
-  it('OC-05: sessão velha (>30 min) sai no ciclo seguinte e some depois do período de graça', async () => {
+  it('sessão velha (>30 min) sai no ciclo seguinte e some depois do período de graça', async () => {
     const ctx = setup();
     const t = ctx.now();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: t });
@@ -146,7 +146,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(ctx.poll().agents).toHaveLength(0);
   });
 
-  it('OC-05: time_archived preenchido remove o agente no ciclo seguinte', async () => {
+  it('time_archived preenchido remove o agente no ciclo seguinte', async () => {
     const ctx = setup();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
     await ctx.source.start();
@@ -210,7 +210,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(JSON.stringify(ctx.office.commit().snapshot)).not.toContain('SEGREDO-123');
   });
 
-  it('OC-09: banco que passa a falhar mantém o último estado e não derruba o ciclo', async () => {
+  it('banco que passa a falhar mantém o último estado e não derruba o ciclo', async () => {
     const ctx = setup();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
     await ctx.source.start();
@@ -221,7 +221,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(ctx.agent(S1)?.status).toBe('idle');
   });
 
-  it('OC-09: data malformado numa mensagem nova não muda o estado conhecido', async () => {
+  it('data malformado numa mensagem nova não muda o estado conhecido', async () => {
     const ctx = setup();
     const t = ctx.now();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: t });
@@ -245,7 +245,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
 });
 
 describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: banco ausente ou sem node:sqlite', () => {
-  it('OC-08: sem opencode.db não registra nada e não loga', async () => {
+  it('sem opencode.db não registra nada e não loga', async () => {
     setQuiet(false);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -259,7 +259,7 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: banco ausente ou sem node:sqlit
     expect(out).not.toHaveBeenCalled();
   });
 
-  it('OC-07: node:sqlite indisponível loga UMA linha com Node 22.13 e fica desligada', async () => {
+  it('node:sqlite indisponível loga UMA linha com Node 22.13 e fica desligada', async () => {
     setQuiet(false);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const ctx = setup({

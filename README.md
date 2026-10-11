@@ -226,7 +226,7 @@ deixe também `npm run codex:bridge` rodando no Mac (veja [Codex](#codex)).
 ### 5. OpenCode no escritório (opcional)
 
 Se você também usa o **OpenCode**, as sessões dele entram no mesmo escritório: cada projeto é uma sala e cada sessão,
-um personagem com o selo **OpenCode**. O Habblaud acha o banco do OpenCode (`~/.local/share/opencode/opencode.db`) e o
+um personagem na conta **OpenCode**. O Habblaud acha o banco do OpenCode (`~/.local/share/opencode/opencode.db`) e o
 lê **só para leitura**, sem instalar nada. Isso pede o **Node 22.13 ou mais novo** (é quando o `node:sqlite` passa a
 funcionar sem opção extra): no Node 22.12 essa leitura fica desligada, o Habblaud avisa com uma linha no log e o resto
 segue normal. **No Docker essa leitura não existe:** o container não enxerga o banco do OpenCode (o `docker:up` de
@@ -507,7 +507,7 @@ chip da conta do Codex é vazado e leva o selo **CODEX**.
 ### OpenCode
 
 As sessões do OpenCode aparecem como as do Claude Code e do Codex: personagem, sala do projeto (a pasta da sessão),
-atividade, tarefas e subagentes. O chip da conta é fixo ("OpenCode") e leva o selo **OpenCode**. Esta parte está
+atividade, tarefas e subagentes. O chip da conta é fixo e se chama "OpenCode". Esta parte está
 implementada e coberta por testes automáticos, e foi conferida no OpenCode 1.18.35, no Linux, com uma pasta pessoal
 temporária e isolada.
 

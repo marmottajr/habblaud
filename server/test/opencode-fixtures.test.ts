@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildOpencodeDb, HAS_SQLITE, ocId, toolPart, type OcFixture } from './opencode-fixtures';
 
-// OC-06: o banco sintético tem as tabelas lidas pela fonte e abre somente leitura.
+// O banco sintético tem as tabelas lidas pela fonte e abre somente leitura.
 describe('ocId', () => {
   it('segue o formato do OpenCode (prefixo + 26 caracteres) e é único por número', () => {
     for (const p of ['ses', 'msg', 'prt', 'prj'] as const) {
