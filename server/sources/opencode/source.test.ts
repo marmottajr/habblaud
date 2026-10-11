@@ -146,6 +146,34 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: presença e status', () => {
     expect(ctx.poll().agents).toHaveLength(0);
   });
 
+  it('sessão que passou dos 30 min e volta a ser usada reaparece como um agente só, sem ficar offline', async () => {
+    const ctx = setup();
+    ctx.fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
+    await ctx.source.start();
+    ctx.advance(PRESENCE_MS + 1_000);
+    expect(ctx.poll().agents.find((a) => a.id === key(S1))?.status).toBe('offline');
+    // Retomada dentro do período de graça (ex.: de volta do almoço).
+    ctx.fx.db.prepare('UPDATE session SET time_updated = ? WHERE id = ?').run(ctx.now(), S1);
+    const back = ctx.poll().agents.filter((a) => a.id === key(S1));
+    expect(back).toHaveLength(1);
+    expect(back[0].status).not.toBe('offline');
+  });
+
+  it('sessão retomada depois do período de graça volta ao escritório', async () => {
+    const ctx = setup();
+    ctx.fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
+    await ctx.source.start();
+    ctx.advance(PRESENCE_MS + 1_000);
+    ctx.poll();
+    ctx.advance(OFFLINE_GRACE_MS + 1);
+    expect(ctx.poll().agents).toHaveLength(0);
+    // Retomada no dia seguinte.
+    ctx.fx.db.prepare('UPDATE session SET time_updated = ? WHERE id = ?').run(ctx.now(), S1);
+    const back = ctx.poll().agents.filter((a) => a.id === key(S1));
+    expect(back).toHaveLength(1);
+    expect(back[0].status).not.toBe('offline');
+  });
+
   it('time_archived preenchido remove o agente no ciclo seguinte', async () => {
     const ctx = setup();
     ctx.fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
