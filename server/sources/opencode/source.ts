@@ -99,6 +99,9 @@ export class OpencodeSource implements AgentSource {
     this.attaching = true;
     try {
       await this.open();
+    } catch (err) {
+      // O waiter chama sem await: uma rejeição aqui derrubaria o processo (unhandled rejection).
+      log.warnOnce(`opencode-attach:${errMsg(err)}`, `OpenCode: falha ao ligar a fonte do disco: ${errMsg(err)}`);
     } finally {
       this.attaching = false;
     }
@@ -122,10 +125,16 @@ export class OpencodeSource implements AgentSource {
     }
     this.clearWaiter();
     this.db = r;
-    this.registerAccount();
+    // Daqui em diante nada deixa a fonte meio ligada: falha no registro da conta ou no primeiro ciclo é logada, e o
+    // timer e o watch ligam de qualquer jeito (os ciclos seguintes tentam de novo).
+    try {
+      this.registerAccount();
+    } catch (err) {
+      log.warnOnce(`opencode-account:${errMsg(err)}`, `OpenCode: falha ao registrar a conta: ${errMsg(err)}`);
+    }
     this.opts.office.beginBoot();
     try {
-      this.poll();
+      this.safePoll();
     } finally {
       this.opts.office.endBoot();
     }

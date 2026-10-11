@@ -21,7 +21,7 @@ afterEach(() => {
   setQuiet(true);
 });
 
-function setup(opts: { watch?: boolean; importer?: ConstructorParameters<typeof OpencodeSource>[0]['importer']; noDb?: boolean } = {}) {
+function setup(opts: { watch?: boolean; importer?: ConstructorParameters<typeof OpencodeSource>[0]['importer']; noDb?: boolean; waitMs?: number; pollMs?: number } = {}) {
   let fx: OcFixture | undefined;
   let dir: string;
   if (opts.noDb) {
@@ -47,10 +47,11 @@ function setup(opts: { watch?: boolean; importer?: ConstructorParameters<typeof 
     now,
   });
   late.office = office;
-  const source = new OpencodeSource({ accounts, office, dir, now, watch: opts.watch ?? false, importer: opts.importer });
+  const source = new OpencodeSource({ accounts, office, dir, now, watch: opts.watch ?? false, importer: opts.importer, waitMs: opts.waitMs, pollMs: opts.pollMs });
   cleanups.unshift(() => source.stop());
   return {
     fx: fx!,
+    dir,
     accounts,
     office,
     source,
@@ -273,5 +274,39 @@ describe.skipIf(!HAS_SQLITE)('fonte do OpenCode: banco ausente ou sem node:sqlit
     expect(String(warn.mock.calls[0][0])).toContain('22.13');
     expect(ctx.source.sources()).toEqual([]);
     expect(ctx.agents()).toHaveLength(0);
+  });
+
+  it('banco que aparece depois e falha no primeiro ciclo não derruba o processo e segue lendo', async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => rejections.push(e);
+    process.on('unhandledRejection', onRejection);
+    cleanups.push(() => process.off('unhandledRejection', onRejection));
+    const ctx = setup({ noDb: true, waitMs: 10, pollMs: 10 });
+    await ctx.source.start();
+    const fx = buildOpencodeDb({ dir: ctx.dir });
+    cleanups.push(fx.cleanup);
+    fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
+    // O primeiro ciclo (o do boot, disparado pelo waiter sem await) lança; os seguintes funcionam.
+    const poll = vi.spyOn(ctx.source, 'poll').mockImplementationOnce(() => {
+      throw new Error('falha no ciclo');
+    });
+    await vi.waitFor(() => expect(poll.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2_000 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(rejections).toEqual([]);
+    ctx.office.tick();
+    expect(ctx.agent(S1)).toBeDefined();
+  });
+
+  it('falha ao registrar a conta não deixa a fonte meio ligada: os ciclos seguem', async () => {
+    const ctx = setup({ pollMs: 10 });
+    ctx.fx.addSession({ id: S1, directory: '/p/a', updated: ctx.now() });
+    vi.spyOn(ctx.accounts, 'setProviderAccounts').mockImplementationOnce(() => {
+      throw new Error('falha no registro');
+    });
+    await expect(ctx.source.start()).resolves.toBeUndefined();
+    const poll = vi.spyOn(ctx.source, 'poll');
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled(), { timeout: 2_000 });
+    ctx.office.tick();
+    expect(ctx.agent(S1)).toBeDefined();
   });
 });
