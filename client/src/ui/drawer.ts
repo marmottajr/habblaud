@@ -40,7 +40,7 @@ import {
 } from './model';
 import { isLocalHostname, PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
+import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, hasTerminal, noTerminalHint, providerOf } from './provider';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
@@ -626,8 +626,9 @@ class AgentView {
   private renderTerminalButton(live: boolean, provider = providerOf(this.last)): void {
     const available = !!this.ctx.store.snapshot?.meta.terminal;
     const open = this.terminal.agentId === this.id;
+    const supported = hasTerminal(provider);
     // aria-disabled (e não disabled): o botão continua focável e a dica do porquê aparece no hover.
-    const enabled = open || (available && live);
+    const enabled = open || (available && live && supported);
     setAttr(this.termBtn, 'aria-disabled', enabled ? null : 'true');
     this.termBtn.classList.toggle('is-disabled', !enabled);
     setAttr(this.termBtn, 'aria-pressed', String(open));
@@ -643,7 +644,9 @@ class AgentView {
             : TERMINAL_UNAVAILABLE_HINT
           : !live
             ? 'O agente já saiu do escritório.'
-            : `Ver a conversa desta sessão como no ${provider === 'codex' ? 'Codex' : 'terminal do Claude Code'}, ao vivo (T)`,
+            : !supported
+              ? noTerminalHint(provider)
+              : `Ver a conversa desta sessão como no ${provider === 'codex' ? 'Codex' : 'terminal do Claude Code'}, ao vivo (T)`,
     );
   }
 
