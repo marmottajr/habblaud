@@ -2,6 +2,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
+import type { OfficeColors, OfficeStyleId, RoomStyle } from '../../shared/roomstyle';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
 import type { DayStatsService } from '../history/daystats';
@@ -38,6 +39,11 @@ export interface ApiDeps {
    */
   permissions?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
+   * Rotas de /api/equipe (demandas pedidas pela tela, server/equipe/pedidos.ts). Como o terminal: só com bind
+   * local e Host local.
+   */
+  equipe?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
+  /**
    * Rotas das mensagens pelo escritório (/api/messages, a caixa de entrada do plugin em /api/mod/inbox e a do auxiliar
    * do Codex em /api/codex/bridge/*, server/messages/http.ts). Só existem com ServerConfig.messages (a trava do
    * terminal e HABBLAUD_MENSAGENS); a trava do Host local é conferida aqui antes de chamá-las.
@@ -51,6 +57,16 @@ export interface ApiDeps {
   codexLive?: CodexLive;
   /** Renomeia a sala (POST /api/rooms/rename {id, name}; vazio volta ao padrão). Devolve o nome em uso, ou undefined se a sala não existe. */
   renameRoom?: (id: string, name: string) => string | undefined;
+  /**
+   * Grava a aparência da sala (POST /api/rooms/style {id, style}; sem nada válido volta ao sorteado). Devolve
+   * `{style}` com a que ficou, ou undefined se a sala não existe.
+   */
+  styleRoom?: (id: string, style: unknown) => { style?: RoomStyle } | undefined;
+  /**
+   * Grava o estilo geral do escritório e as cores dele (POST /api/office/style {style?, primary?, secondary?}; só
+   * o que vier é mexido; cor vazia volta à do estilo). Devolve o que ficou.
+   */
+  styleOffice?: (body: { style?: unknown; primary?: unknown; secondary?: unknown }) => { style: OfficeStyleId; colors: OfficeColors };
   /** Estatísticas do "Meu dia" (GET /api/stats, http/stats.ts). */
   stats?: DayStatsService;
   /** Verificação de versão nova no GitHub (GET /api/updates, POST /api/updates/check; updates/checker.ts). */
@@ -62,6 +78,8 @@ export interface ApiDeps {
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
 const TERMINAL_ROUTE = /^\/api\/agents\/([^/]+)\/terminal$/;
+/** Função do agente (rótulo dado pelo usuário): POST {job}; vazio tira. */
+const JOB_ROUTE = /^\/api\/agents\/([^/]+)\/job$/;
 
 /** PUT|DELETE /api/agents/:id/character: personagem do projeto (ver Office.setCharacter). */
 const CHARACTER_ROUTE = /^\/api\/agents\/([^/]+)\/character$/;
@@ -311,6 +329,56 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       }
       return true;
     }
+    if (path === '/api/equipe' || path.startsWith('/api/equipe/')) {
+      // Mandar demanda para um agente fixo age sobre o computador: a mesma trava do terminal.
+      if (!deps.equipe) {
+        sendJson(res, 403, { error: 'demandas pelo escritório desligadas: só funcionam com o Habblaud acessível apenas pelo próprio computador' });
+      } else if (!isLoopbackHost(req.headers.host)) {
+        sendJson(res, 403, { error: 'demandas só são enviadas pelo próprio computador (http://localhost ou http://127.0.0.1)' });
+      } else {
+        deps.equipe(req, res, path);
+      }
+      return true;
+    }
+    if (path === '/api/jobs/forget') {
+      // Tira uma função das sugestões de uma sala: POST {room, job}. Mesma trava da rota de dar função.
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!isLoopbackHost(req.headers.host)) {
+        sendJson(res, 403, { error: 'as funções só são alteradas pelo próprio computador (http://localhost ou http://127.0.0.1)' });
+      } else {
+        readJson(req)
+          .then((body) => {
+            const b = (body ?? {}) as { room?: unknown; job?: unknown };
+            sendJson(res, 200, { removed: office.forgetJob(b.room, b.job) });
+          })
+          .catch((err) => fail(res, err));
+      }
+      return true;
+    }
+    const jobMatch = JOB_ROUTE.exec(path);
+    if (jobMatch) {
+      // Muda o que o escritório mostra: como o terminal, só pelo próprio computador.
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!isLoopbackHost(req.headers.host)) {
+        sendJson(res, 403, { error: 'a função só é alterada pelo próprio computador (http://localhost ou http://127.0.0.1)' });
+      } else {
+        let id: string;
+        try {
+          id = decodeURIComponent(jobMatch[1]);
+        } catch {
+          sendJson(res, 400, { error: 'id inválido' });
+          return true;
+        }
+        readJson(req)
+          .then((body) => {
+            const job = office.setJob(id, (body as { job?: unknown } | null)?.job);
+            if (job === null) sendJson(res, 404, { error: 'agente não encontrado ou sem função editável' });
+            else sendJson(res, 200, { id, job: job ?? null });
+          })
+          .catch((err) => fail(res, err));
+      }
+      return true;
+    }
     const characterMatch = CHARACTER_ROUTE.exec(path);
     if (characterMatch) {
       // Mudar o personagem age sobre o escritório: a mesma trava do terminal (bind local + Host local).
@@ -381,9 +449,40 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           .then((body) => {
             const b = body as { id?: unknown; name?: unknown };
             if (typeof b?.id !== 'string' || typeof b.name !== 'string') throw new HttpError(400, 'esperado {id, name}');
+            // Sala de equipe com nome próprio: o nome é o da equipe (o mesmo no painel de Demandas e nos avisos do Mac).
+            const daEquipe = office.teamRoomName(b.id);
+            if (daEquipe) throw new HttpError(409, `esta sala é de uma equipe e usa o nome da equipe (“${daEquipe}”). Para trocar, é pelo comando: equipe nome "novo nome"`);
             const name = deps.renameRoom?.(b.id, b.name);
             if (name === undefined) throw new HttpError(404, 'sala não encontrada');
             sendJson(res, 200, { name });
+          })
+          .catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/office/style') {
+      // Estilo geral do escritório (Configurações): a mesma trava de personalizar sala.
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!deps.terminal || !deps.styleOffice) sendJson(res, 403, { error: 'mudar o estilo do escritório está desligado: só funciona com o Habblaud acessível apenas pelo próprio computador' });
+      else if (!isLoopbackHost(req.headers.host)) sendJson(res, 403, { error: 'mudar o estilo do escritório só pelo próprio computador (http://localhost)' });
+      else
+        readJson(req)
+          .then((body) => sendJson(res, 200, deps.styleOffice!((body && typeof body === 'object' ? body : {}) as { style?: unknown; primary?: unknown; secondary?: unknown })))
+          .catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/rooms/style') {
+      // Aparência da sala (layout, cor, lado): a mesma trava de renomear (bind local + Host local).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!deps.terminal) sendJson(res, 403, { error: 'personalizar salas desligado: só funciona com o Habblaud acessível apenas pelo próprio computador' });
+      else if (!isLoopbackHost(req.headers.host)) sendJson(res, 403, { error: 'personalizar salas só pelo próprio computador (http://localhost)' });
+      else
+        readJson(req)
+          .then((body) => {
+            const b = body as { id?: unknown; style?: unknown };
+            if (typeof b?.id !== 'string') throw new HttpError(400, 'esperado {id, style}');
+            const r = deps.styleRoom?.(b.id, b.style);
+            if (r === undefined) throw new HttpError(404, 'sala não encontrada');
+            sendJson(res, 200, r);
           })
           .catch((err) => fail(res, err));
       return true;

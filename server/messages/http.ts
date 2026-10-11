@@ -26,8 +26,23 @@ function fail(res: ServerResponse, err: unknown): void {
   else sendJson(res, 500, { error: 'erro interno' });
 }
 
-export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMessage, res: ServerResponse, path: string) => void {
+export interface MessageRouteOptions {
+  /**
+   * Confere a chave do escritório na mensagem mandada pela página (server/equipe/pedidos.ts), como
+   * na decisão de permissão. 'errada' = recusa com 401; 'desligado' (não há chave criada) = vale como antes, sem chave.
+   * As rotas do plugin e do auxiliar do Codex (caixa de entrada e confirmação) não levam chave: só buscam e confirmam.
+   */
+  conferirChave?: (enviada: string | undefined) => 'ok' | 'desligado' | 'errada';
+}
+
+export function createMessageRoutes(registry: MessageRegistry, opts: MessageRouteOptions = {}): (req: IncomingMessage, res: ServerResponse, path: string) => void {
   const send = async (req: IncomingMessage, res: ServerResponse) => {
+    // Mandar mensagem pelo escritório digita na sessão em seu nome: com a chave criada, só quem a tem manda.
+    const chave = req.headers['x-equipe-chave'];
+    if (opts.conferirChave?.(typeof chave === 'string' ? chave : undefined) === 'errada') {
+      req.resume();
+      return sendJson(res, 401, { error: 'chave do escritório ausente ou errada' });
+    }
     const r = registry.send(await readJson(req));
     if ('message' in r) return sendJson(res, 201, r.message);
     switch (r.error) {

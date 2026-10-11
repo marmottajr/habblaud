@@ -5,6 +5,7 @@
 // Também cuida da reconexão: quando o navegador desiste do stream (EventSource fechado após erro HTTP,
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
 import type { AppearanceParts } from '../../../shared/appearance';
+import type { StageAi } from '../../../shared/ia';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 
@@ -80,6 +81,88 @@ export function mockOptionsFrom(search: string): { speed: number; sessions: numb
     ...(seed !== null && seed >= 0 ? { seed: Math.floor(seed) } : {}),
     ...(params.get('noquota') === '1' ? { codexNoQuota: true } : {}),
   };
+}
+
+/** Uma rotina de um agente fixo, como GET /api/equipe/rotinas devolve. */
+export interface RotinaInfo {
+  id: string;
+  room: string;
+  slug: string;
+  pedido: string;
+  dias: number[];
+  hora: string;
+  /** Rotina por intervalo: a cada tantos minutos (aí `dias` e `hora` vêm vazios). */
+  intervaloMin?: number;
+  /** Rotina por gatilho: roda quando chega item novo neste caminho do computador. */
+  gatilho?: string;
+  ativa: boolean;
+  proxima: number;
+  ultima?: number;
+  ultimoAviso?: string;
+}
+
+/** Uma etapa de uma demanda, como o painel de Demandas recebe (os textos longos só vêm no detalhe). */
+export interface EtapaInfo {
+  n: number;
+  agente: string;
+  /** Quem o agente é hoje, quando mudou de nome depois da etapa (senão, igual a `agente`). */
+  quem?: string;
+  funcao?: string;
+  estado: string;
+  passadaPor?: string;
+  iniciadaEm?: number;
+  terminadaEm?: number;
+  /** Id da sessão do Claude Code da etapa (para abrir o terminal dela). */
+  sessao?: string;
+  /** A etapa é uma pergunta do dono a quem fez a etapa `sobre` (a pergunta vem em `instrucao`, a resposta em `resultado`). */
+  pergunta?: boolean;
+  /** A etapa é uma continuação pedida pelo dono a partir da etapa `sobre` (trabalho novo na mesma demanda). */
+  continuacao?: boolean;
+  sobre?: number;
+  temResultado?: boolean;
+  /** Por que a etapa ficou sem entregar (login vencido, limite do plano, janela fechada…) e o que fazer. */
+  parada?: { tipo: string; texto: string; fazer?: string; em?: number };
+  /** Tokens (entrada + saída) que a sessão da etapa gastou, quando o servidor sabe. */
+  tokens?: number;
+  /** A IA e o nível com que a etapa rodou, e por quê (equipe/equipe.mjs, escolherIADaEtapa). */
+  ia?: StageAi;
+  /** A etapa é a continuação de uma que pediu mais capacidade (`equipe subir`). */
+  subida?: boolean;
+  instrucao?: string;
+  resultado?: string;
+}
+
+export interface DemandaInfo {
+  id: string;
+  titulo: string;
+  pedido: string;
+  /** fila | rodando | parada | concluida */
+  estado: string;
+  criadaEm: number;
+  terminadaEm?: number;
+  arquivadaEm?: number;
+  /** Na fila: esperando a demanda que está trabalhando terminar (uma demanda por vez). */
+  aguardando?: number;
+  etapas: EtapaInfo[];
+}
+
+/** Como os agentes chamam quem usa o escritório: o nome escolhido, ou o do usuário do computador. */
+export interface DonoInfo {
+  nome: string;
+  feminino: boolean;
+  /** false = ninguém escolheu: o nome veio do usuário do computador. */
+  escolhido: boolean;
+}
+
+/** As demandas de um projeto com equipe (GET /api/equipe/historico). */
+export interface ProjetoHistorico {
+  projeto: string;
+  nome: string;
+  /** Sala da Diretoria que dirige a equipe, se houver. */
+  diretoria?: string;
+  /** As salas com que esta conversa ("Conversa com"): os agentes delas também fazem etapas aqui. */
+  ligadas?: string[];
+  demandas: DemandaInfo[];
 }
 
 export class OfficeStore {
@@ -186,6 +269,216 @@ export class OfficeStore {
     return res.ok;
   }
 
+  /** Dá (ou, com texto vazio, tira) a função de um agente principal; o resultado chega no snapshot. */
+  async setJob(id: string, job: string): Promise<boolean> {
+    if (this.mock || this.replay) return false;
+    const res = await fetch(`/api/agents/${encodeURIComponent(id)}/job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job }),
+    });
+    return res.ok;
+  }
+
+  // ---------------------------------------------------------------- equipe: demanda pela tela
+
+  /** A chave do escritório fica só neste navegador (o usuário cola uma vez; ver `equipe chave`). */
+  get equipeKey(): string {
+    try {
+      return localStorage.getItem('habblaud.equipe.chave') ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  set equipeKey(v: string) {
+    try {
+      if (v.trim()) localStorage.setItem('habblaud.equipe.chave', v.trim());
+      else localStorage.removeItem('habblaud.equipe.chave');
+    } catch {
+      // sem armazenamento: a chave vale só enquanto a página estiver aberta
+    }
+  }
+
+  /** O recurso está ligado no computador (há chave) e o serviço que abre o terminal está rodando? */
+  async equipeEstado(): Promise<{ ligado: boolean; servico: boolean; dono?: DonoInfo } | null> {
+    if (this.mock || this.replay) return null;
+    try {
+      const res = await fetch('/api/equipe/estado', { cache: 'no-store' });
+      return res.ok ? ((await res.json()) as { ligado: boolean; servico: boolean; dono?: DonoInfo }) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Manda uma demanda para um agente fixo. Devolve o id do pedido, ou o motivo de não ter ido. */
+  async enviarDemanda(room: string, slug: string, pedido: string, chave: string): Promise<{ id?: string; servico?: boolean; status: number; error?: string }> {
+    try {
+      const res = await fetch('/api/equipe/demandas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Equipe-Chave': chave },
+        body: JSON.stringify({ room, slug, pedido }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { id?: string; servico?: boolean; error?: string };
+      return { ...j, status: res.status };
+    } catch {
+      return { status: 0, error: 'o escritório não respondeu' };
+    }
+  }
+
+  /** Como ficou o pedido: pendente (o serviço ainda não buscou), aberta, erro ou expirado. */
+  async demandaEstado(id: string, chave: string): Promise<{ estado?: string; demanda?: string; erro?: string; aviso?: string } | null> {
+    try {
+      const res = await fetch(`/api/equipe/demandas/${encodeURIComponent(id)}`, { headers: { 'X-Equipe-Chave': chave }, cache: 'no-store' });
+      return res.ok ? ((await res.json()) as { estado?: string; demanda?: string; erro?: string; aviso?: string }) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Recado para um agente fixo que está trabalhando: ele lê no meio do trabalho. */
+  async enviarRecado(agentId: string, texto: string, chave: string): Promise<{ id?: string; status: number; error?: string }> {
+    try {
+      const res = await fetch('/api/equipe/mensagens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Equipe-Chave': chave },
+        body: JSON.stringify({ agentId, texto }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      return { ...j, status: res.status };
+    } catch {
+      return { status: 0, error: 'o escritório não respondeu' };
+    }
+  }
+
+  async recadoEstado(id: string, chave: string): Promise<{ estado?: string; erro?: string } | null> {
+    try {
+      const res = await fetch(`/api/equipe/mensagens/${encodeURIComponent(id)}`, { headers: { 'X-Equipe-Chave': chave }, cache: 'no-store' });
+      return res.ok ? ((await res.json()) as { estado?: string; erro?: string }) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------- equipe: histórico das demandas
+
+  /** Demandas de todos os projetos com equipe. null = sem chave, chave errada ou sem resposta. */
+  async historico(): Promise<ProjetoHistorico[] | null> {
+    const chave = this.equipeKey;
+    if (!chave) return null;
+    try {
+      const res = await fetch('/api/equipe/historico', { headers: { 'X-Equipe-Chave': chave }, cache: 'no-store' });
+      return res.ok ? ((await res.json()) as { projetos: ProjetoHistorico[] }).projetos : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Uma demanda inteira: pedido, e a instrução e o resultado de cada etapa. */
+  async demandaDetalhe(room: string, id: string): Promise<DemandaInfo | null> {
+    try {
+      const res = await fetch(`/api/equipe/historico/${encodeURIComponent(id)}?room=${encodeURIComponent(room)}`, { headers: { 'X-Equipe-Chave': this.equipeKey }, cache: 'no-store' });
+      return res.ok ? ((await res.json()) as DemandaInfo) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Arquiva, desarquiva, exclui, retoma ou traz o terminal da demanda para a frente. Quem faz é o serviço do Mac: espera a resposta dele. */
+  async acaoDaDemanda(room: string, id: string, acao: 'arquivar' | 'desarquivar' | 'excluir' | 'mostrar' | 'perguntar' | 'retomar', extra: { etapa?: number; texto?: string; continuar?: boolean } = {}): Promise<{ ok: boolean; error?: string; aviso?: string }> {
+    const chave = this.equipeKey;
+    try {
+      const res = await fetch(`/api/equipe/historico/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Equipe-Chave': chave }, body: JSON.stringify({ room, acao, ...extra }) });
+      const j = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !j.id) return { ok: false, error: j.error ?? 'o escritório recusou o pedido' };
+      for (let i = 0; i < 20; i++) {
+        await new Promise((ok) => setTimeout(ok, 700));
+        const e = await this.demandaEstado(j.id, chave);
+        if (e?.estado === 'aberta') return { ok: true, aviso: e.aviso };
+        if (e?.estado === 'erro' || e?.estado === 'expirado') return { ok: false, error: e.erro ?? 'o serviço da equipe não conseguiu' };
+      }
+      return { ok: false, error: 'o serviço da equipe não respondeu: ele está rodando neste computador? (no terminal: equipe servico status)' };
+    } catch {
+      return { ok: false, error: 'o escritório não respondeu' };
+    }
+  }
+
+  /**
+   * Criar pela tela (ui/criar.ts): `pasta` abre no Mac a janela de escolher pasta, `sala` cria uma sala fixa e
+   * `agente` cria um agente fixo a partir de uma descrição curta. Quem faz é o serviço do Mac: espera a resposta
+   * dele (a janela de escolher pasta fica aberta até 100 s).
+   */
+  async criarNaEquipe(
+    tipo: 'pasta' | 'sala' | 'agente' | 'ler-funcao' | 'funcao' | 'apagar-agente' | 'remover-sala' | 'ligar-sala' | 'dono' | 'limite' | 'ia',
+    body: Record<string, unknown> = {},
+  ): Promise<{ ok: boolean; status?: number; error?: string; aviso?: string; pasta?: string; sala?: string; agente?: string; demanda?: string; texto?: string; funcao?: string }> {
+    const chave = this.equipeKey;
+    const path = {
+      pasta: '/api/equipe/salas/pasta',
+      sala: '/api/equipe/salas',
+      agente: '/api/equipe/agentes',
+      // Gestão: ler e salvar a função de um agente, apagar agente, remover sala.
+      'ler-funcao': '/api/equipe/agentes/funcao/ler',
+      funcao: '/api/equipe/agentes/funcao',
+      'apagar-agente': '/api/equipe/agentes/apagar',
+      'remover-sala': '/api/equipe/salas/remover',
+      // "Conversa com" (liga ou desliga duas salas) e o dono do escritório (como os agentes chamam quem usa).
+      'ligar-sala': '/api/equipe/salas/ligar',
+      dono: '/api/equipe/dono',
+      // Configurações da sala: quantos agentes fixos ela pode ter.
+      limite: '/api/equipe/salas/limite',
+      // Gaveta do agente fixo: a IA, o nível, o mínimo e a permissão de escolher a IA do colega.
+      ia: '/api/equipe/agentes/ia',
+    }[tipo];
+    try {
+      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Equipe-Chave': chave }, body: JSON.stringify(body) });
+      const j = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!res.ok || !j.id) return { ok: false, status: res.status, error: j.error ?? 'o escritório recusou o pedido' };
+      const voltas = tipo === 'pasta' ? 180 : 40;
+      for (let i = 0; i < voltas; i++) {
+        await new Promise((ok) => setTimeout(ok, 700));
+        const e = (await this.demandaEstado(j.id, chave)) as { estado?: string; demanda?: string; erro?: string; aviso?: string; pasta?: string; sala?: string; agente?: string; texto?: string; funcao?: string } | null;
+        if (e?.estado === 'aberta') return { ok: true, aviso: e.aviso, pasta: e.pasta, sala: e.sala, agente: e.agente, demanda: e.demanda, texto: e.texto, funcao: e.funcao };
+        if (e?.estado === 'erro' || e?.estado === 'expirado') return { ok: false, error: e.erro ?? 'o serviço da equipe não conseguiu' };
+      }
+      return { ok: false, error: 'o serviço da equipe não respondeu: ele está rodando neste computador? (no terminal: equipe servico status)' };
+    } catch {
+      return { ok: false, error: 'o escritório não respondeu' };
+    }
+  }
+
+  /** Rotinas (todas, ou as de uma sala). null = sem chave, chave errada ou sem resposta. */
+  async rotinas(room?: string): Promise<RotinaInfo[] | null> {
+    const chave = this.equipeKey;
+    if (!chave || this.mock || this.replay) return null;
+    try {
+      const res = await fetch(`/api/equipe/rotinas${room ? `?room=${encodeURIComponent(room)}` : ''}`, { headers: { 'X-Equipe-Chave': chave }, cache: 'no-store' });
+      return res.ok ? ((await res.json()) as { rotinas: RotinaInfo[] }).rotinas : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async rotinaPost(path: string, body: unknown): Promise<{ ok: boolean; status: number; error?: string }> {
+    try {
+      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Equipe-Chave': this.equipeKey }, body: JSON.stringify(body) });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: res.ok, status: res.status, error: res.status === 401 ? 'A chave do escritório não confere.' : j.error };
+    } catch {
+      return { ok: false, status: 0, error: 'o escritório não respondeu' };
+    }
+  }
+
+  /** Cria uma rotina: prompt base para um agente, em dias e hora marcados ou a cada intervalo (minutos). */
+  criarRotina(dados: { room: string; slug: string; pedido: string; dias?: number[]; hora?: string; intervaloMin?: number; gatilho?: string }): Promise<{ ok: boolean; status: number; error?: string }> {
+    return this.rotinaPost('/api/equipe/rotinas', dados);
+  }
+
+  /** Liga/desliga ({ativa}), roda agora ({rodar}), apaga ({apagar}) ou edita os campos de uma rotina. */
+  mudarRotina(id: string, mudanca: Record<string, unknown>): Promise<{ ok: boolean; status: number; error?: string }> {
+    return this.rotinaPost(`/api/equipe/rotinas/${encodeURIComponent(id)}`, mudanca);
+  }
+
   /** "Verificar agora": pede ao servidor uma consulta ao GitHub (o resultado chega no snapshot). */
   async checkUpdates(): Promise<boolean> {
     if (this.mock) return false;
@@ -254,11 +547,21 @@ export class OfficeStore {
       this.applySnapshot(sim.snapshot());
       return undefined;
     }
-    const res = await fetch(`/api/permissions/${encodeURIComponent(id)}/decision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(d),
-    });
+    const enviar = (chave: string) =>
+      fetch(`/api/permissions/${encodeURIComponent(id)}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(chave ? { 'X-Equipe-Chave': chave } : {}) },
+        body: JSON.stringify(d),
+      });
+    let res = await enviar(this.equipeKey);
+    // Com a chave do escritório criada no computador, aprovar pela tela exige a chave: pede uma vez e guarda.
+    if (res.status === 401) {
+      const digitada = globalThis.prompt?.('Chave do escritório (no terminal: equipe chave)')?.trim();
+      if (!digitada) return 'Para responder pelo escritório, cole a chave (no terminal: equipe chave).';
+      res = await enviar(digitada);
+      if (res.status === 401) return 'A chave do escritório não confere.';
+      this.equipeKey = digitada;
+    }
     if (res.ok) return undefined;
     try {
       const body = (await res.json()) as { error?: unknown };
@@ -313,7 +616,21 @@ export class OfficeStore {
    */
   async sendMessage(agentId: string, text: string): Promise<{ message: OutboxMessage } | { error: string }> {
     if (this.mock) return this.mockSend(agentId, text);
-    const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text }) });
+    const enviar = (chave: string) =>
+      fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(chave ? { 'X-Equipe-Chave': chave } : {}) },
+        body: JSON.stringify({ agentId, text }),
+      });
+    let res = await enviar(this.equipeKey);
+    // Com a chave do escritório criada no computador, mandar mensagem pela tela exige a chave: pede uma vez e guarda.
+    if (res.status === 401) {
+      const digitada = globalThis.prompt?.('Chave do escritório (no terminal: equipe chave)')?.trim();
+      if (!digitada) return { error: 'para mandar mensagem pelo escritório, cole a chave (no terminal: equipe chave)' };
+      res = await enviar(digitada);
+      if (res.status === 401) return { error: 'a chave do escritório não confere' };
+      this.equipeKey = digitada;
+    }
     let body: unknown;
     try {
       body = await res.json();

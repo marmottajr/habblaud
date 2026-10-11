@@ -27,6 +27,8 @@ export interface ServerConfig {
    * HABBLAUD_USAGE_DIR ou ~/.habblaud/usage. No Docker, o docker-up monta essa pasta em /usage.
    */
   usageDir: string;
+  /** Pasta do registro da equipe (agentes fixos), mantido pelo comando `equipe` no host. No Docker: /equipe. */
+  equipeDir: string;
   /** Nomes extras aceitos no cabeçalho Host/Origin (HABBLAUD_ALLOWED_HOSTS); localhost e IPs sempre valem. */
   allowedHosts: Set<string>;
   /**
@@ -160,6 +162,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     claudeDirs: discoverClaudeDirs(env, home),
     dataDir: resolve(env.HABBLAUD_DATA_DIR?.trim() || (inDocker ? '/data' : join(home, '.habblaud'))),
     usageDir: resolve(env.HABBLAUD_USAGE_DIR?.trim() || join(home, '.habblaud', 'usage')),
+    equipeDir: resolve(env.HABBLAUD_EQUIPE_DIR?.trim() || join(home, '.habblaud', 'equipe')),
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,

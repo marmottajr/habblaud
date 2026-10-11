@@ -5,6 +5,8 @@
 // Renomear/remover campos quebra servidor, mundo e UI ao mesmo tempo.
 
 import type { AppearanceParts } from './appearance';
+import type { AgentAi } from './ia';
+import type { OfficeColors, OfficeStyleId, RoomStyle } from './roomstyle';
 
 export type AgentKind = 'main' | 'sub';
 
@@ -144,6 +146,26 @@ export interface AgentInfo {
   look: 'f' | 'm';
   /** Papel. Principal: "Agente principal". Sub: tipo do subagente ("Explore", "Plan", "fork"...). */
   role: string;
+  /** Função dada pelo usuário no escritório (só agentes principais). Ex.: "Estrategista". É um rótulo. */
+  job?: string;
+  /**
+   * Agente fixo da equipe do projeto (o nome do arquivo de agente, `claude --agent <staff>`). Nome, aparência e
+   * função (`job`) vêm da equipe e ficam os mesmos de uma demanda para a outra. Ver server/equipe/registro.ts.
+   */
+  staff?: string;
+  /** Agente fixo sem sessão aberta agora: está no escritório esperando demanda (não tem terminal nem sessão). */
+  parked?: boolean;
+  /** Agente fixo: a IA e o nível dele (o que está fixo, o mínimo e se pode escolher a IA do colega). Ver shared/ia.ts. */
+  ai?: AgentAi;
+  /**
+   * Em reunião: o agente fixo participa de uma demanda em andamento que envolve agentes de mais de uma sala
+   * (server/equipe/pedidos.ts, agentesEmReuniao). No escritório ele fica na sala de reunião até a demanda terminar,
+   * saindo só para a água e o banheiro. Os subagentes dele acompanham.
+   */
+  meeting?: boolean;
+  /** Agente fixo parado: a sessão do último trabalho dele (para abrir o terminal dela) e quando ela terminou. */
+  lastSessionId?: string;
+  lastEndedAt?: number;
   /** Título da sessão (principal) ou descrição da tarefa (sub). */
   title?: string;
   sessionId: string;
@@ -206,6 +228,26 @@ export interface RoomInfo {
   createdAt: number;
   /** Efeito visual temporário na sala (eventos do GitHub detectados nos transcripts; ver shared/github.ts). */
   effect?: RoomEffect;
+  /** Funções já usadas neste projeto, que a tela sugere ao dar a função de um agente (ver AgentInfo.job). */
+  jobs?: string[];
+  /** Sala de uma equipe de agentes fixos: a tela oferece "Novo agente" nela. */
+  team?: boolean;
+  /** A sala do dono: o agente dela (o dono do escritório) é com quem a pessoa conversa pela tela. */
+  office?: boolean;
+  /**
+   * Sala de equipe: quantos agentes fixos ela pode ter (o limite escolhido nas configurações da sala, sem passar
+   * das mesas do layout). Cheia, a tela não oferece "Novo agente".
+   */
+  maxAgents?: number;
+  /** Salas (ids) com que esta conversa: os agentes de uma podem passar trabalho aos da outra. */
+  links?: string[];
+  /** Aparência escolhida para a sala (layout dos móveis, cor, lado); ausente = a sorteada pela semente. */
+  style?: RoomStyle;
+  /**
+   * Sala só de cenário, criada pela própria tela (não vem do servidor): a sala de reunião em frente à sala do dono
+   * (client/src/world/sim/sim.ts). Ninguém mora nela, ela não aparece na lista e não se seleciona.
+   */
+  decor?: boolean;
 }
 
 /**
@@ -350,6 +392,10 @@ export interface OfficeSnapshot {
      * exposto além do próprio computador (bind local). Ausente/false = recurso desligado.
      */
     terminal?: boolean;
+    /** Estilo geral do escritório (Configurações; shared/roomstyle.ts OFFICE_STYLES). Ausente = "classico". */
+    officeStyle?: OfficeStyleId;
+    /** As cores do escritório escolhidas em Configurações (ausente = as do estilo). */
+    officeColors?: OfficeColors;
     /**
      * Mensagens pelo escritório ligadas (POST /api/messages): a mesma trava do terminal e HABBLAUD_MENSAGENS sem
      * desligar. Quem recebe agora diz AgentInfo.canMessage. Ausente/false = recurso desligado.

@@ -269,11 +269,14 @@ export function staticScreen(b: PixelBuf, r: { x: number; y: number; w: number; 
  * mesas escuras) com 3 tons + contorno próprio, faixa de ventilação, ressalto do suporte VESA com
  * logo, pé visível e cabo. Nunca escura como uma tela — o verso tem que ler como verso.
  */
-export function monitorBack(b: PixelBuf, x: number, y: number, w = 16, h = 10, tone: 'light' | 'mid' = 'light'): void {
+export function monitorBack(b: PixelBuf, x: number, y: number, w = 16, h = 10, tone: 'light' | 'mid' | 'dark' = 'light'): void {
+  // 'dark' (aditivo): carcaça grafite dos monitores da mesa executiva; ainda clara o bastante para ler como verso.
   const p =
-    tone === 'mid'
-      ? { hi: '#b4bcc8', lt: '#a3abb8', base: '#8f98a6', dk: '#747d8c', line: '#454c5a', stand: '#6b7383', foot: '#596170' }
-      : { hi: '#e6eaf0', lt: '#d8dee6', base: '#c9d0da', dk: '#aab3c0', line: '#5b6577', stand: '#9aa3b0', foot: '#7d8696' };
+    tone === 'dark'
+      ? { hi: '#626a7a', lt: '#525a69', base: '#434a58', dk: '#353b47', line: '#1d2028', stand: '#7a8392', foot: '#5d6574' }
+      : tone === 'mid'
+        ? { hi: '#b4bcc8', lt: '#a3abb8', base: '#8f98a6', dk: '#747d8c', line: '#454c5a', stand: '#6b7383', foot: '#596170' }
+        : { hi: '#e6eaf0', lt: '#d8dee6', base: '#c9d0da', dk: '#aab3c0', line: '#5b6577', stand: '#9aa3b0', foot: '#7d8696' };
   const cx = x + Math.floor(w / 2);
   // Sombra do monitor no tampo.
   b.hline(x + 2, x + w - 1, y + h + 3, SURFACE_SHADOW_LIGHT);
@@ -304,8 +307,9 @@ export function monitorBack(b: PixelBuf, x: number, y: number, w = 16, h = 10, t
   b.hline(cx - 3, cx + 2, y + 4, p.hi);
   b.hline(cx - 3, cx + 2, y + 4 + Math.max(2, h - 6) - 1, p.dk);
   b.vline(cx + 2, y + 5, y + 4 + Math.max(2, h - 6) - 1, p.dk);
-  b.set(cx - 1, y + 5, tone === 'mid' ? '#cfd5de' : '#f6f8fb');
-  b.set(cx, y + 5, tone === 'mid' ? '#cfd5de' : '#f6f8fb');
+  const logo = tone === 'dark' ? '#aab2c0' : tone === 'mid' ? '#cfd5de' : '#f6f8fb';
+  b.set(cx - 1, y + 5, logo);
+  b.set(cx, y + 5, logo);
   // Cabo descendo pela lateral do pé.
   b.vline(cx + 2, y + h, y + h + 2, p.line);
 }

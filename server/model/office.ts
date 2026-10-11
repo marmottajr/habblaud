@@ -26,8 +26,13 @@ import { nameKey, type AppearanceParts } from '../../shared/appearance';
 import { DemoSimulator } from '../../shared/demo/simulator';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
+import type { OfficeColors, OfficeStyleId, RoomStyle } from '../../shared/roomstyle';
 import { applyPermission } from '../permissions/registry';
+import { estiloDaSala, limiteDaSala, type EquipeAgente, type Equipes } from '../equipe/registro';
+import type { StaffHistory } from './staffhistory';
+import { NAME_POOL, type PersonName } from '../../shared/names';
 import type { NameStore, StoredCharacter } from './names';
+import { cleanJob, type JobStore } from './jobs';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 
 export const OFFLINE_GRACE_MS = 20_000;
@@ -50,8 +55,24 @@ const FEED_LIMIT = 200;
 
 export interface OfficeDeps {
   names: NameStore;
+  /** Funções dadas pelo usuário (AgentInfo.job); ausente = sem funções (testes). */
+  jobs?: JobStore;
+  /** Agentes fixos de cada projeto (sala -> equipe); ausente = sem equipe. Ver server/equipe/registro.ts. */
+  equipe?: () => Equipes;
+  /** Último trabalho de cada agente fixo, para a gaveta de quem está parado (ver model/staffhistory.ts). */
+  ultimos?: StaffHistory;
   /** Nome escolhido pelo usuário para a sala da pasta (model/room-aliases.ts), se houver. */
   roomAlias?: (path: string) => string | undefined;
+  /** Aparência escolhida para a sala da pasta (model/room-styles.ts); ausente = a sorteada. */
+  roomStyle?: (path: string) => RoomStyle | undefined;
+  /**
+   * Agentes fixos em reunião agora ("sala\nagente"; server/equipe/pedidos.ts, agentesEmReuniao); ausente = ninguém.
+   */
+  meetings?: () => ReadonlySet<string>;
+  /** Estilo geral do escritório (model/room-styles.ts); ausente = o clássico. */
+  officeStyle?: () => OfficeStyleId;
+  /** Cores do escritório escolhidas (model/room-styles.ts); ausente ou vazio = as do estilo. */
+  officeColors?: () => OfficeColors;
   version: string;
   /** Build do cliente servido (ver OfficeSnapshot.meta.build); ausente no modo dev e nos testes. */
   build?: () => string | undefined;
@@ -88,6 +109,9 @@ export interface TranscriptSummary {
   lastAt?: number;
 }
 
+/** Chave do agente fixo no NameStore e semente da aparência: as mesmas de uma demanda para a outra. */
+export const staffKey = (roomId: string, slug: string): string => `equipe:${roomId}:${slug}`;
+
 export interface MainInput {
   id: string;
   /** Ferramenta do agente (AgentInfo.provider); ausente = 'claude'. Os subagentes herdam a do principal. */
@@ -96,6 +120,8 @@ export interface MainInput {
   sessionId: string;
   cwd: string;
   role: string;
+  /** Agente customizado da sessão (`claude --agent <nome>`), se houver. */
+  agent?: string;
   startedAt: number;
   status: AgentStatus;
   waitingFor?: string;
@@ -141,7 +167,13 @@ export interface CharacterInput {
   parts: AppearanceParts;
 }
 
-export type CharacterResult = { result: 'ok' } | { result: 'not-found' } | { result: 'conflict'; message: string };
+/** Um agente fixo: a sala (cwd normalizado do projeto) e o nome do arquivo dele. */
+interface StaffTarget {
+  roomId: string;
+  slug: string;
+}
+
+export type CharacterResult ={ result: 'ok' } | { result: 'not-found' } | { result: 'conflict'; message: string };
 
 export interface CommitResult {
   snapshot: OfficeSnapshot;
@@ -186,9 +218,16 @@ class NameSet extends Set<string> {
 
 const byStart = (a: ShellJob, b: ShellJob) => a.startedAt - b.startedAt || a.id.localeCompare(b.id);
 
+/** A pasta em que o comando `equipe` faz a triagem (equipe/equipe.mjs, pastaDaTriagem): `.../equipe/triagem`. */
+export function isTriagemCwd(cwd: string): boolean {
+  return /[\\/]equipe[\\/]triagem[\\/]?$/.test(cwd);
+}
+
 export class Office {
   private agents = new Map<string, AgentRecord>();
   private rooms = new Map<string, { path: string; createdAt: number }>();
+  /** Desde quando cada agente fixo está parado (chave = staffKey). */
+  private parkedSince = new Map<string, number>();
   private slots = new SlotAllocator(SLOT_COOLDOWN_MS);
   private roomNames = new Map<string, string>();
   private feed: FeedItem[] = [];
@@ -291,6 +330,9 @@ export class Office {
   detail(id: string): AgentDetail | undefined {
     const rec = this.agents.get(id);
     if (rec) return { agent: cloneAgent(rec.info), history: rec.history.slice() };
+    // Agente fixo parado: a linha do tempo do último trabalho dele continua à mostra.
+    const parado = id.startsWith('equipe:') ? this.parkedStaff([...this.agents.values()].map((r) => r.info), this.now(), '').find((a) => a.id === id) : undefined;
+    if (parado) return { agent: parado, history: this.deps.ultimos?.get(id)?.history.slice() ?? [] };
     const demo = this.demoSnap?.agents.find((a) => a.id === id);
     return demo ? { agent: cloneAgent(demo), history: demo.recent.slice() } : undefined;
   }
@@ -306,6 +348,8 @@ export class Office {
   // ---------------------------------------------------------------- agentes principais
 
   addMain(p: MainInput): void {
+    // A chamada de triagem da equipe (que escolhe a IA de cada etapa) roda numa pasta à parte: não é sala nem agente.
+    if (isTriagemCwd(p.cwd)) return;
     const now = this.now();
     const existing = this.agents.get(p.id);
     if (existing) {
@@ -314,17 +358,22 @@ export class Office {
       this.setStatus(p.id, p.status, p.waitingFor);
       return;
     }
-    const roomId = normalizeCwd(p.cwd);
+    // Diretor trabalhando dentro de uma equipe: a sala dele é a da Diretoria, não a pasta em que a sessão abriu.
+    const roomId = this.salaDoDiretor(normalizeCwd(p.cwd), p.agent) ?? normalizeCwd(p.cwd);
     this.ensureRoom(roomId, now);
-    const chosen = this.roomCharacter(roomId, p.id, p.sessionId);
-    const person = chosen ?? this.deps.names.assign(p.sessionId, this.takenNames());
+    // Agente fixo da equipe: o mesmo personagem de sempre (nome e aparência), em toda sessão dele. Numa fila, a
+    // sessão da etapa seguinte abre enquanto a anterior ainda está fechando: as duas são a mesma pessoa.
+    const staff = this.staffOf(roomId, p.agent);
+    // O personagem da sala (editor) é das sessões comuns: o agente fixo tem o dele, e não o toma nem o perde.
+    const chosen = staff ? undefined : this.roomCharacter(roomId, p.id, p.sessionId);
+    const person = staff ? this.staffPerson(roomId, staff.slug, true) : (chosen ?? this.deps.names.assign(p.sessionId, this.takenNames()));
     const info: AgentInfo = {
       id: p.id,
       kind: 'main',
       roomId,
       name: person.name,
       look: person.look,
-      role: p.role,
+      role: staff ? 'Agente fixo' : p.role,
       sessionId: p.sessionId,
       account: p.account,
       status: p.status,
@@ -334,7 +383,7 @@ export class Office {
       lastEventAt: p.startedAt,
       statusSince: now,
       stats: zeroStats(),
-      seed: chosen?.seed ?? hash32(p.id),
+      seed: staff ? this.staffSeed(roomId, staff.slug) : (chosen?.seed ?? hash32(p.id)),
     };
     if (p.provider && p.provider !== 'claude') info.provider = p.provider;
     if (chosen) {
@@ -342,6 +391,14 @@ export class Office {
       if (chosen.parts) info.parts = { ...chosen.parts };
     }
     if (p.status === 'waiting') info.waitingFor = p.waitingFor ?? 'responder no terminal';
+    const job = staff ? staff.funcao : this.deps.jobs?.get(p.sessionId);
+    if (job) info.job = job;
+    if (staff) {
+      info.staff = staff.slug;
+      // Personagem salvo no editor para este agente fixo: as peças vêm junto, e o uso renova a validade dele.
+      this.applyStaffCharacter(info);
+      if (info.custom) this.deps.names.claimCharacter(staffKey(roomId, staff.slug), p.sessionId);
+    }
     const rec: AgentRecord = { info, history: [] };
     if (p.status === 'working') rec.turnStart = now;
     this.agents.set(p.id, rec);
@@ -350,14 +407,67 @@ export class Office {
     this.markDirty();
   }
 
+  /**
+   * Dá (ou, com texto vazio, tira) a função de um agente principal de verdade. Devolve a função que ficou
+   * (undefined = sem função), ou null se o agente não existe ou não pode ter função (subagente, demo).
+   */
+  setJob(id: string, raw: unknown): string | undefined | null {
+    const rec = this.agents.get(id);
+    // A função de um agente fixo vem da equipe (comando `equipe editar`), não deste rótulo.
+    if (!rec || rec.info.kind !== 'main' || rec.info.staff || !this.deps.jobs) return null;
+    const job = cleanJob(raw);
+    if (job === rec.info.job) return job;
+    this.deps.jobs.set(rec.info.sessionId, rec.info.roomId, job);
+    if (job) rec.info.job = job;
+    else delete rec.info.job;
+    this.markDirty();
+    return job;
+  }
+
+  /**
+   * A equipe mudou (agente criado, editado ou apagado): garante a sala de cada projeto com equipe, acerta a
+   * função de quem está trabalhando e solta as salas que ficaram sem ninguém.
+   */
+  syncEquipe(): void {
+    const now = this.now();
+    const equipes = this.deps.equipe?.();
+    for (const roomId of equipes?.keys() ?? []) this.ensureRoom(roomId, now);
+    for (const rec of this.agents.values()) {
+      const slug = rec.info.staff;
+      if (!slug) continue;
+      const staff = this.staffOf(rec.info.roomId, slug);
+      if (!staff) continue;
+      rec.info.job = staff.funcao;
+      // O personagem pode ter sido trocado (`equipe editar --nome --visual`): vale já para quem está trabalhando.
+      this.refreshStaff(rec.info, slug);
+    }
+    for (const id of [...this.parkedSince.keys()]) {
+      const [roomId, slug] = [id.slice('equipe:'.length, id.lastIndexOf(':')), id.slice(id.lastIndexOf(':') + 1)];
+      if (!this.staffOf(roomId, slug)) this.parkedSince.delete(id);
+    }
+    this.pruneRooms();
+    this.recomputeRoomNames();
+    this.markDirty();
+  }
+
+  /** Tira uma função das sugestões de uma sala (quem já a tem continua com ela). */
+  forgetJob(roomId: unknown, raw: unknown): boolean {
+    const job = cleanJob(raw);
+    if (typeof roomId !== 'string' || !job || !this.deps.jobs?.forget(roomId, job)) return false;
+    this.markDirty();
+    return true;
+  }
+
   /** Mesmo processo, sessão nova (/clear, /resume): o personagem continua, tarefas e números zeram. */
   switchSession(id: string, sessionId: string): void {
     const rec = this.agents.get(id);
     if (!rec || rec.info.sessionId === sessionId) return;
     const info = rec.info;
+    this.deps.jobs?.remember(sessionId, info.sessionId);
     // Personagem do projeto: o nome escolhido não vira o nome sorteado da sessão nova, e a sessão nova vira a dona dele
-    // (se outro agente da sala salvou por último, o dono é ele e fica como está).
-    if (info.custom) {
+    // (se outro agente da sala salvou por último, o dono é ele e fica como está). O agente fixo não entra nisso: o
+    // personagem dele é dele (chave staffKey), não da sala.
+    if (info.custom && !info.staff) {
       const owner = this.deps.names.character(info.roomId)?.owner;
       if (owner === undefined || owner === info.sessionId) this.deps.names.claimCharacter(info.roomId, sessionId);
     } else {
@@ -548,6 +658,10 @@ export class Office {
     if (!rec || rec.info.status === 'offline') return;
     const now = this.now();
     const info = rec.info;
+    // Agente fixo: o que ele fez nesta sessão fica guardado para quando ele estiver parado.
+    if (info.kind === 'main' && info.staff) {
+      this.deps.ultimos?.set(staffKey(info.roomId, info.staff), { history: rec.history.slice(), title: info.title, stats: { ...info.stats }, sessionId: info.sessionId, startedAt: info.startedAt, endedAt: now });
+    }
     info.status = 'offline';
     info.statusSince = now;
     delete info.waitingFor;
@@ -802,8 +916,11 @@ export class Office {
 
   /** Escolhe nome e aparência do agente principal `id` e grava como o personagem da sala dele. */
   setCharacter(id: string, input: CharacterInput): CharacterResult {
+    // Agente fixo (parado ou trabalhando): o personagem é dele, não da sala.
+    const fixo = this.staffTarget(id);
+    if (fixo) return this.setStaffCharacter(id, fixo, input);
     const rec = this.editable(id);
-    if (!rec) return { result: 'not-found' };
+    if (!rec || rec.info.staff) return { result: 'not-found' };
     const info = rec.info;
     // Quem está saindo conta aqui: ao reabrir dentro do período de graça, ele volta com o nome dele.
     const conflict = this.nameConflict(input.name, id, info.roomId, true);
@@ -814,7 +931,7 @@ export class Office {
     // dele: depois de um reinício, cada sessão volta quem era, e não com o personagem que esta salvou.
     for (const r of this.agents.values()) {
       const o = r.info;
-      if (o.id === id || o.kind !== 'main' || o.roomId !== info.roomId || !o.custom) continue;
+      if (o.id === id || o.kind !== 'main' || o.roomId !== info.roomId || !o.custom || o.staff) continue;
       this.deps.names.remember(o.sessionId, { name: o.name, look: o.look });
       delete o.custom;
     }
@@ -836,8 +953,16 @@ export class Office {
    * sessão (o que outra sessão da sala salvou depois continua dela).
    */
   resetCharacter(id: string): 'ok' | 'not-found' {
+    // Agente fixo: sai o que o editor gravou e volta o personagem de antes (o do comando `equipe editar`, ou o sorteado).
+    const fixo = this.staffTarget(id);
+    if (fixo) {
+      this.deps.names.clearCharacter(staffKey(fixo.roomId, fixo.slug));
+      this.refreshStaffEverywhere(fixo);
+      this.markDirty();
+      return 'ok';
+    }
     const rec = this.editable(id);
-    if (!rec) return 'not-found';
+    if (!rec || rec.info.staff) return 'not-found';
     const info = rec.info;
     const owner = this.deps.names.character(info.roomId)?.owner;
     if (owner === undefined || owner === info.sessionId) this.deps.names.clearCharacter(info.roomId);
@@ -878,19 +1003,93 @@ export class Office {
    * Por que `name` não pode ser o personagem de `id` na sala `roomId` (undefined = pode). Quem está saindo só conta com
    * `leaving`: na chegada costuma ser a mesma sessão reaberta; no editor, é alguém que pode voltar com esse nome.
    */
-  private nameConflict(name: string, id: string, roomId: string, leaving = false): string | undefined {
+  private nameConflict(name: string, id: string, roomId: string, leaving = false, fixo?: StaffTarget): string | undefined {
     const key = nameKey(name);
+    // As sessões do próprio agente fixo (`fixo`) são ele mesmo: não contam.
+    const mesmo = (sala: string, slug: string | undefined): boolean => !!fixo && sala === fixo.roomId && slug === fixo.slug;
     for (const r of this.agents.values()) {
-      if (r.info.id === id || (r.removeAt !== undefined && !leaving) || nameKey(r.info.name) !== key) continue;
+      if (r.info.id === id || mesmo(r.info.roomId, r.info.staff) || (r.removeAt !== undefined && !leaving) || nameKey(r.info.name) !== key) continue;
       return `${r.info.name} já está no escritório em ${this.roomName(r.info.roomId)}`;
     }
     for (const a of this.demoSnap?.agents ?? []) {
       if (nameKey(a.name) === key) return `${a.name} já está no escritório em ${this.roomName(a.roomId)}`;
     }
+    // O nome de cada agente fixo é dele mesmo com ele parado (o escolhido no editor, o do comando ou o sorteado).
+    for (const [sala, equipe] of this.deps.equipe?.() ?? []) {
+      for (const a of equipe.agentes) {
+        if (mesmo(sala, a.slug)) continue;
+        const dele = this.staffCharacter(sala, a.slug)?.name ?? a.personagem?.nome ?? this.deps.names.get(staffKey(sala, a.slug))?.name;
+        if (dele && nameKey(dele) === key) return `${dele} já é um agente fixo em ${this.roomName(sala)}`;
+      }
+    }
     for (const [n, room] of this.deps.names.reservedNames(roomId)) {
-      if (nameKey(n) === key) return `${n} já é o personagem de ${this.roomName(room)}`;
+      if (nameKey(n) === key) return room.startsWith('equipe:') ? `${n} já é o personagem de um agente fixo` : `${n} já é o personagem de ${this.roomName(room)}`;
     }
     return undefined;
+  }
+
+  // ---------------------------------------------------------------- personagem do agente fixo (editor)
+
+  /** Agente fixo que `id` aponta: a sessão dele aberta ou o personagem parado (`equipe:<sala>:<slug>`). */
+  private staffTarget(id: string): StaffTarget | undefined {
+    const rec = this.agents.get(id);
+    if (rec) {
+      const slug = rec.info.kind === 'main' ? rec.info.staff : undefined;
+      return slug && this.staffOf(rec.info.roomId, slug) ? { roomId: rec.info.roomId, slug } : undefined;
+    }
+    if (!id.startsWith('equipe:')) return undefined;
+    const cut = id.lastIndexOf(':');
+    const roomId = id.slice('equipe:'.length, cut);
+    const slug = id.slice(cut + 1);
+    return this.staffOf(roomId, slug) ? { roomId, slug } : undefined;
+  }
+
+  /**
+   * Personagem que o editor da tela gravou para um agente fixo: um por agente (chave staffKey), guardado junto com os
+   * das salas em names.json. Vale por cima do que o comando `equipe editar` escolheu; sem ele, nada muda.
+   */
+  private staffCharacter(roomId: string, slug: string): StoredCharacter | undefined {
+    return this.deps.names.character(staffKey(roomId, slug));
+  }
+
+  /** Peças e marca "personalizado" de um agente fixo, conforme o que o editor gravou para ele. */
+  private applyStaffCharacter(info: AgentInfo): void {
+    const c = info.staff ? this.staffCharacter(info.roomId, info.staff) : undefined;
+    if (c?.parts) info.parts = { ...c.parts };
+    else delete info.parts;
+    if (c) info.custom = true;
+    else delete info.custom;
+  }
+
+  /** Acerta nome, visual, semente e peças de uma sessão de agente fixo pelo que vale agora. */
+  private refreshStaff(info: AgentInfo, slug: string): void {
+    const person = this.staffPerson(info.roomId, slug);
+    info.name = person.name;
+    info.look = person.look;
+    info.seed = this.staffSeed(info.roomId, slug);
+    this.applyStaffCharacter(info);
+  }
+
+  /** O personagem de um agente fixo mudou: vale na hora para as sessões dele que estão abertas. */
+  private refreshStaffEverywhere(t: StaffTarget): void {
+    for (const r of this.agents.values()) {
+      if (r.info.kind === 'main' && r.info.staff === t.slug && r.info.roomId === t.roomId) this.refreshStaff(r.info, t.slug);
+    }
+  }
+
+  private setStaffCharacter(id: string, t: StaffTarget, input: CharacterInput): CharacterResult {
+    const key = staffKey(t.roomId, t.slug);
+    const conflict = this.nameConflict(input.name, id, key, true, t);
+    if (conflict) return { result: 'conflict', message: conflict };
+    const before = this.staffPerson(t.roomId, t.slug);
+    const parts = Object.keys(input.parts).length ? { ...input.parts } : undefined;
+    this.deps.names.setCharacter(key, { name: input.name, look: before.look, seed: input.seed, ...(parts ? { parts } : {}) });
+    this.refreshStaffEverywhere(t);
+    const room = this.roomName(t.roomId);
+    const text = before.name === input.name ? `✏️ ${input.name} mudou de visual em ${room}` : `✏️ ${before.name} agora é ${input.name} em ${room}`;
+    this.notice('character', id, 'info', text, t.roomId, { dedupeMs: 0 });
+    this.markDirty();
+    return { result: 'ok' };
   }
 
   // ---------------------------------------------------------------- relógio
@@ -919,8 +1118,7 @@ export class Office {
     // festa acabou / alarme expirou: o snapshot sai sem o efeito
     if (this.effects.prune(now)) this.markDirty();
     if (removed) {
-      const occupied = new Set([...this.agents.values()].map((r) => r.info.roomId));
-      for (const id of [...this.rooms.keys()]) if (!occupied.has(id)) this.rooms.delete(id);
+      this.pruneRooms();
       this.recomputeRoomNames();
       this.markDirty();
     }
@@ -961,6 +1159,34 @@ export class Office {
       const effect = this.effects.get(room.id, now) ?? this.demoSnap?.rooms.find((r) => r.id === room.id)?.effect;
       if (effect) room.effect = { ...effect };
     }
+    for (const room of rooms) {
+      const jobs = this.deps.jobs?.roomJobs(room.id);
+      if (jobs?.length) room.jobs = jobs;
+      // Sala de equipe (agentes fixos): a tela oferece "Novo agente" nela, e mostra com quais salas ela conversa.
+      const equipe = this.deps.equipe?.().get(room.id);
+      // Aparência escolhida pela pessoa. A sala do dono, sem escolha, é a de uma pessoa só.
+      // (e a Diretoria, sem layout escolhido, é a de quatro gabinetes)
+      const equipes = this.deps.equipe?.();
+      const escolhido = this.deps.roomStyle?.(room.path);
+      const style = equipes ? estiloDaSala(equipes, room.id, escolhido) : escolhido;
+      // (mesa marcada só vale para agente que existe na equipe da sala)
+      if (style?.seats) {
+        const fixos = new Set(equipe?.agentes.map((a) => a.slug));
+        const seats = Object.fromEntries(Object.entries(style.seats).filter(([slug]) => fixos.has(slug)));
+        if (Object.keys(seats).length) style.seats = seats;
+        else delete style.seats;
+      }
+      if (style && Object.keys(style).length) room.style = style;
+      if (equipe) {
+        room.team = true;
+        // Quantos agentes fixos cabem: o limite das configurações da sala, sem passar das mesas do layout.
+        const limite = equipes ? limiteDaSala(equipes, room.id, escolhido) : undefined;
+        if (limite) room.maxAgents = limite;
+        if (equipe.escritorio) room.office = true;
+        const links = [...new Set([equipe.diretoria, ...(equipe.ligadas ?? [])].filter((x): x is string => !!x && x !== room.id))];
+        if (links.length) room.links = links;
+      }
+    }
     const perms = this.deps.permissions?.();
     const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
     const reach = this.deps.messages?.();
@@ -975,12 +1201,14 @@ export class Office {
     const trim = (a: AgentInfo): AgentInfo => (a.recent.length > SNAPSHOT_RECENT ? { ...a, recent: a.recent.slice(-SNAPSHOT_RECENT) } : a);
     const sessions = new Map<string, number>();
     for (const a of real) if (a.kind === 'main' && a.status !== 'offline') sessions.set(a.account, (sessions.get(a.account) ?? 0) + 1);
+    const accounts = this.deps.accounts(sessions);
+    const parked = this.parkedStaff(real, now, accounts[0]?.id ?? '');
     return {
       rev: this.rev,
       serverTime: now,
       rooms,
-      agents: [...real, ...demoAgents].map(trim),
-      accounts: [...this.deps.accounts(sessions), ...(this.demoSnap?.accounts ?? [])],
+      agents: this.withStaffAi(this.markMeetings([...real, ...parked, ...demoAgents].map(trim))),
+      accounts: [...accounts, ...(this.demoSnap?.accounts ?? [])],
       meta: {
         demo: this.isDemo(),
         sources: this.deps.sources(),
@@ -989,6 +1217,8 @@ export class Office {
         build: this.deps.build?.(),
         terminal: this.deps.terminal === true,
         messages: this.deps.messages !== undefined,
+        officeStyle: this.deps.officeStyle?.(),
+        officeColors: this.officeColorsForMeta(),
         updates: this.deps.updates?.(),
       },
     };
@@ -999,8 +1229,114 @@ export class Office {
     const used = new NameSet();
     for (const r of this.agents.values()) if (r.info.id !== exceptId) used.add(r.info.name);
     for (const a of this.demoSnap?.agents ?? []) used.add(a.name);
+    // Os nomes dos agentes fixos ficam reservados mesmo com eles parados.
+    for (const [roomId, equipe] of this.deps.equipe?.() ?? []) {
+      for (const a of equipe.agentes) {
+        const p = this.deps.names.get(staffKey(roomId, a.slug));
+        if (p) used.add(p.name);
+        if (a.personagem?.nome) used.add(a.personagem.nome);
+      }
+    }
     for (const n of this.deps.names.reservedNames().keys()) used.add(n);
     return used;
+  }
+
+  /** Salas sem ninguém saem, menos as de projeto com equipe (os agentes fixos moram lá). */
+  private pruneRooms(): void {
+    const keep = new Set([...this.agents.values()].map((r) => r.info.roomId));
+    for (const roomId of this.deps.equipe?.().keys() ?? []) keep.add(roomId);
+    for (const id of [...this.rooms.keys()]) if (!keep.has(id)) this.rooms.delete(id);
+  }
+
+  private staffOf(roomId: string, slug: string | undefined): EquipeAgente | undefined {
+    return slug ? this.deps.equipe?.().get(roomId)?.agentes.find((a) => a.slug === slug) : undefined;
+  }
+
+  /**
+   * A sala em que mora o agente `slug` que está trabalhando na pasta `roomId` sem ser dela: a Diretoria da equipe,
+   * ou uma sala com que ela conversa (ligada pela tela).
+   */
+  private salaDoDiretor(roomId: string, slug: string | undefined): string | undefined {
+    const equipe = slug ? this.deps.equipe?.().get(roomId) : undefined;
+    if (!equipe || this.staffOf(roomId, slug)) return undefined;
+    for (const casa of [equipe.diretoria, ...(equipe.ligadas ?? [])]) if (casa && this.staffOf(casa, slug)) return casa;
+    return undefined;
+  }
+
+  /** Semente da aparência do agente fixo: a escolhida (`equipe editar --semente`) ou a de sempre. */
+  private staffSeed(roomId: string, slug: string): number {
+    return this.staffCharacter(roomId, slug)?.seed ?? this.staffOf(roomId, slug)?.personagem?.semente ?? hash32(staffKey(roomId, slug));
+  }
+
+  /** Nome do agente fixo: o guardado; na primeira vez, um que ninguém usa. `touch` renova a data do guardado. */
+  private staffPerson(roomId: string, slug: string, touch = false): PersonName {
+    const key = staffKey(roomId, slug);
+    const stored = this.deps.names.get(key);
+    let base = stored ?? this.deps.names.assign(key, this.takenNames());
+    if (stored && touch) this.deps.names.remember(key, stored);
+    // Nome e aparência escolhidos para o agente valem por cima do sorteio.
+    const p = this.staffOf(roomId, slug)?.personagem;
+    // Só a aparência foi escolhida (tela "Novo agente"): o nome sorteado tem de combinar com ela.
+    if (p?.look && !p.nome && base.look !== p.look) {
+      const used = this.takenNames();
+      const livres = NAME_POOL.filter((n) => n.look === p.look && !used.has(n.name));
+      if (livres.length) {
+        let soma = 0;
+        for (const ch of key) soma = (soma * 31 + ch.charCodeAt(0)) >>> 0;
+        base = livres[soma % livres.length];
+        this.deps.names.remember(key, base);
+      }
+    }
+    const doComando = p ? { name: p.nome ?? base.name, look: p.look ?? base.look } : base;
+    // O que o editor da tela gravou para este agente vale por cima (o visual `look` não se edita lá: fica o de antes).
+    const doEditor = this.staffCharacter(roomId, slug);
+    return doEditor ? { name: doEditor.name, look: doEditor.look } : doComando;
+  }
+
+  /** Agentes fixos sem sessão aberta: ficam no escritório, parados, esperando demanda. */
+  private parkedStaff(real: AgentInfo[], now: number, account: string): AgentInfo[] {
+    const out: AgentInfo[] = [];
+    const live = new Set(real.filter((a) => a.staff && a.status !== 'offline').map((a) => staffKey(a.roomId, a.staff!)));
+    for (const [roomId, equipe] of this.deps.equipe?.() ?? []) {
+      for (const a of equipe.agentes) {
+        const id = staffKey(roomId, a.slug);
+        if (live.has(id)) {
+          this.parkedSince.delete(id);
+          continue;
+        }
+        let since = this.parkedSince.get(id);
+        if (since === undefined) this.parkedSince.set(id, (since = now));
+        const person = this.staffPerson(roomId, a.slug);
+        const ultimo = this.deps.ultimos?.get(id);
+        const doEditor = this.staffCharacter(roomId, a.slug);
+        out.push({
+          id,
+          kind: 'main',
+          roomId,
+          name: person.name,
+          look: person.look,
+          role: 'Agente fixo',
+          job: a.funcao,
+          staff: a.slug,
+          parked: true,
+          sessionId: '',
+          account,
+          status: 'idle',
+          // O último trabalho continua na linha do tempo, com o título e os números dele.
+          recent: ultimo ? ultimo.history.slice(-RECENT_LIMIT) : [],
+          ...(ultimo?.title ? { title: ultimo.title } : {}),
+          ...(ultimo ? { lastSessionId: ultimo.sessionId, lastEndedAt: ultimo.endedAt } : {}),
+          tasks: [],
+          startedAt: a.criadoEm ?? since,
+          lastEventAt: ultimo?.endedAt ?? since,
+          statusSince: since,
+          stats: ultimo ? { ...ultimo.stats } : zeroStats(),
+          seed: this.staffSeed(roomId, a.slug),
+          ...(doEditor ? { custom: true as const, ...(doEditor.parts ? { parts: { ...doEditor.parts } } : {}) } : {}),
+        });
+      }
+    }
+    return out;
   }
 
   private descendants(id: string): AgentRecord[] {
@@ -1033,9 +1369,46 @@ export class Office {
       const alias = this.deps.roomAlias?.(path);
       if (alias) this.roomNames.set(id, alias);
     }
+    // Projeto com equipe pode ter nome próprio (`equipe nome "..."`): vale no lugar do nome da pasta e do nome dado
+    // pela tela (Renomear), para a sala ter um nome só no escritório, no painel de Demandas e nos avisos do Mac.
+    for (const [roomId, equipe] of this.deps.equipe?.() ?? []) {
+      if (equipe.nomeProprio && this.roomNames.has(roomId)) this.roomNames.set(roomId, equipe.nome);
+    }
+  }
+
+  /** Nome próprio da equipe da sala (`equipe nome`), se houver: é ele que vale, e a tela não o troca. */
+  teamRoomName(roomId: string): string | undefined {
+    const equipe = this.deps.equipe?.().get(roomId);
+    return equipe?.nomeProprio ? equipe.nome : undefined;
   }
 
   /** Um nome de sala mudou (renomear): recalcula e transmite. */
+  /** Marca quem está em reunião (AgentInfo.meeting): os agentes fixos da lista e os subagentes deles. */
+  /** Agente fixo: a IA e o nível dele (do registro da equipe), para a gaveta mostrar e deixar mudar. */
+  private withStaffAi(agents: AgentInfo[]): AgentInfo[] {
+    const equipes = this.deps.equipe?.();
+    if (!equipes?.size) return agents;
+    return agents.map((a) => {
+      const ia = a.staff && a.kind === 'main' ? equipes.get(a.roomId)?.agentes.find((x) => x.slug === a.staff)?.ia : undefined;
+      return ia ? { ...a, ai: ia } : a;
+    });
+  }
+
+  private markMeetings(agents: AgentInfo[]): AgentInfo[] {
+    const em = this.deps.meetings?.();
+    if (!em?.size) return agents;
+    const marcados = new Set<string>();
+    for (const a of agents) if (a.staff && a.kind === 'main' && em.has(`${a.roomId}\n${a.staff}`)) marcados.add(a.id);
+    if (!marcados.size) return agents;
+    return agents.map((a) => (marcados.has(a.id) || (a.parentId && marcados.has(a.parentId)) ? { ...a, meeting: true } : a));
+  }
+
+  /** As cores escolhidas, ou nada quando ninguém escolheu (o campo nem vai para a tela). */
+  private officeColorsForMeta(): OfficeColors | undefined {
+    const c = this.deps.officeColors?.();
+    return c && (c.primary || c.secondary) ? c : undefined;
+  }
+
   refreshRoomNames(): void {
     this.recomputeRoomNames();
     this.markDirty();

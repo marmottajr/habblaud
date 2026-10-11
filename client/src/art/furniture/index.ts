@@ -37,6 +37,10 @@ function build(kind: FurnitureKind, variant: string | undefined, state: number, 
       return O.desk(variant, seed);
     case 'desk_back':
       return O.deskBack(variant, seed);
+    case 'desk_exec':
+      return O.deskExec(variant, seed);
+    case 'conference_table':
+      return O.conferenceTable(variant, seed);
     case 'office_chair':
       return O.officeChair(variant);
     case 'office_chair_front':

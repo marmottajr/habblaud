@@ -139,6 +139,8 @@ export const ICONS = {
     '......#...',
     '..........',
   ]),
+  // balão de conversa (o botão que abre a conversa com o dono do escritório)
+  chat: pixelIcon(['.########.', '##########', '##########', '#.##.##.##', '##########', '##########', '.########.', '..###.....', '..##......', '..#.......']),
   pencil: pixelIcon([
     '.......##.',
     '......#..#',

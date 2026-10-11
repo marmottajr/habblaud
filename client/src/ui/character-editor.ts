@@ -14,6 +14,10 @@ import { isLocalHostname } from './permission';
 /** Pixels de tela por pixel do personagem na prévia. */
 const PREVIEW_SCALE = 4;
 
+const SCOPE_ROOM = 'Vale para o projeto: a próxima sessão nesta sala chega com este personagem.';
+/** Agente fixo da equipe: um personagem por agente, não por sala. */
+const SCOPE_STAFF = 'Vale para este agente fixo: ele é sempre este personagem, parado ou trabalhando.';
+
 function randomSeed(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0];
 }
@@ -38,6 +42,10 @@ export class CharacterEditor {
   private readonly error: HTMLElement;
   private readonly saveBtn: HTMLButtonElement;
   private readonly resetBtn: HTMLButtonElement;
+  /** Para quem vale o que for salvo: a sala (sessão comum) ou o agente fixo. */
+  private readonly scope: HTMLElement;
+  /** Agente fixo da equipe: o personagem é dele, e "voltar" devolve o de antes (o do comando `equipe editar`, ou o sorteado). */
+  private staff = false;
 
   constructor(private ctx: UiContext) {
     this.button = iconButton(ICONS.pencil, 'Editar personagem', () => (this.editing ? this.cancel() : this.start()), 'ui-icon-btn--sm ui-char-edit');
@@ -52,6 +60,7 @@ export class CharacterEditor {
     this.saveBtn = h('button', { class: 'ui-btn ui-btn--primary', type: 'button', text: 'Salvar', on: { click: () => void this.save() } });
     const cancel = h('button', { class: 'ui-btn', type: 'button', text: 'Cancelar', on: { click: () => this.cancel() } });
     this.resetBtn = h('button', { class: 'ui-link-btn ui-char__reset', type: 'button', text: 'Voltar ao sorteio', on: { click: () => void this.reset() } });
+    this.scope = h('p', { class: 'ui-muted ui-small', text: SCOPE_ROOM });
     this.el = h(
       'section',
       { class: 'ui-char', hidden: true, attrs: { 'aria-label': 'Editar personagem' }, on: { keydown: (ev) => this.onKey(ev) } },
@@ -61,7 +70,7 @@ export class CharacterEditor {
         this.preview,
         h('div', { class: 'ui-char__head' }, h('label', { class: 'ui-char__label' }, h('span', { text: 'Nome' }), this.nameInput), roll),
       ),
-      h('p', { class: 'ui-muted ui-small', text: 'Vale para o projeto: a próxima sessão nesta sala chega com este personagem.' }),
+      this.scope,
       this.groups,
       this.error,
       h('div', { class: 'ui-char__actions' }, this.saveBtn, cancel, this.resetBtn),
@@ -101,7 +110,9 @@ export class CharacterEditor {
     this.draft = { ...this.base, ...a.parts };
     this.nameInput.value = a.name;
     this.confirmingReset = false;
-    setText(this.resetBtn, 'Voltar ao sorteio');
+    this.staff = !!a.staff;
+    setText(this.scope, this.staff ? SCOPE_STAFF : SCOPE_ROOM);
+    setText(this.resetBtn, this.staff ? 'Voltar ao personagem de antes' : 'Voltar ao sorteio');
     setHidden(this.resetBtn, !a.custom);
     this.showError(null);
     this.editing = true;
@@ -159,7 +170,7 @@ export class CharacterEditor {
     if (this.busy) return;
     if (!this.confirmingReset) {
       this.confirmingReset = true;
-      setText(this.resetBtn, 'Confirmar: voltar ao sorteio');
+      setText(this.resetBtn, this.staff ? 'Confirmar: voltar ao personagem de antes' : 'Confirmar: voltar ao sorteio');
       return;
     }
     this.busy = true;
@@ -168,7 +179,7 @@ export class CharacterEditor {
     if (err) return this.showError(err);
     this.close();
     this.button.focus();
-    this.ctx.announce('O personagem voltou ao sorteio.');
+    this.ctx.announce(this.staff ? 'O personagem voltou ao de antes.' : 'O personagem voltou ao sorteio.');
   }
 
   private showError(message: string | null): void {

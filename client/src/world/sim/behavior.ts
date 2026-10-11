@@ -134,6 +134,15 @@ export function chooseSeat(spots: readonly SpotDef[], isFree: (id: string) => bo
   return null;
 }
 
+/**
+ * Os lugares de trabalho de uma sala (as mesas; na sala de reunião, as cadeiras em volta da mesa), numerados como
+ * se lê: de cima para baixo, da esquerda para a direita. É a numeração das mesas marcadas (RoomStyle.seats).
+ */
+export function workSeats(spots: readonly SpotDef[]): SpotDef[] {
+  const kind = spots.some((s) => s.kind === 'desk') ? 'desk' : 'stool';
+  return spots.filter((s) => s.kind === kind).sort((a, b) => a.ty - b.ty || a.tx - b.tx);
+}
+
 /** Corre para a mesa se estiver longe (ou sempre que precisa do usuário). Esperando um shell: só se estiver muito longe. */
 export function shouldRun(pathTiles: number, mode: Mode): boolean {
   if (mode === 'wait') return pathTiles > 2;

@@ -12,7 +12,7 @@ import type { ExteriorLayout, SlotShell } from '../layout/exterior';
 import type { RoomState } from '../sim/room-state';
 import type { Sim } from '../sim/sim';
 import { buildAnim } from './anim';
-import { ambientAt, ambientDistance, approachAmbient, effectiveHour, isNeutral, mixRgb, rgbCss, sunbeamAt, WHITE, type Ambient, type DaylightMode, type Rgb } from './daylight';
+import { ambientAt, ambientDistance, approachAmbient, effectiveHour, isNeutral, mixRgb, rgbCss, sunbeamAt, WHITE, type Ambient, type DaylightMode, type LightTone, type Rgb } from './daylight';
 import { glowSprite } from './props';
 import { furnitureSprites, wallItemOrigin, wallSprites, type AreaVis, type FurnVis, type WallVis } from './scene';
 
@@ -24,8 +24,11 @@ const MAP_SCALE = 2;
 const FADE_MS = 1_200;
 /** Ocupação das áreas comuns (luz por presença) reavaliada a cada isto (ms). */
 const OCCUPANCY_MS = 250;
-const LAMP_WARM: Rgb = [255, 236, 196];
-const STREET_WARM: Rgb = [255, 214, 150];
+// Luminárias e postes: luz amarelada no tom "quente" (o de sempre, do estilo Clássico) e branca no tom "branca"
+// (a noite azul-marinho dos outros estilos).
+const LAMP_GLOW: Record<LightTone, Rgb> = { quente: [255, 236, 196], branca: [248, 250, 255] };
+const STREET_GLOW: Record<LightTone, Rgb> = { quente: [255, 214, 150], branca: [232, 240, 255] };
+const BULB_GLOW: Record<LightTone, string> = { quente: '#ffcf7a', branca: '#eef3ff' };
 const SCREEN_COOL: Rgb = [196, 222, 255];
 const ARCADE_GLOW: Rgb = [236, 190, 255];
 const FIREFLIES = 26;
@@ -84,23 +87,28 @@ function haloSprite(c: Rgb, size: number): HTMLCanvasElement {
   return s;
 }
 
-let vignette: HTMLCanvasElement | null = null;
+const vignettes = new Map<LightTone, HTMLCanvasElement>();
 
-/** Vinheta (multiplicação) das salas acesas à noite: centro neutro, cantos um pouco mais escuros e quentes. */
-function vignetteSprite(): HTMLCanvasElement {
-  if (vignette) return vignette;
+/**
+ * Vinheta (multiplicação) das salas acesas à noite: centro neutro, cantos um pouco mais escuros, puxando para o
+ * quente na luz amarelada e para o azul na luz branca.
+ */
+function vignetteSprite(tone: LightTone): HTMLCanvasElement {
+  let v = vignettes.get(tone);
+  if (v) return v;
   const size = 64;
-  vignette = document.createElement('canvas');
-  vignette.width = size;
-  vignette.height = size;
-  const ctx = vignette.getContext('2d')!;
+  v = document.createElement('canvas');
+  v.width = size;
+  v.height = size;
+  const ctx = v.getContext('2d')!;
   const g = ctx.createRadialGradient(size / 2, size * 0.45, 0, size / 2, size * 0.45, size * 0.62);
   g.addColorStop(0, 'rgb(255,255,255)');
-  g.addColorStop(0.5, 'rgb(252,248,242)');
-  g.addColorStop(1, 'rgb(212,196,176)');
+  g.addColorStop(0.5, tone === 'quente' ? 'rgb(252,248,242)' : 'rgb(246,248,253)');
+  g.addColorStop(1, tone === 'quente' ? 'rgb(212,196,176)' : 'rgb(190,200,228)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
-  return vignette;
+  vignettes.set(tone, v);
+  return v;
 }
 
 const beams = new Map<string, HTMLCanvasElement>();
@@ -145,6 +153,8 @@ export class Lighting {
   private lastNow = 0;
   private mode: DaylightMode | null = null;
   private override: number | null = null;
+  /** O tom da noite em uso: o de sempre no estilo Clássico; azul-marinho com luz branca nos outros. */
+  private tone: LightTone = 'quente';
   private map: HTMLCanvasElement | null = null;
   private mapCtx: CanvasRenderingContext2D | null = null;
   private mapKey = '';
@@ -170,7 +180,8 @@ export class Lighting {
    */
   update(now: number, mode: DaylightMode, override: number | null, date: Date): number {
     const hour = effectiveHour(mode, override, date);
-    const changed = mode !== this.mode || override !== this.override;
+    const tone: LightTone = this.sim.officeStyleId === 'classico' ? 'quente' : 'branca';
+    const changed = mode !== this.mode || override !== this.override || tone !== this.tone;
     if (now - this.reducedAt > 5_000) {
       this.reducedAt = now;
       this.reduced = prefersReducedMotion();
@@ -180,7 +191,8 @@ export class Lighting {
       this.mode = mode;
       this.override = override;
       this.calcAt = now;
-      this.target = ambientAt(hour);
+      this.tone = tone;
+      this.target = ambientAt(hour, tone);
       if (first || this.reduced) this.ambient = this.target;
     }
     const dt = Math.max(0, Math.min(250, now - this.lastNow));
@@ -320,7 +332,7 @@ export class Lighting {
   /** Tudo o que muda o mapa, em passos discretos (evita refazê-lo a cada frame). */
   private lightKey(scene: LightScene, now: number): string {
     const a = this.ambient;
-    let k = `${Math.round(a.night * 200)}|${a.outside.join(',')}|${a.inside.join(',')}|${a.dim.join(',')}|${this.sim.building.cols}`;
+    let k = `${this.tone}|${Math.round(a.night * 200)}|${a.outside.join(',')}|${a.inside.join(',')}|${a.dim.join(',')}|${this.sim.building.cols}`;
     for (const vis of scene.areas.values()) {
       const { lit, cover } = this.areaLight(vis, now);
       k += `|${vis.id}:${Math.round(lit * 24)}:${Math.round(cover * 20)}`;
@@ -372,7 +384,7 @@ export class Lighting {
         const r = shade ?? p;
         m.globalCompositeOperation = 'multiply';
         m.globalAlpha = Math.min(1, glow);
-        m.drawImage(vignetteSprite(), r.x, r.y, r.w, r.h);
+        m.drawImage(vignetteSprite(this.tone), r.x, r.y, r.w, r.h);
         m.globalAlpha = 1;
         m.globalCompositeOperation = 'source-over';
       }
@@ -383,8 +395,8 @@ export class Lighting {
     }
     // halos: luminárias acesas, máquinas, postes, a luz das janelas no gramado
     m.globalCompositeOperation = 'lighten';
-    const lamp = haloSprite(LAMP_WARM, 64);
-    const street = haloSprite(STREET_WARM, 64);
+    const lamp = haloSprite(LAMP_GLOW[this.tone], 64);
+    const street = haloSprite(STREET_GLOW[this.tone], 64);
     const cool = haloSprite(SCREEN_COOL, 48);
     const arcade = haloSprite(ARCADE_GLOW, 48);
     const k = Math.min(1, (n - 0.12) / 0.5);
@@ -458,7 +470,8 @@ export class Lighting {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     const cool = glowSprite('#7fb8ff', 48);
-    const warm = glowSprite('#ffcf7a', 64);
+    // bulbo das luminárias e dos postes, no tom da noite
+    const warm = glowSprite(BULB_GLOW[this.tone], 64);
     const inView = (x: number, y: number, m: number) => x > view.x0 - m && x < view.x1 + m && y > view.y0 - m && y < view.y1 + m;
     for (const vis of scene.areas.values()) {
       const p = vis.px;
@@ -469,7 +482,7 @@ export class Lighting {
       if (k < 0.2) continue;
       for (const f of vis.furniture) {
         if (!inView(f.ax, f.ay, 40)) continue;
-        if (f.kind === 'desk' || f.kind === 'desk_back') {
+        if (f.kind === 'desk' || f.kind === 'desk_back' || f.kind === 'desk_exec') {
           const mode = scene.deskScreen(f, vis);
           if (mode === 'off') continue;
           // quem trabalha à noite fica com o rosto iluminado pela tela

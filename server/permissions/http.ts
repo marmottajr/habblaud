@@ -31,7 +31,15 @@ export function waitMs(url: URL): number {
   return Math.min(WAIT_MAX_MS, Math.max(50, raw * 1_000));
 }
 
-export function createPermissionRoutes(registry: PermissionRegistry): (req: IncomingMessage, res: ServerResponse, path: string) => void {
+export interface PermissionRouteOptions {
+  /**
+   * Confere a chave do escritório na decisão vinda da página (server/equipe/pedidos.ts).
+   * 'errada' = recusa com 401; 'desligado' (não há chave criada) = vale como antes, sem chave.
+   */
+  conferirChave?: (enviada: string | undefined) => 'ok' | 'desligado' | 'errada';
+}
+
+export function createPermissionRoutes(registry: PermissionRegistry, opts: PermissionRouteOptions = {}): (req: IncomingMessage, res: ServerResponse, path: string) => void {
   const register = async (req: IncomingMessage, res: ServerResponse) => {
     const body = await readJson(req);
     const r = registry.register(body);
@@ -97,6 +105,12 @@ export function createPermissionRoutes(registry: PermissionRegistry): (req: Inco
     }
     if (m[2] === 'decision') {
       if (method !== 'POST') return methodNotAllowed(res, 'POST');
+      // Aprovar pelo escritório age sobre a sessão: com a chave criada, só quem a tem decide.
+      const chave = req.headers['x-equipe-chave'];
+      if (opts.conferirChave?.(typeof chave === 'string' ? chave : undefined) === 'errada') {
+        req.resume();
+        return sendJson(res, 401, { error: 'chave do escritório ausente ou errada' });
+      }
       decide(req, res, id).catch((err) => fail(res, err));
       return;
     }

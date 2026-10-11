@@ -139,6 +139,8 @@ export type FurnitureKind =
   // --- escritório (salas de projeto)
   | 'desk' // 2x1. Mesa com monitor virado para o SUL (tela visível para a câmera), teclado e caneca. rects.screen = área da tela.
   | 'desk_back' // 2x1. Mesa vista pelo outro lado: vemos a TRASEIRA do monitor; a pessoa senta ao NORTE dela, virada para baixo (rosto visível). Para ilhas de mesas face a face. Mesmas variants de desk.
+  | 'desk_exec' // (Aditivo) 4x1. Mesa executiva, peça única, vista pelo outro lado como a desk_back: tampo inteiro, painel frontal fechado, TRÊS monitores escuros de costas, luminária e pasta; a pessoa senta ao NORTE, no meio, virada para baixo. Mesmas variants de desk ('black' = tampo preto, aditivo).
+  | 'conference_table' // (Aditivo) 6x2. Mesa de conferência, peça única: tampo longo com faixa central, viva-voz e blocos de notas; cadeiras nos dois lados compridos. Mesmas variants de desk.
   | 'office_chair_front' // 1x1 assento virado para BAIXO (encosto ao norte, desenhado ANTES do personagem; sem front). Par da desk_back.
   | 'office_chair' // 1x1 assento. Encosto ao sul (personagem senta virado para cima, de costas). front = encosto.
   | 'bookshelf' // 2x1 encostada na parede norte. Livros coloridos.
@@ -215,8 +217,10 @@ export interface FurnitureDef {
  * Ordenação de profundidade: por y da âncora no mundo (maior y = desenhado depois).
  */
 export const FURNITURE: Readonly<Record<FurnitureKind, FurnitureDef>> = {
-  desk: { mount: 'floor', footprint: { w: 2, h: 1 }, blocks: true, variants: ['wood', 'white', 'dark'] },
-  desk_back: { mount: 'floor', footprint: { w: 2, h: 1 }, blocks: true, variants: ['wood', 'white', 'dark'] },
+  desk: { mount: 'floor', footprint: { w: 2, h: 1 }, blocks: true, variants: ['wood', 'white', 'dark', 'black'] },
+  desk_back: { mount: 'floor', footprint: { w: 2, h: 1 }, blocks: true, variants: ['wood', 'white', 'dark', 'black'] },
+  desk_exec: { mount: 'floor', footprint: { w: 4, h: 1 }, blocks: true, variants: ['wood', 'white', 'dark', 'black'] },
+  conference_table: { mount: 'floor', footprint: { w: 6, h: 2 }, blocks: true, variants: ['wood', 'white', 'dark', 'black'] },
   office_chair_front: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: false, seat: true, variants: ['black', 'blue', 'red', 'green', 'gray'] },
   office_chair: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: false, seat: true, variants: ['black', 'blue', 'red', 'green', 'gray'] },
   bookshelf: { mount: 'floor', footprint: { w: 2, h: 1 }, blocks: true },
@@ -316,6 +320,12 @@ export interface RoomTheme {
   accent: string;
   deskVariant: string;
   chairVariant: string;
+  /** (Aditivo) Piso da sala; ausente = porcelanato ('marble') com um leve tom de `carpet`. */
+  floor?: FloorKind;
+  /** (Aditivo) Cor do piso quando ele é 'carpet'; ausente = `carpet`. */
+  floorColor?: string;
+  /** (Aditivo) Sala formal: cadeiras de escritório nas reuniões, poltronas no lugar dos puffs, sem pôsteres. */
+  formal?: boolean;
 }
 
 /** Ícones pixel art pequenos (~8–12px) para estados acima da cabeça. */

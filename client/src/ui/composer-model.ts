@@ -8,7 +8,9 @@ import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
 /** Dica para quem tem o recurso ligado, mas a sessão do agente não está com o plugin conectado. */
 export const PLUGIN_HINT = 'Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)';
 /** A mesma dica para um agente do Codex sem entregador (no modo Node o próprio servidor entrega). */
-export const CODEX_BRIDGE_HINT = 'Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho';
+/** Agente fixo da equipe: a conversa com ele é pelo recado da gaveta, não por esta caixa. */
+export const STAFF_HINT = 'Agente fixo: para falar com ele, use “Falar com” (ou “Nova demanda”) no painel do agente';
+export const CODEX_BRIDGE_HINT ='Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho';
 
 /**
  * - ready: dá para mandar (principal com o plugin conectado, recurso ligado, página local);
@@ -30,6 +32,10 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (env.replaying) return { kind: 'off', text: 'Sem mensagens no timelapse: o escritório mostrado é o de outro momento' };
   if (agent?.kind === 'sub') return { kind: 'off', text: 'Subagentes não recebem mensagens: escreva para o agente principal' };
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: 'Sessão encerrada' };
+  // Agente fixo da equipe: fala-se com ele pela caixa "Falar com" do painel, que digita o recado
+  // no meio do trabalho. A mensagem deste plugin só entraria quando ele terminasse o turno, e a sessão de uma demanda
+  // fecha ao terminar: por isso esta caixa fica para as sessões comuns.
+  if (agent.staff) return { kind: 'off', text: STAFF_HINT };
   const codex = agent.provider === 'codex';
   if (!env.enabled) return { kind: 'off', text: codex ? 'Para responder, use o Codex' : 'Para responder, use o terminal do Claude Code' };
   if (!env.local) return { kind: 'off', text: 'Para mandar mensagens por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1)' };

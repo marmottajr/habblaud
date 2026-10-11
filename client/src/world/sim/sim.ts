@@ -1,8 +1,10 @@
 // Simulação do escritório: concilia snapshots do servidor com os personagens e salas do mundo,
 // planeja comportamentos e executa as filas de passos a cada frame.
 import { partsKey } from '../../../../shared/appearance';
+import { parseOfficeColors, parseOfficeStyle, roomStyleKey, seatsKey, type OfficeColors, type OfficeStyleId } from '../../../../shared/roomstyle';
 import type { AgentInfo, OfficeSnapshot, Provider, RoomInfo } from '../../../../shared/types';
 import type { ArtModule, Dir, RoomTheme } from '../../art/api';
+import { resolveTheme } from '../../art/roomlook';
 import type { WorldOptions } from '../api';
 import { COL_W, COMPACT_DELAY_MS, DISMANTLE_DELAY_MS, FOOT_DX, FOOT_DY, MISSING_DEBOUNCE_MS, RUN_SPEED, TILE, WALK_SPEED } from '../constants';
 import { assembleBuilding, type BuildingLayout } from '../layout/building';
@@ -25,6 +27,7 @@ import {
   modeFor,
   pickIdleActivity,
   shouldRun,
+  workSeats,
   type IdleActivity,
   type Mode,
 } from './behavior';
@@ -53,6 +56,13 @@ const MAX_EFFECTS = 32;
 /** Dono das reservas dos lugares de uma sala fantasma (endereço antigo de uma mudança). */
 const GHOST_OWNER = '@mudança';
 
+/** A vaga da sala do dono: a primeira ao sul do corredor, encostada no lounge. */
+export const OWNER_SLOT = 1;
+/** A vaga da sala de reunião de cenário: em frente à sala do dono, do outro lado do corredor. */
+export const MEETING_SLOT = 0;
+/** O id da sala de reunião de cenário: o da sala do dono mais este sufixo (não existe no servidor). */
+export const MEETING_SUFFIX = '#reuniao';
+
 const FALLBACK_THEME: RoomTheme = {
   carpet: '#5b7fa6',
   carpet2: '#4f7093',
@@ -62,6 +72,8 @@ const FALLBACK_THEME: RoomTheme = {
   chairVariant: 'black',
 };
 
+/** Em reunião, o tempo sentado entre uma saída (água ou banheiro) e a próxima. */
+export const MEETING_SIT_MS: readonly [number, number] = [90_000, 240_000];
 const LOUNGE_SEATS: SpotKind[] = ['sofa', 'armchair', 'beanbag'];
 /** Onde dá para sentar e mexer no celular. */
 const PHONE_SEATS: SpotKind[] = ['beanbag', 'sofa', 'armchair', 'cafe_seat', 'bench'];
@@ -115,6 +127,32 @@ export class Sim {
   private lastSnapshot: OfficeSnapshot | null = null;
   /** Desde quando há uma vaga livre antes da última sala (0 = não há). */
   private gapSince = 0;
+  /** O estilo geral do escritório (OfficeSnapshot.meta.officeStyle), escolhido em Configurações. */
+  private officeStyle: OfficeStyleId = 'classico';
+
+  /**
+   * A sala em que o personagem fica: a dele; em reunião (AgentInfo.meeting: uma demanda em andamento com agentes
+   * de mais de uma sala), a sala de reunião, enquanto ela existir.
+   */
+  roomOf(a: AgentInfo): string {
+    return a.meeting && this.meetingRoomId && this.rooms.has(this.meetingRoomId) ? this.meetingRoomId : a.roomId;
+  }
+
+  /** O personagem está na sala de reunião por causa de uma demanda entre salas? */
+  inMeeting(ch: Character): boolean {
+    return !!ch.info.meeting && !!this.meetingRoomId && ch.roomId === this.meetingRoomId;
+  }
+
+  /** O estilo geral em uso (a iluminação escolhe por ele o tom da noite). */
+  get officeStyleId(): OfficeStyleId {
+    return this.officeStyle;
+  }
+  /** As cores do escritório escolhidas em Configurações (OfficeSnapshot.meta.officeColors). */
+  private officeColors: OfficeColors = {};
+  /** A sala do dono do escritório (RoomInfo.office), se houver: a vaga ao lado do lounge é dela. */
+  private ownerRoomId: string | null = null;
+  /** A sala de reunião de cenário (só existe aqui na tela), quando há sala do dono. */
+  private meetingRoomId: string | null = null;
   private moveSeq = 0;
   private shrinkPending = false;
   private nextHousekeeping = 0;
@@ -149,6 +187,23 @@ export class Sim {
     // ---- salas
     let layoutDirty = false;
     const listed = new Set<string>();
+    // o estilo geral do escritório (Configurações) mudou: as áreas comuns e as salas sem estilo próprio acompanham
+    const office = parseOfficeStyle(input.meta.officeStyle);
+    const cores = parseOfficeColors(input.meta.officeColors);
+    if (office !== this.officeStyle || cores.primary !== this.officeColors.primary || cores.secondary !== this.officeColors.secondary) {
+      this.officeStyle = office;
+      this.officeColors = cores;
+      layoutDirty = true;
+    }
+    // a sala do dono (se houver) mora ao lado do lounge: as outras não ocupam aquela vaga
+    const dono = snap.rooms.find((r) => r.office && !this.hiddenRooms.has(r.id));
+    this.ownerRoomId = dono?.id ?? null;
+    // ...e, em frente a ela, fica uma sala de reunião só de cenário (ninguém mora lá; a tela é que a cria)
+    this.meetingRoomId = dono ? `${dono.id}${MEETING_SUFFIX}` : null;
+    if (dono) {
+      const reuniao: RoomInfo = { id: this.meetingRoomId!, name: 'Sala de reunião', path: '', slot: -1, seed: (dono.seed ^ 0x51a7) >>> 0, createdAt: dono.createdAt, style: { layout: 'conferencia' }, decor: true };
+      snap = { ...snap, rooms: [reuniao, ...snap.rooms] };
+    }
     // na ordem de chegada (slot do servidor): na carga inicial as salas ocupam as vagas 0, 1, 2... nessa ordem
     for (const r of [...snap.rooms].sort((a, b) => a.slot - b.slot)) {
       if (this.hiddenRooms.has(r.id)) continue;
@@ -160,7 +215,15 @@ export class Sim {
         continue;
       }
       if (rs.info.name !== r.name || rs.info.seed !== r.seed) rs.version++;
+      // a pessoa trocou o layout, a cor ou o lado da sala: os móveis são outros
+      if (this.styleKeyOf(r) !== rs.styleKey) {
+        this.restyleRoom(rs, r);
+        layoutDirty = true;
+      }
+      const mesasAntes = seatsKey(rs.info.style);
       rs.info = r;
+      // a pessoa reorganizou as mesas da sala: cada um vai para a dele
+      if (seatsKey(r.style) !== mesasAntes) this.reseat(rs);
       if (!rs.listed) {
         rs.listed = true;
         rs.readyToDismantleAt = 0;
@@ -223,25 +286,77 @@ export class Sim {
     if (this.lastSnapshot) this.applySnapshot(this.lastSnapshot, now);
   }
 
-  private createRoom(r: RoomInfo, first: boolean, now: number): RoomState {
-    let theme = FALLBACK_THEME;
+  /** A aparência com que a sala deve estar desenhada: a dela e, sem estilo próprio, o geral do escritório. */
+  private styleKeyOf(r: RoomInfo): string {
+    return `${roomStyleKey(r.style)}@${r.style?.look ? '' : this.officeStyle}@${this.officeColors.primary ?? ''}@${this.officeColors.secondary ?? ''}`;
+  }
+
+  /**
+   * O tema da sala: a cor escolhida pela pessoa (da paleta ou livre), ou a que a semente sorteia; e o estilo por
+   * cima (o da sala, ou o geral do escritório).
+   */
+  private themeOf(r: RoomInfo): RoomTheme {
     try {
-      theme = this.art.roomTheme(r.seed) ?? FALLBACK_THEME;
+      return resolveTheme((seed) => this.art.roomTheme(seed) ?? FALLBACK_THEME, r.seed, r.style, this.officeStyle, this.officeColors);
     } catch {
-      theme = FALLBACK_THEME;
+      return FALLBACK_THEME;
     }
-    // a primeira vaga livre do prédio (o slot do servidor só dá a ordem de chegada)
-    const slot = this.freeSlot();
-    const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed }, theme);
-    const rs = new RoomState(r, theme, layout, first ? 'ready' : 'building', now, first, slot);
+  }
+
+  /**
+   * Refaz a sala no mesmo lugar com a aparência nova. Quem estava sentado ou a caminho de um lugar dela solta o
+   * lugar e planeja de novo (o relayout que vem em seguida tira de cima dos móveis quem ficou em tile ocupado).
+   */
+  private restyleRoom(room: RoomState, r: RoomInfo): void {
+    const dela = (id: string | null | undefined) => !!id && id.startsWith(`${room.id}#`);
+    for (const ch of this.chars.values()) {
+      if (ch.gone) continue;
+      const tocado = dela(ch.atSpot) || dela(ch.homeSpot) || ch.tempSpots.some(dela) || ch.roomId === room.id || inRect(room.layout.rect, ch.tx, ch.ty);
+      if (!tocado) continue;
+      for (const id of [ch.homeSpot, ...ch.tempSpots]) if (dela(id)) this.spots.release(id, ch.id);
+      if (dela(ch.homeSpot)) ch.homeSpot = null;
+      ch.tempSpots = ch.tempSpots.filter((id) => !dela(id));
+      if (dela(ch.atSpot)) {
+        ch.atSpot = null;
+        ch.seated = false;
+        ch.sortY = null;
+      }
+      ch.standTile = null;
+      this.interrupt(ch);
+    }
+    room.info = r;
+    room.styleKey = this.styleKeyOf(r);
+    room.theme = this.themeOf(r);
+    room.layout = layoutProjectRoom({ id: room.id, slot: room.slot, seed: room.seed, style: r.style }, room.theme);
+    room.switchClaim = null;
+    room.version++;
+  }
+
+  private createRoom(r: RoomInfo, first: boolean, now: number): RoomState {
+    const theme = this.themeOf(r);
+    // a primeira vaga livre do prédio (o slot do servidor só dá a ordem de chegada); a sala do dono, ao lado do lounge
+    const slot = this.freeSlot(r.office ? OWNER_SLOT : r.decor ? MEETING_SLOT : undefined);
+    const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed, style: r.style }, theme);
+    // (a sala de cenário já nasce acesa: não há quem acenda)
+    const rs = new RoomState(r, theme, layout, first ? 'ready' : 'building', now, first || !!r.decor, slot);
+    rs.styleKey = this.styleKeyOf(r);
     this.rooms.set(r.id, rs);
     return rs;
   }
 
-  /** Menor vaga sem sala (contando as que ainda estão desmontando). */
-  private freeSlot(): number {
+  /**
+   * Menor vaga sem sala (contando as que ainda estão desmontando). Havendo sala do dono, duas vagas têm dono: a
+   * ao lado do lounge (OWNER_SLOT) é dela e a em frente (MEETING_SLOT) é da sala de reunião de cenário. `pinned`
+   * pede uma dessas; as outras salas pulam as duas.
+   */
+  freeSlot(pinned?: number): number {
     const used = new Set<number>();
     for (const r of this.rooms.values()) if (r.phase !== 'gone') used.add(r.slot);
+    if (pinned !== undefined && !used.has(pinned)) return pinned;
+    if (this.ownerRoomId) {
+      used.add(OWNER_SLOT);
+      used.add(MEETING_SLOT);
+    }
     let slot = 0;
     while (used.has(slot)) slot++;
     return slot;
@@ -260,10 +375,14 @@ export class Sim {
       }
     }
     ch.missingSince = null;
-    if (a.roomId !== ch.roomId && !ch.leaving) {
+    // (quem entra numa reunião vai para a sala de reunião; quando a demanda termina, volta para a dele)
+    const sala = this.roomOf(a);
+    if (sala !== ch.roomId && !ch.leaving) {
       if (ch.homeSpot) this.spots.release(ch.homeSpot, ch.id);
       ch.homeSpot = null;
-      ch.roomId = a.roomId;
+      ch.roomId = sala;
+      // sai já do que estiver fazendo (café, roda de conversa, jogo): a reunião começou, ou acabou
+      ch.nextOutingAt = 0;
       this.interrupt(ch);
     }
     const act = a.activity;
@@ -396,6 +515,8 @@ export class Sim {
       return null;
     }
     const ch = new Character(a, appearance);
+    // (quem já está em reunião aparece direto na sala de reunião)
+    ch.roomId = this.roomOf(a);
     ch.lastActivityId = a.activity?.id ?? null;
     ch.shellDoneAt = latestShellDone(a)?.at ?? 0;
     this.chars.set(a.id, ch);
@@ -426,8 +547,10 @@ export class Sim {
     this.assignHome(ch);
     const home = this.spots.get(ch.homeSpot);
     // primeiro passeio só depois de alguns segundos: a carga inicial mostra todos no lugar
-    ch.nextOutingAt = now + INITIAL_OUTING_DELAY_MS + idleSitMs(ch.rng, this.options().liveliness) * ch.rng();
+    ch.nextOutingAt = now + INITIAL_OUTING_DELAY_MS + this.sitMs(ch) * ch.rng();
     const relaxing =
+      // (quem está em reunião começa na sala de reunião, não no sofá do lounge)
+      !this.inMeeting(ch) &&
       ch.mode === 'idle' &&
       !!home &&
       roomsSeated.has(ch.roomId) &&
@@ -472,12 +595,89 @@ export class Sim {
 
   /** Reserva mesa (ou banqueta/ponto em pé) na sala do personagem. */
   private assignHome(ch: Character): void {
-    if (ch.homeSpot && this.spots.get(ch.homeSpot) && this.spots.ownerOf(ch.homeSpot) === ch.id) return;
-    ch.homeSpot = null;
     const room = this.rooms.get(ch.roomId);
-    if (!room || !room.present) return;
-    const seat = chooseSeat(room.layout.spots, (id) => this.spots.isFree(id, ch.id), ch.info.kind);
+    const presente = room?.present ? room : undefined;
+    // a mesa marcada para ele nas configurações da sala, e as marcadas para os colegas (essas ninguém mais pega)
+    const marcada = presente ? this.assignedSeat(presente, ch) : null;
+    const reservadas = presente ? this.reservedSeats(presente, ch) : new Set<string>();
+    const tem = ch.homeSpot && this.spots.get(ch.homeSpot) && this.spots.ownerOf(ch.homeSpot) === ch.id;
+    if (tem && (marcada ? marcada.id === ch.homeSpot : !reservadas.has(ch.homeSpot!))) return;
+    if (tem) this.spots.release(ch.homeSpot, ch.id);
+    ch.homeSpot = null;
+    if (!presente) return;
+    if (marcada) {
+      // quem estava nela (sem ser a dele) levanta e procura outra
+      const dono = this.spots.ownerOf(marcada.id);
+      if (dono && dono !== ch.id) this.evict(dono, marcada.id);
+      if (this.spots.reserve(marcada.id, ch.id)) {
+        ch.homeSpot = marcada.id;
+        return;
+      }
+    }
+    const seat = chooseSeat(presente.layout.spots, (id) => !reservadas.has(id) && this.spots.isFree(id, ch.id), ch.info.kind);
     if (seat && this.spots.reserve(seat.id, ch.id)) ch.homeSpot = seat.id;
+  }
+
+  /** A mesa marcada para este agente fixo nas configurações da sala dele (RoomStyle.seats), se o layout a tem. */
+  private assignedSeat(room: RoomState, ch: Character): SpotDef | null {
+    const a = ch.info;
+    if (!a.staff || a.kind !== 'main' || a.roomId !== room.id) return null;
+    const n = room.info.style?.seats?.[a.staff];
+    return n ? (workSeats(room.layout.spots)[n - 1] ?? null) : null;
+  }
+
+  /** As mesas marcadas para os outros agentes fixos da sala. */
+  private reservedSeats(room: RoomState, ch: Character): Set<string> {
+    const out = new Set<string>();
+    const seats = room.info.style?.seats;
+    if (!seats) return out;
+    const lugares = workSeats(room.layout.spots);
+    const eu = ch.info.kind === 'main' && ch.info.roomId === room.id ? ch.info.staff : undefined;
+    for (const [slug, n] of Object.entries(seats)) if (slug !== eu && lugares[n - 1]) out.add(lugares[n - 1].id);
+    return out;
+  }
+
+  /** Tira de um lugar quem o reservou (a mesa foi marcada para outro): ele planeja de novo e acha outro lugar. */
+  private evict(id: string, spot: string): void {
+    this.spots.release(spot, id);
+    const outro = this.chars.get(id);
+    if (!outro) return;
+    if (outro.homeSpot === spot) outro.homeSpot = null;
+    outro.tempSpots = outro.tempSpots.filter((x) => x !== spot);
+    this.interrupt(outro);
+  }
+
+  /** As mesas marcadas da sala mudaram: quem está fora da dele (ou na de outro) levanta e vai para o lugar certo. */
+  private reseat(room: RoomState): void {
+    for (const ch of this.chars.values()) {
+      if (ch.gone || ch.leaving || ch.roomId !== room.id) continue;
+      const marcada = this.assignedSeat(room, ch);
+      if (marcada ? ch.homeSpot !== marcada.id : !!ch.homeSpot && this.reservedSeats(room, ch).has(ch.homeSpot)) this.interrupt(ch);
+    }
+  }
+
+  /**
+   * O mapa das mesas de uma sala, para a tela organizar quem senta onde: cada lugar de trabalho com o número, a
+   * posição dentro da sala (de 0 a 1) e o agente fixo que é dele (o marcado; sem marca, quem está sentado nele).
+   */
+  deskMap(roomId: string): { n: number; x: number; y: number; staff?: string }[] {
+    const room = this.rooms.get(roomId);
+    if (!room) return [];
+    const lugares = workSeats(room.layout.spots);
+    const de = new Map<string, string>();
+    const marcados = new Set<string>();
+    for (const [slug, n] of Object.entries(room.info.style?.seats ?? {})) {
+      if (!lugares[n - 1]) continue;
+      de.set(lugares[n - 1].id, slug);
+      marcados.add(slug);
+    }
+    for (const ch of this.chars.values()) {
+      const a = ch.info;
+      if (ch.gone || a.kind !== 'main' || !a.staff || a.roomId !== roomId || ch.roomId !== roomId || marcados.has(a.staff)) continue;
+      if (ch.homeSpot && !de.has(ch.homeSpot)) de.set(ch.homeSpot, a.staff);
+    }
+    const r = room.layout.rect;
+    return lugares.map((s, i) => ({ n: i + 1, x: (s.x / TILE - r.x - 1) / 14, y: (s.y / TILE - r.y - 2) / 9, ...(de.has(s.id) ? { staff: de.get(s.id) } : {}) }));
   }
 
   private pickElevator(ch: Character): Elevator {
@@ -505,6 +705,8 @@ export class Sim {
       cols,
       present.map((r) => r.layout),
       this.layoutVersion + 1,
+      this.officeStyle,
+      this.officeColors,
     );
     this.building = building;
     this.layoutVersion++;
@@ -618,19 +820,46 @@ export class Sim {
    * vez, só sala pronta e com a sessão aberta; o prédio encolhe quando o endereço antigo é desmontado.
    */
   private compact(now: number): void {
-    const free = this.freeSlot();
-    let far: RoomState | null = null;
-    for (const r of this.rooms.values()) {
-      if (r.slot > free && !r.ghost && r.listed && r.phase === 'ready' && (!far || r.slot > far.slot)) far = r;
+    // A sala do dono fora da vaga dela (o escritório já estava aberto quando ela ganhou o lugar): quem ocupa a
+    // vaga ao lado do lounge sai primeiro; depois que o endereço antigo é desmontado, a sala do dono se muda.
+    // (o mesmo vale para a sala de reunião de cenário, na vaga em frente)
+    const fixas: [string | null, number][] = [
+      [this.ownerRoomId, OWNER_SLOT],
+      [this.meetingRoomId, MEETING_SLOT],
+    ];
+    const fora = fixas.map(([id, vaga]) => ({ sala: id ? this.rooms.get(id) : undefined, vaga })).find((f) => f.sala && !f.sala.ghost && f.sala.listed && f.sala.phase === 'ready' && f.sala.slot !== f.vaga);
+    let mover: RoomState | null = null;
+    let para = 0;
+    if (fora) {
+      const ocupante = [...this.rooms.values()].find((r) => r.slot === fora.vaga && r.phase !== 'gone');
+      if (!ocupante) {
+        mover = fora.sala!;
+        para = fora.vaga;
+      } else if (!ocupante.ghost && ocupante.listed && ocupante.phase === 'ready') {
+        mover = ocupante;
+        // quem sai vai para a vaga dele, se for uma das salas fixas; senão, para a primeira livre
+        para = this.freeSlot(fixas.find(([id]) => id === ocupante.id)?.[1]);
+      } else {
+        // a vaga está sendo esvaziada (ou a sala dela ainda está em obra): espera
+        this.gapSince = 0;
+        return;
+      }
+    } else {
+      const free = this.freeSlot();
+      for (const r of this.rooms.values()) {
+        if (r.id === this.ownerRoomId || r.id === this.meetingRoomId) continue;
+        if (r.slot > free && !r.ghost && r.listed && r.phase === 'ready' && (!mover || r.slot > mover.slot)) mover = r;
+      }
+      para = free;
     }
-    if (!far) {
+    if (!mover) {
       this.gapSince = 0;
       return;
     }
     if (!this.gapSince) this.gapSince = now;
     if (now - this.gapSince < COMPACT_DELAY_MS) return;
     this.gapSince = 0;
-    this.moveRoom(far, free, now);
+    this.moveRoom(mover, para, now);
   }
 
   /**
@@ -642,7 +871,7 @@ export class Sim {
   moveRoom(room: RoomState, slot: number, now: number): void {
     const before = room.layout;
     const ghostId = `${room.id}#mudança${++this.moveSeq}`;
-    const ghostLayout = layoutProjectRoom({ id: ghostId, slot: room.slot, seed: room.seed }, room.theme);
+    const ghostLayout = layoutProjectRoom({ id: ghostId, slot: room.slot, seed: room.seed, style: room.info.style }, room.theme);
     const ghost = new RoomState({ ...room.info, id: ghostId, seed: room.seed }, room.theme, ghostLayout, 'ready', now, false, room.slot);
     ghost.ghost = true;
     ghost.listed = false;
@@ -658,9 +887,10 @@ export class Sim {
     });
 
     room.slot = slot;
-    room.layout = layoutProjectRoom({ id: room.id, slot, seed: room.seed }, room.theme);
+    room.layout = layoutProjectRoom({ id: room.id, slot, seed: room.seed, style: room.info.style }, room.theme);
     room.setPhase('building', now);
-    room.lightOn = false;
+    // (a sala de cenário não tem quem acenda: ela mesma fica acesa)
+    room.lightOn = !!room.info.decor;
     room.lightAt = -1e9;
     room.switchClaim = null;
     room.readyToDismantleAt = 0;
@@ -1172,10 +1402,10 @@ export class Sim {
     if (ch.atSpot !== ch.homeSpot) return this.planGoHome(ch, now);
     ch.arriving = false;
     if (ch.mode === 'idle' && !isLongIdle(ch.info.status, ch.info.statusSince, now)) {
-      if (!ch.nextOutingAt) ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+      if (!ch.nextOutingAt) ch.nextOutingAt = now + this.sitMs(ch);
       if (now >= ch.nextOutingAt) {
         if (this.planOuting(ch, now)) return true;
-        ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+        ch.nextOutingAt = now + this.sitMs(ch);
       }
     }
     // esperando um shell: só sai da mesa para uma roda (sozinho, fica na pipoca)
@@ -1204,7 +1434,7 @@ export class Sim {
     // quem acabou de chegar anda (a não ser que precise do usuário); depois corre se estiver longe
     const run = shouldRun(dist, ch.mode) && (!ch.arriving || ch.mode === 'wait');
     steps.push({ t: 'go', tx: home.tx, ty: home.ty, run, held }, { t: 'enter', spot: home.id });
-    if (ch.mode === 'idle') steps.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + idleSitMs(ch.rng, this.options().liveliness)) });
+    if (ch.mode === 'idle') steps.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + this.sitMs(ch)) });
     void now;
     ch.queue.push(...steps);
     return true;
@@ -1440,6 +1670,33 @@ export class Sim {
     return out;
   }
 
+  /**
+   * Quanto tempo o ocioso fica sentado até o próximo passeio. Em reunião fica bem mais: só levanta de vez em
+   * quando, para a água ou o banheiro.
+   */
+  private sitMs(ch: Character): number {
+    if (this.inMeeting(ch)) return between(ch.rng, MEETING_SIT_MS[0], MEETING_SIT_MS[1]);
+    return idleSitMs(ch.rng, this.options().liveliness);
+  }
+
+  /**
+   * As mesas da sala sem dono, na ordem em que seriam ocupadas (na sala de reunião, as cadeiras em volta da mesa):
+   * é sobre elas que a tela mostra o "+" de criar agente.
+   */
+  freeDesks(roomId: string): SpotDef[] {
+    const room = this.rooms.get(roomId);
+    if (!room || room.phase !== 'ready') return [];
+    const ocupados = new Set<string>();
+    for (const ch of this.chars.values()) {
+      if (ch.homeSpot) ocupados.add(ch.homeSpot);
+      if (ch.atSpot) ocupados.add(ch.atSpot);
+    }
+    // (mesa marcada para alguém não é livre, mesmo com ele fora dela)
+    const lugares = workSeats(room.layout.spots);
+    for (const n of Object.values(room.info.style?.seats ?? {})) if (lugares[n - 1]) ocupados.add(lugares[n - 1].id);
+    return lugares.filter((s) => !ocupados.has(s.id)).sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
+  }
+
   private randomFree(kinds: SpotKind[], ch: Character): SpotDef | null {
     const cands: SpotDef[] = [];
     for (const k of kinds) for (const s of this.spots.ofKind(k)) if (this.spots.isFree(s.id, ch.id)) cands.push(s);
@@ -1451,9 +1708,11 @@ export class Sim {
     const near = { tx: ch.tx, ty: ch.ty };
     const rng = ch.rng;
     const persona = personaFor(ch.info.seed);
+    // em reunião: só sai da sala para beber água ou ir ao banheiro, e volta
+    const reuniao = this.inMeeting(ch);
     // colegas à toa: a vontade é de companhia (a personalidade dosa) — TV, jogo, papo, aposta...
-    if (this.social.hasCompany(ch, now) && rng() < 0.45 + persona.sociability * 0.4 && this.social.tryInitiate(ch, now, false)) return true;
-    const avail: Partial<Record<IdleActivity, boolean>> = {
+    if (!reuniao && this.social.hasCompany(ch, now) && rng() < 0.45 + persona.sociability * 0.4 && this.social.tryInitiate(ch, now, false)) return true;
+    const livre: Partial<Record<IdleActivity, boolean>> = {
       coffee: !!this.spots.findFree('coffee', { by: ch.id }),
       water: !!this.spots.findFree('water', { by: ch.id }),
       bathroom: !!this.spots.findFree('stall', { by: ch.id }),
@@ -1469,6 +1728,10 @@ export class Sim {
       mirror: !!this.social.plan('mirror', 1, ch),
       phone: !!this.randomFree(PHONE_SEATS, ch),
     };
+    // atividade ausente conta como disponível em pickIdleActivity: em reunião, o resto vai fechado
+    const avail: Partial<Record<IdleActivity, boolean>> = reuniao
+      ? { ...(Object.fromEntries(Object.keys(livre).map((k) => [k, false])) as Partial<Record<IdleActivity, boolean>>), water: livre.water, bathroom: livre.bathroom }
+      : livre;
     const what = pickIdleActivity(rng, avail, soloWeights(persona));
     if (!what) return false;
     const steps: Step[] = [];
@@ -1593,7 +1856,7 @@ export class Sim {
         const home = ch.homeSpot;
         if (!home) return false;
         steps.push({ t: 'exit' }, { t: 'act', pose: 'stretch', ms: 2600 }, { t: 'enter', spot: home });
-        steps.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + idleSitMs(ch.rng, this.options().liveliness)) });
+        steps.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + this.sitMs(ch)) });
         ch.queue.push(...steps);
         return true;
       }
@@ -1610,7 +1873,7 @@ export class Sim {
     ch.queue.push({ t: 'do', fn: () => this.releaseTemp(ch) });
     if (!home) return;
     ch.queue.push({ t: 'go', tx: home.tx, ty: home.ty, held }, { t: 'enter', spot: home.id });
-    ch.queue.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + idleSitMs(ch.rng, this.options().liveliness)) });
+    ch.queue.push({ t: 'do', fn: () => (ch.nextOutingAt = this.now + this.sitMs(ch)) });
   }
 
   /** Pose de descanso quando não há passos (na mesa: digitando, pedindo atenção, sentado ou cochilando). */
@@ -1726,7 +1989,7 @@ export class Sim {
           this.placeOverflow(ch);
         }
         this.releaseTemp(ch);
-        ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
+        ch.nextOutingAt = now + this.sitMs(ch);
       }
     }
     for (const room of this.rooms.values()) {

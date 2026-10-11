@@ -37,9 +37,9 @@ export function activityFallback(agent: Pick<AgentInfo, 'status' | 'waitingFor'>
   }
 }
 
-/** Selo de papel: "Agente principal" ou o tipo do subagente ("Explore", "Plan"...). */
-export function roleLabel(agent: Pick<AgentInfo, 'kind' | 'role'>): string {
-  if (agent.kind === 'main') return agent.role || 'Agente principal';
+/** Selo de papel: a função dada pelo usuário, "Agente principal" ou o tipo do subagente ("Explore", "Plan"...). */
+export function roleLabel(agent: Pick<AgentInfo, 'kind' | 'role' | 'job'>): string {
+  if (agent.kind === 'main') return agent.job || agent.role || 'Agente principal';
   return agent.role || 'Subagente';
 }
 

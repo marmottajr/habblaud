@@ -64,6 +64,30 @@ describe('nível de luz e cores', () => {
     expect(lum(late.dim)).toBeGreaterThan(lum(late.outside));
   });
 
+  it('tom "branca" (estilos Corporativo, Moderno e Futurista): noite azul-marinho escuro e luz branca; o dia e o entardecer são os mesmos', () => {
+    const quente = ambientAt(22.5);
+    const branca = ambientAt(22.5, 'branca');
+    // mais escuro e ainda azul do lado de fora
+    expect(lum(branca.outside)).toBeLessThan(70);
+    expect(lum(branca.outside)).toBeLessThan(lum(quente.outside));
+    expect(branca.outside[2]).toBeGreaterThan(branca.outside[0] + 40);
+    // luz branca nas salas acesas: nada de amarelado (o vermelho não passa do azul)
+    expect(lum(branca.inside)).toBeGreaterThan(240);
+    expect(branca.inside[0]).toBeLessThanOrEqual(branca.inside[2]);
+    expect(quente.inside[0]).toBeGreaterThan(quente.inside[2]);
+    // penumbra das áreas vazias entre a sala acesa e o exterior, mais fechada que na luz quente
+    expect(lum(branca.dim)).toBeGreaterThan(lum(branca.outside));
+    expect(lum(branca.dim)).toBeLessThan(lum(quente.dim));
+    // de dia nada muda, e o dourado do sol baixo no céu do entardecer é o mesmo nos dois tons
+    for (const h of [9, 12, 15]) expect(ambientAt(h, 'branca'), `${h}h`).toEqual(ambientAt(h));
+    for (const h of [17.5, 18]) {
+      expect(ambientAt(h, 'branca').outside, `${h}h`).toEqual(ambientAt(h).outside);
+      expect(ambientAt(h, 'branca').warm, `${h}h`).toBe(ambientAt(h).warm);
+    }
+    // o padrão é o tom de sempre
+    expect(ambientAt(22.5, 'quente')).toEqual(quente);
+  });
+
   it('amanhecer e entardecer têm tom quente', () => {
     for (const h of [6.5, 18]) {
       const a = ambientAt(h);
