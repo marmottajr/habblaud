@@ -20,7 +20,7 @@ import { HelpDialog } from './help';
 import { HistoryPopover } from './history';
 import { HoverTip } from './hovertip';
 import { hasRunningShells } from './model';
-import { hasCodexPermission } from './provider';
+import { hasCodexPermission, hasTerminal, noTerminalHint, providerOf } from './provider';
 import { Notifier } from './notify';
 import { ConnectionBanner, EmptyState, Splash } from './overlays';
 import { focusPermission, nextPermissionAgent } from './permission';
@@ -342,6 +342,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
     else if (id === null) ctx.announce('Selecione um agente para abrir o terminal.');
     else if (!store.snapshot?.meta.terminal) ctx.announce(`${TERMINAL_UNAVAILABLE_HINT}.`);
     else if (!ctx.agent(id)) ctx.announce('O agente já saiu do escritório.');
+    else if (!hasTerminal(providerOf(ctx.agent(id)))) ctx.announce(noTerminalHint(providerOf(ctx.agent(id))));
     else terminal.open(id);
   }
 
