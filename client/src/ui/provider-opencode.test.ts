@@ -4,8 +4,10 @@ import {
   accountProvider,
   emptyOfficeHint,
   fallbackShort,
+  hasTerminal,
   isOpencode,
   looksLikeOpencodeId,
+  noTerminalHint,
   PROVIDER_NAME,
   providerOf,
   showsProviderTag,
@@ -53,5 +55,17 @@ describe('ferramenta OpenCode no cliente', () => {
     const o = { short: 'O', provider: 'opencode' as const };
     expect(emptyOfficeHint([c, o])).toBe(emptyOfficeHint([c]));
     expect(emptyOfficeHint([o])).toBe(emptyOfficeHint([]));
+  });
+});
+
+describe('terminal por ferramenta', () => {
+  it('só o Claude Code e o Codex têm conversa para o terminal mostrar', () => {
+    expect(hasTerminal('claude')).toBe(true);
+    expect(hasTerminal('codex')).toBe(true);
+    expect(hasTerminal('opencode')).toBe(false);
+  });
+
+  it('a dica diz qual ferramenta ainda não tem terminal', () => {
+    expect(noTerminalHint('opencode')).toBe('O terminal ainda não mostra sessões do OpenCode.');
   });
 });

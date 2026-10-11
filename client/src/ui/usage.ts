@@ -12,7 +12,7 @@ import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { FIVE_HOURS_MS, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
 import { ICONS } from './icons';
-import { isCodex, isOpencode } from './provider';
+import { isCodex, isOpencode, providerOf } from './provider';
 import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
 
 export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], string> = {
@@ -308,7 +308,7 @@ export class UsageCards {
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
-    updateProviderTag(r.prov, codex ? 'codex' : 'claude', a.name);
+    updateProviderTag(r.prov, providerOf(a), a.name);
     setText(r.email, usageSubtitle(a));
     setAttr(card, 'aria-label', `${a.name}${codex ? ' (Codex)' : ''}: uso do plano`);
 

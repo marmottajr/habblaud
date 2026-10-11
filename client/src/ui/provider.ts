@@ -9,6 +9,19 @@ import { shortcutHint } from './model';
 /** Nome de cada ferramenta como aparece nos textos. */
 export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
 
+/**
+ * O terminal do escritório mostra o transcript do Claude Code e o rollout do Codex; as outras ferramentas ainda não
+ * têm conversa para ele ler.
+ */
+export function hasTerminal(provider: Provider): boolean {
+  return provider === 'claude' || provider === 'codex';
+}
+
+/** Por que o terminal não abre para um agente desta ferramenta. */
+export function noTerminalHint(provider: Provider): string {
+  return `O terminal ainda não mostra sessões do ${PROVIDER_NAME[provider]}.`;
+}
+
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
   return x?.provider ?? 'claude';
