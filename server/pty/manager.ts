@@ -9,7 +9,7 @@
 //
 // Segurança: quem controla um terminal destes executa comandos na máquina. O recurso é opt-in (HABBLAUD_PTY=1),
 // as rotas só aceitam conexões do próprio computador (ver http/pty.ts) e ele fica desligado no Docker.
-import { chmodSync, readFileSync, statSync } from 'node:fs';
+import { chmodSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -17,10 +17,10 @@ import type { PtyInfo, PtyStatus } from '../../shared/types';
 import { frame } from '../http/sse';
 import { errMsg, log } from '../log';
 import { pidAlive } from '../sources/registry';
-import { readProcInfo, sameProcess, type ProcInfo, type RegisteredProc } from './procinfo';
+import { descendsFrom, readParents, readProcInfo, sameProcess, type ProcInfo, type ProcParent, type RegisteredProc } from './procinfo';
 import { killWithConsoleReset } from './winkill';
 import { tr } from '../../shared/i18n';
-import { isExecutableFile } from '../claude-bin';
+import { claudeLaunch, isExecutableFile } from '../claude-bin';
 
 export { claudeBinFrom, findExecutable, isExecutableFile } from '../claude-bin';
 
@@ -34,7 +34,8 @@ export interface PtyProcess {
   kill(): void;
 }
 
-export type SpawnPty = (file: string, args: string[], opts: { cwd: string; cols: number; rows: number; env: NodeJS.ProcessEnv }) => PtyProcess;
+/** `args` em texto: linha de comando já escapada, repassada como está (só no Windows, como no node-pty). */
+export type SpawnPty = (file: string, args: string[] | string, opts: { cwd: string; cols: number; rows: number; env: NodeJS.ProcessEnv }) => PtyProcess;
 
 export interface PtyAccount {
   id: string;
@@ -87,6 +88,10 @@ export interface PtyManagerOptions {
   procInfo?: (pid: number) => Promise<ProcInfo | undefined>;
   /** Lê `<conta>/sessions/<pid>.json` (testes). */
   readSession?: (accountDir: string, pid: number) => unknown;
+  /** PIDs com registro em `<conta>/sessions/` (testes). */
+  sessionPids?: (accountDir: string) => number[];
+  /** Pai de cada processo vivo (padrão: pty/procinfo.ts). */
+  parents?: () => Promise<Map<number, ProcParent>>;
   /** Tela de cada terminal, reproduzida para quem conecta (padrão: só a saída bruta; ver pty/screen.ts). */
   createScreen?: ScreenFactory;
   isAlive?: (pid: number) => boolean;
@@ -105,6 +110,12 @@ const FORCE_WAIT_MS = 3_000;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Id de agente principal: "<conta>:<pid>". */
 const MAIN_ID = /^(.+):(\d+)$/;
+/**
+ * Quando o processo aberto não é o próprio Claude Code (um .bat, um wrapper): por quanto tempo procurar, no registro
+ * de sessões, um PID novo que descenda dele, e de quanto em quanto tempo.
+ */
+const ADOPT_EVERY_MS = 1_000;
+const ADOPT_TRIES = 120;
 
 /**
  * Variáveis que o Claude Code põe no ambiente das próprias ferramentas. Se o Habblaud foi iniciado de dentro
@@ -190,6 +201,8 @@ export class PtyManager {
   private readonly forceKill: (pid: number) => void;
   private readonly procInfo: (pid: number) => Promise<ProcInfo | undefined>;
   private readonly readSession: (accountDir: string, pid: number) => unknown;
+  private readonly sessionPids: (accountDir: string) => number[];
+  private readonly parents: () => Promise<Map<number, ProcParent>>;
   private readonly createScreen: ScreenFactory;
   private readonly isAlive: (pid: number) => boolean;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -204,9 +217,12 @@ export class PtyManager {
         : (pid) => void process.kill(pid, 'SIGTERM'));
     this.forceKill = opts.forceKill ?? ((pid) => void process.kill(pid, 'SIGKILL'));
     this.readSession = opts.readSession ?? ((dir, pid) => JSON.parse(readFileSync(join(dir, 'sessions', `${pid}.json`), 'utf8')));
+    this.sessionPids = opts.sessionPids ?? sessionPidsIn;
+    this.parents = opts.parents ?? (() => readParents());
     this.createScreen = opts.createScreen ?? (() => rawScreen());
     this.isAlive = opts.isAlive ?? pidAlive;
-    this.sleep = opts.sleep ?? ((ms) => new Promise((ok) => setTimeout(ok, ms)));
+    // unref: a procura do PID (adopt) não segura o processo aberto sozinha.
+    this.sleep = opts.sleep ?? ((ms) => new Promise((ok) => setTimeout(ok, ms).unref()));
   }
 
   status(): PtyStatus {
@@ -404,7 +420,10 @@ export class PtyManager {
     let proc: PtyProcess;
     try {
       const args = p.resume ? ['--resume', p.resume] : [];
-      proc = spawn(this.opts.claudeBin, args, { cwd, cols, rows, env });
+      // Lançadores do npm/bun viram o programa de verdade; um .cmd desconhecido vai pelo cmd.exe com a linha já
+      // escapada (em texto, para o node-pty não reescapar as aspas).
+      const run = claudeLaunch(this.opts.claudeBin, args, env);
+      proc = spawn(run.file, run.verbatim ? run.args.join(' ') : run.args, { cwd, cols, rows, env });
     } catch (err) {
       throw new PtyError(500, tr('não consegui abrir o Claude Code: {0}', [errMsg(err)]));
     }
@@ -427,7 +446,35 @@ export class PtyManager {
     });
     log.info(p.resume ? tr('Terminal {0} aberto em {1} (conta {2}, retomando {3}).', [id, cwd, account.id, p.resume]) : tr('Terminal {0} aberto em {1} (conta {2}).', [id, cwd, account.id]));
     this.opts.onChange();
+    void this.adopt(pty, account);
     return { ...info };
+  }
+
+  /**
+   * O agente deste terminal é `<conta>:<pid do Claude Code>`. Normalmente o processo aberto é o próprio Claude Code;
+   * com um intermediário (um .bat, um wrapper), quem grava `<conta>/sessions/<pid>.json` é um processo filho dele.
+   * Aí o terminal passa a ser do primeiro PID novo no registro que descenda do processo aberto.
+   */
+  private async adopt(pty: Pty, account: PtyAccount): Promise<void> {
+    const own = pty.proc.pid;
+    // Antes do primeiro await: os registros que já existiam não são deste terminal.
+    const known = new Set(this.sessionPids(account.dir));
+    for (let i = 0; i < ADOPT_TRIES && pty.info.exitedAt === undefined; i++) {
+      await this.sleep(ADOPT_EVERY_MS);
+      const pids = this.sessionPids(account.dir);
+      if (pids.includes(own)) return;
+      const fresh = pids.filter((pid) => !known.has(pid));
+      if (!fresh.length) continue;
+      for (const pid of fresh) known.add(pid);
+      const parents = await this.parents();
+      const child = fresh.find((pid) => descendsFrom(pid, own, parents));
+      if (child === undefined || pty.info.exitedAt !== undefined) continue;
+      pty.info.pid = child;
+      pty.info.agentId = `${account.id}:${child}`;
+      log.info(tr('Terminal {0}: o Claude Code é o processo {1} (aberto por um intermediário).', [pty.info.id, child]));
+      this.opts.onChange();
+      return;
+    }
   }
 
   private byAgent(agentId: string): Pty | undefined {
@@ -531,11 +578,11 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
  * sem isso, "Assumir" encerraria a sessão de lá e só depois descobriria que não consegue abrir a de cá.
  */
 export async function loadPty(): Promise<{ spawn: SpawnPty | null; reason?: string }> {
-  let ptySpawn: ((file: string, args: string[], o: Record<string, unknown>) => PtyProcess) | undefined;
+  let ptySpawn: ((file: string, args: string[] | string, o: Record<string, unknown>) => PtyProcess) | undefined;
   try {
     const mod = (await import('node-pty')) as unknown as {
-      spawn?: (file: string, args: string[], o: Record<string, unknown>) => PtyProcess;
-      default?: { spawn: (file: string, args: string[], o: Record<string, unknown>) => PtyProcess };
+      spawn?: (file: string, args: string[] | string, o: Record<string, unknown>) => PtyProcess;
+      default?: { spawn: (file: string, args: string[] | string, o: Record<string, unknown>) => PtyProcess };
     };
     ptySpawn = mod.spawn ?? mod.default?.spawn;
   } catch (err) {
@@ -601,4 +648,13 @@ export function spawnProblem(spawn: SpawnPty, timeoutMs = 5_000): Promise<string
       ok(exitCode === 0 ? null : tr('node-pty abriu o terminal de teste, mas ele saiu com o código {0}', [exitCode]));
     });
   });
+}
+
+/** PIDs com registro em `<conta>/sessions/<pid>.json`. */
+function sessionPidsIn(accountDir: string): number[] {
+  try {
+    return readdirSync(join(accountDir, 'sessions')).flatMap((f) => (/^\d+\.json$/.test(f) ? [Number(f.slice(0, -5))] : []));
+  } catch {
+    return [];
+  }
 }

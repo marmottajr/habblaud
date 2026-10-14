@@ -124,7 +124,8 @@ ela, e o endereço antigo apaga e é desmontado. Assim o prédio não fica com b
 
 ### Requisitos
 
-- **macOS** (testado) ou Linux.
+- **macOS**, **Linux** ou **Windows 10/11** (Windows Terminal ou PowerShell; o Git for Windows é usado pelo tap de
+  statusline e, se instalado, pelo `openssl` do acesso remoto).
 - **[Claude Code](https://code.claude.com)** instalado, com uma ou mais contas (2.1.287 ou mais novo para o mod).
 - **Node.js 22.12+** e **npm** (desenvolvido com o Node 24; o Docker já usa o Node 24).
 - **Docker Desktop** (ou Docker Engine com Compose v2), se for rodar em container.
@@ -259,6 +260,9 @@ Linux). Abra `https://<nome>.local` no celular (com `:4748` se a porta 443 estav
 aviso, toque em **Instale o certificado do Habblaud** e confie nele (iPhone: Ajustes › Perfil Baixado › Instalar e
 depois Ajustes › Geral › Sobre › Ajustes de Confiança de Certificados; Android: Segurança › Criptografia e
 credenciais › Instalar certificado › Certificado de CA), conferindo a impressão digital que o setup mostrou.
+
+No Windows não há serviço automático de anúncio `.local`: use o IP do computador ou um nome no DNS do roteador, e o
+`openssl` precisa estar no PATH (o do Git for Windows serve: `C:\Program Files\Git\usr\bin`).
 
 - **CA restrita:** ela só assina `localhost`, nomes `.local`, o endereço próprio e IPs de rede privada. Mesmo que a
   chave vaze, um certificado para qualquer outro site é recusado pelo celular que confia nela. Trocar o endereço

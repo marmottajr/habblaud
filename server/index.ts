@@ -1,6 +1,7 @@
 // Servidor do Habblaud: observa as sessões abertas do Claude Code (todas as contas),
 // mantém o modelo do escritório e transmite via SSE. Sem dependências de runtime.
 //   npm run dev    -> tsx server/index.ts --dev (Vite em middleware mode, HMR no mesmo servidor)
+//   npm run demo   -> idem, com --demo (simulador ligado, como HABBLAUD_DEMO=1)
 //   npm start      -> node dist/server/index.js (serve dist/client)
 import http from 'node:http';
 import { join } from 'node:path';
@@ -486,3 +487,5 @@ function shutdown(signal: string): void {
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+// Ctrl+Break no console do Windows (no macOS e no Linux o Node só ignora o registro).
+process.on('SIGBREAK', () => shutdown('SIGBREAK'));

@@ -116,6 +116,9 @@ interface Cached {
   entry: RegistryEntry | undefined;
 }
 
+/** Até quanto tempo depois de gravado um registro ainda pode mudar sem mudar o mtime (FAT: 2 s de resolução). */
+const SETTLE_MS = 2_000;
+
 export class RegistryReader {
   private cache = new Map<string, Cached>();
   private readonly sessionsDir: string;
@@ -151,7 +154,10 @@ export class RegistryReader {
         continue;
       }
       let cached = this.cache.get(file);
-      if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
+      // Gravado há pouco: duas gravações no mesmo tique do relógio (no Windows, até ~16 ms) e do mesmo tamanho
+      // ("busy" -> "idle") deixam mtime e tamanho iguais. Até o arquivo assentar, relê sempre (é pequeno).
+      const settling = Date.now() - st.mtimeMs < SETTLE_MS;
+      if (!cached || settling || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
         let entry: RegistryEntry | undefined;
         try {
           entry = parseRegistryEntry(readFileSync(file, 'utf8'));

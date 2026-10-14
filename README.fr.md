@@ -130,7 +130,8 @@ l'immeuble ne garde pas de trous et rétrécit tout seul.
 
 ### Prérequis
 
-- **macOS** (testé) ou Linux.
+- **macOS**, **Linux** ou **Windows 10/11** (Windows Terminal ou PowerShell ; Git for Windows sert au tap de statusline
+  et, s'il est installé, fournit l'`openssl` de l'accès à distance).
 - **[Claude Code](https://code.claude.com)** installé, avec un ou plusieurs comptes (2.1.287 ou plus récent pour le mod).
 - **Node.js 22.12+** et **npm** (développé avec Node 24 ; l'image Docker utilise déjà Node 24).
 - **Docker Desktop** (ou Docker Engine avec Compose v2), si vous voulez le faire tourner dans un conteneur.
@@ -270,6 +271,9 @@ LaunchAgent sous macOS, systemd sous Linux). Ouvrez `https://<nome>.local` sur l
 faites-lui confiance (iPhone : Réglages › Profil téléchargé › Installer, puis Réglages › Général › Informations ›
 Réglages des certificats ; Android : Sécurité › Chiffrement et identifiants › Installer un certificat › Certificat CA),
 en vérifiant l'empreinte que le setup a affichée.
+
+Sous Windows, il n'y a pas de service automatique d'annonce `.local` : utilisez l'IP de l'ordinateur ou un nom dans le
+DNS du routeur, et `openssl` doit être dans le PATH (celui de Git for Windows convient : `C:\Program Files\Git\usr\bin`).
 
 - **CA restreinte :** elle ne signe que `localhost`, les noms `.local`, votre propre adresse et les IP de réseau privé.
   Même si sa clé fuitait, un certificat pour n'importe quel autre site serait refusé par le téléphone qui lui fait

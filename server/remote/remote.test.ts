@@ -11,7 +11,7 @@ import { parseArgs, passwordProblem, remoteEnv, urlFor } from '../../scripts/rem
 import { remotePortsFrom, renderOverride } from '../../scripts/docker-up';
 import { startRemoteListener, type RemoteListener } from '../http/remote';
 import { setQuiet } from '../log';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { addToList, readEnvValue, updateEnv } from './envfile';
 import { hashPassword, parsePasswordHash, verifyPassword } from './password';
 import { caCovers, caFingerprint, certTargets, ensureServerCert, isPrivateIpv4, isValidDomain, isValidName, lanAddresses, remoteTargets, serverCertStatus, tlsPaths } from './tls';
@@ -119,7 +119,8 @@ afterEach(() => {
   while (closers.length) closers.pop()!();
 });
 
-describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
+// Cada teste gera chaves RSA novas: no Windows (e com a suíte inteira em paralelo) passa dos 5 s padrão.
+describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', { timeout: 30_000 }, () => {
   const targets = remoteTargets({ name: 'myclaude', domain: 'myclaude.home' }, { dns: ['localhost'], ips: ['127.0.0.1', '192.168.1.10'] });
 
   it('cria a CA (chave 600) e um certificado de servidor assinado por ela com todos os nomes', () => {
@@ -128,8 +129,10 @@ describe.skipIf(!HAS_OPENSSL)('certificados (openssl)', () => {
     const paths = tlsPaths(join(tmp.dir, 'remote-tls'));
     const r = ensureServerCert(paths, targets);
     expect(r).toMatchObject({ createdCa: true, issued: true });
-    expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
-    expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    if (HAS_POSIX_MODES) {
+      expect(statSync(paths.caKey).mode & 0o777).toBe(0o600);
+      expect(statSync(paths.base).mode & 0o777).toBe(0o700);
+    }
     const cert = new X509Certificate(readFileSync(paths.serverCert));
     const ca = new X509Certificate(readFileSync(paths.caCert));
     expect(cert.verify(ca.publicKey)).toBe(true);

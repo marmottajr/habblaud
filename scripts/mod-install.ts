@@ -33,13 +33,14 @@
 // saídas documentadas que já resolvem escopo, ligado/desligado e CLAUDE_CODE_PLUGIN_CACHE_DIR. Os arquivos
 // <conta>/plugins/installed_plugins.json e known_marketplaces.json são internos do Claude Code e podem mudar de
 // formato (o primeiro já está na versão 2).
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { discoverClaudeDirs, expandHome, isDefaultDir } from '../server/accounts/detect';
 import { LEGACY_NAME } from '../server/legacy';
+import { claudeBinFrom, claudeLaunch } from '../server/claude-bin';
 import { DEFAULT_PORT, installedHook, planUninstall as planHookUninstall } from './hooks-install';
 import {
   formatAge,
@@ -98,7 +99,10 @@ export type ClaudeRunner = (args: string[], env: NodeJS.ProcessEnv) => ClaudeRes
 /** O runner de verdade. stdin fechado: nada fica esperando uma resposta no terminal. */
 export function makeClaudeRunner(cmd = 'claude'): ClaudeRunner {
   return (args, env) => {
-    const r = spawnSync(cmd, args, { env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    // No Windows, os lançadores do npm/bun viram o programa de verdade; um .cmd desconhecido roda pelo cmd.exe.
+    const run = claudeLaunch(claudeBinFrom({ ...env, HABBLAUD_CLAUDE_BIN: cmd }) ?? cmd, args, env);
+    const opts: SpawnSyncOptionsWithStringEncoding = { env, encoding: 'utf8', timeout: CLI_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'], windowsVerbatimArguments: run.verbatim };
+    const r = spawnSync(run.file, run.args, opts);
     if (r.error) {
       const code = (r.error as NodeJS.ErrnoException).code;
       const error = code === 'ENOENT' ? tr('o comando "{0}" não foi encontrado no PATH', [cmd]) : code === 'ETIMEDOUT' ? tr('"{0} {1}" não terminou em {2} s', [cmd, args.join(' '), CLI_TIMEOUT_MS / 1000]) : r.error.message;

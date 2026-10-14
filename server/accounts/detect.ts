@@ -69,7 +69,7 @@ function splitList(v: string | undefined): string[] {
 export function expandHome(p: string, home: string): string {
   const expanded = p
     .trim()
-    .replace(/^~(?=\/|$)/, home)
+    .replace(/^~(?=[\\/]|$)/, home)
     .replace(/\$\{HOME\}|\$HOME\b/g, home);
   const abs = resolve(expanded);
   return abs.length > 1 ? abs.replace(/\/+$/, '') : abs;

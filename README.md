@@ -126,7 +126,8 @@ shrinks on its own.
 
 ### Requirements
 
-- **macOS** (tested) or Linux.
+- **macOS**, **Linux** or **Windows 10/11** (Windows Terminal or PowerShell; Git for Windows is used by the statusline
+  tap and, if installed, provides the `openssl` for remote access).
 - **[Claude Code](https://code.claude.com)** installed, with one or more accounts (2.1.287 or newer for the mod).
 - **Node.js 22.12+** and **npm** (developed with Node 24; Docker already uses Node 24).
 - **Docker Desktop** (or Docker Engine with Compose v2), if you're going to run it in a container.
@@ -261,6 +262,9 @@ systemd on Linux). Open `https://<nome>.local` on your phone (with `:4748` if po
 accept the warning, tap **Install the Habblaud certificate** and trust it (iPhone: Settings › Profile Downloaded ›
 Install, then Settings › General › About › Certificate Trust Settings; Android: Security › Encryption & credentials ›
 Install a certificate › CA certificate), checking the fingerprint the setup showed.
+
+On Windows there is no automatic `.local` announcement service: use the computer's IP or a name in your router's DNS,
+and `openssl` must be on the PATH (the one from Git for Windows works: `C:\Program Files\Git\usr\bin`).
 
 - **Restricted CA:** it only signs `localhost`, `.local` names, your own address and private-network IPs. Even if its
   key leaked, a certificate for any other site would be rejected by the phone that trusts it. Changing your own

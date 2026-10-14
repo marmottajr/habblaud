@@ -80,3 +80,51 @@ export function parsePs(out: string): ProcInfo | undefined {
   if (!Number.isFinite(startMs)) return undefined;
   return { startMs, name: basename(m[2]) };
 }
+
+/** Pai de um processo vivo e, no Windows, quando ele começou (FILETIME). */
+export interface ProcParent {
+  parent: number;
+  start?: bigint;
+}
+
+/** Pai de cada processo vivo, pelo PID; vazio se não deu para saber. */
+export async function readParents(platform: NodeJS.Platform = process.platform): Promise<Map<number, ProcParent>> {
+  const out =
+    platform === 'win32'
+      ? await run('powershell.exe', [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.ToFileTimeUtc())" }',
+        ])
+      : await run('ps', ['-A', '-o', 'pid=', '-o', 'ppid=']);
+  return parseParents(out ?? '');
+}
+
+/** Linhas "<pid> <ppid>" (ps) ou "<pid> <ppid> <FILETIME do início>" (PowerShell). */
+export function parseParents(out: string): Map<number, ProcParent> {
+  const parents = new Map<number, ProcParent>();
+  for (const line of out.split(/\r?\n/)) {
+    const m = /^\s*(\d+)\s+(\d+)(?:\s+(\d+))?\s*$/.exec(line);
+    if (m) parents.set(Number(m[1]), m[3] ? { parent: Number(m[2]), start: BigInt(m[3]) } : { parent: Number(m[2]) });
+  }
+  return parents;
+}
+
+/**
+ * `pid` é `ancestor` ou um descendente dele (no máximo 16 níveis). No Windows o PID do pai fica gravado mesmo depois
+ * que ele termina e pode ter sido reaproveitado: um "pai" que começou depois do filho não é o pai de verdade.
+ */
+export function descendsFrom(pid: number, ancestor: number, parents: ReadonlyMap<number, ProcParent>): boolean {
+  let cur = pid;
+  for (let depth = 0; depth <= 16; depth++) {
+    if (cur === ancestor) return true;
+    const me = parents.get(cur);
+    if (!me || me.parent <= 0 || me.parent === cur) return false;
+    const up = parents.get(me.parent);
+    if (me.start !== undefined && up?.start !== undefined && up.start > me.start) return false;
+    cur = me.parent;
+  }
+  return false;
+}

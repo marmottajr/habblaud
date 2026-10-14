@@ -128,7 +128,8 @@ solo.
 
 ### Requisitos
 
-- **macOS** (probado) o Linux.
+- **macOS**, **Linux** o **Windows 10/11** (Windows Terminal o PowerShell; Git for Windows lo usa el tap de statusline
+  y, si está instalado, aporta el `openssl` del acceso remoto).
 - **[Claude Code](https://code.claude.com)** instalado, con una o más cuentas (2.1.287 o más reciente para el mod).
 - **Node.js 22.12+** y **npm** (desarrollado con Node 24; Docker ya usa Node 24).
 - **Docker Desktop** (o Docker Engine con Compose v2), si lo vas a ejecutar en un contenedor.
@@ -266,6 +267,9 @@ primera vez, acepta el aviso, toca **Instala el certificado de Habblaud** y conf
 Perfil descargado › Instalar y luego Configuración › General › Información › Configuración de confianza de
 certificados; Android: Seguridad › Encriptación y credenciales › Instalar un certificado › Certificado de CA),
 comprobando la huella digital que mostró el setup.
+
+En Windows no hay servicio automático de anuncio `.local`: usa la IP del computador o un nombre en el DNS del router, y
+el `openssl` tiene que estar en el PATH (sirve el de Git for Windows: `C:\Program Files\Git\usr\bin`).
 
 - **CA restringida:** solo firma `localhost`, nombres `.local`, tu dirección propia e IP de red privada. Aunque su
   clave se filtrara, el celular que confía en ella rechazaría un certificado para cualquier otro sitio. Cambiar la

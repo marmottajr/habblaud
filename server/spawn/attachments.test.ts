@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_SPAWN, AttachmentStore, parseAttachment, promptWithAttachments, safeFileName, writeAttachments } from './attachments';
 
 const b64 = (s: string) => Buffer.from(s).toString('base64');
@@ -52,10 +52,12 @@ describe('anexos do Novo agente', () => {
       { name: '../nota.txt', type: 'text/plain', data: Buffer.from('3') },
     ];
     const paths = writeAttachments(root, 'abcdef12-3456', files, new Date(2026, 9, 12, 13, 5, 9));
-    expect(paths.map((p) => p.split('/').slice(-2).join('/'))).toEqual(['20261012-130509-abcdef12/foto.jpg', '20261012-130509-abcdef12/foto-2.jpg', '20261012-130509-abcdef12/nota.txt']);
+    expect(paths.map((p) => p.split(/[\\/]/).slice(-2).join('/'))).toEqual(['20261012-130509-abcdef12/foto.jpg', '20261012-130509-abcdef12/foto-2.jpg', '20261012-130509-abcdef12/nota.txt']);
     const dir = join(root, '20261012-130509-abcdef12');
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(paths[0]).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(paths[0]).mode & 0o777).toBe(0o600);
+    }
     expect(readFileSync(paths[1], 'utf8')).toBe('2');
     expect(readdirSync(dir)).toHaveLength(3);
     expect(writeAttachments(root, 'x', [])).toEqual([]);

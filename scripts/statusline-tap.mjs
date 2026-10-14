@@ -33,13 +33,13 @@ export function originalCommand(argv) {
   return rest.join(' ').trim();
 }
 
-/** Config dir da conta: pelo transcript_path (trecho antes de "/projects/"), CLAUDE_CONFIG_DIR ou ~/.claude. */
+/** Config dir da conta: pelo transcript_path (trecho antes do último "/projects/"), CLAUDE_CONFIG_DIR ou ~/.claude. */
 export function configDirOf(input, env = process.env, home = env.HOME || homedir()) {
   const tp = typeof input?.transcript_path === 'string' ? input.transcript_path : '';
-  const at = tp.lastIndexOf('/projects/');
-  if (at > 0) return resolve(tp.slice(0, at));
+  const m = /^(.*)[\\/]projects[\\/]/.exec(tp);
+  if (m && m[1]) return resolve(m[1]);
   const fromEnv = (env.CLAUDE_CONFIG_DIR ?? '').split(',')[0].trim();
-  if (fromEnv) return resolve(fromEnv.replace(/^~(?=\/|$)/, home));
+  if (fromEnv) return resolve(fromEnv.replace(/^~(?=[\\/]|$)/, home));
   return join(home, '.claude');
 }
 
@@ -74,7 +74,7 @@ export function usageRecord(input, now, env = process.env, home = env.HOME || ho
 
 export function usageDirOf(env = process.env, home = env.HOME || homedir()) {
   const d = (env.HABBLAUD_USAGE_DIR ?? '').trim();
-  return d ? resolve(d.replace(/^~(?=\/|$)/, home)) : join(home, '.habblaud', 'usage');
+  return d ? resolve(d.replace(/^~(?=[\\/]|$)/, home)) : join(home, '.habblaud', 'usage');
 }
 
 /** Grava de forma atômica (tmp + rename, modo 600). Devolve false quando nada precisou mudar. */

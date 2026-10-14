@@ -161,7 +161,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
     dev: argv.includes('--dev'),
-    demo: isTruthy(env.HABBLAUD_DEMO),
+    demo: isTruthy(env.HABBLAUD_DEMO) || argv.includes('--demo'),
     inDocker,
     home,
     claudeDirs: discoverClaudeDirs(env, home),

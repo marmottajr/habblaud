@@ -14,9 +14,9 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "tsx watch --clear-screen=false --exclude './client/**' server/index.ts --dev",
+    "dev": "tsx watch --clear-screen=false --exclude \"./client/**\" server/index.ts --dev",
     "dev:client": "vite --config vite.config.ts",
-    "demo": "HABBLAUD_DEMO=1 npm run dev",
+    "demo": "npm run dev -- --demo",
     "demo:timeline": "tsx scripts/demo-timeline.ts",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build --config vite.config.ts",

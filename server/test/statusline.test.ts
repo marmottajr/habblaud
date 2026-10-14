@@ -22,7 +22,10 @@ import {
 import { HAS_POSIX_MODES, posixShell, tempDir } from './fixtures';
 
 const TAP = resolve(__dirname, '../../scripts/statusline-tap.mjs');
-const { originalShell } = (await import(pathToFileURL(TAP).href)) as { originalShell: (env?: NodeJS.ProcessEnv) => string | true };
+const { configDirOf, originalShell } = (await import(pathToFileURL(TAP).href)) as {
+  configDirOf: (input: unknown, env?: NodeJS.ProcessEnv, home?: string) => string;
+  originalShell: (env?: NodeJS.ProcessEnv) => string | true;
+};
 const SH = posixShell();
 const NOW_S = Math.floor(Date.now() / 1000);
 
@@ -124,6 +127,11 @@ describe('statusline-tap.mjs', { timeout: 20_000 }, () => {
     expect(JSON.parse(readFileSync(join(usageDir, '.claude-trabalho.json'), 'utf8')).configDir).toBe(resolve('/outra/.claude-trabalho'));
     tap([], statusJson({ transcript_path: undefined }));
     expect(JSON.parse(readFileSync(join(usageDir, '.claude.json'), 'utf8')).configDir).toBe(join(env.HOME!, '.claude'));
+  });
+
+  it('caminhos do Windows: transcript_path com "\\" e "~\\" no CLAUDE_CONFIG_DIR', () => {
+    expect(configDirOf({ transcript_path: 'C:\\Users\\a\\.claude-2\\projects\\C--x\\s.jsonl' }, {})).toBe(resolve('C:\\Users\\a\\.claude-2'));
+    expect(configDirOf({}, { CLAUDE_CONFIG_DIR: '~\\.claude-3' }, '/u/a')).toBe(resolve('/u/a\\.claude-3'));
   });
 
   it('não regrava valores idênticos em menos de 10 s', () => {

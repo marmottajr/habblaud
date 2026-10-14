@@ -10,6 +10,28 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Windows nativo (sem Docker nem WSL):** o Habblaud roda no Windows 10/11 com Node, inclusive o terminal
+  interativo, Assumir daqui, os instaladores e o Novo agente. O acesso pelo celular funciona pelo IP (sem o
+  anúncio `.local` automático). `npm run demo` passa a usar `--demo` (vale também fora do Windows); o CI roda
+  no Ubuntu e no Windows.
+
+### Corrigido
+
+- No Windows, os arquivos entregues pelos agentes (`C:\...`, em links ou soltos no texto) eram rejeitados como
+  "caminho inválido", e as pastas temporárias e scratch do Claude apareciam na lista do Novo agente.
+- No Windows, `~` e `/projects/` com `\` no `CLAUDE_CONFIG_DIR` e no `transcript_path` do statusline.
+- `claude.cmd` (npm) e o `claude.exe` do bun agora rodam nos instaladores, no Novo agente e no terminal: o Habblaud
+  roda direto o programa que eles chamam, então o pedido vai inteiro (com quebras de linha). Um `.cmd`/`.bat`
+  desconhecido roda pelo `cmd.exe`, escapado (aí um pedido de várias linhas chega numa linha só).
+- Terminal aberto por um intermediário (um `.bat`, um wrapper): o escritório não o reconhecia como o terminal do
+  agente, porque o Claude Code é um processo filho. Agora o terminal passa a ser do Claude Code que aparece no
+  registro de sessões descendendo do processo aberto.
+- Agente que ficava "trabalhando" depois de terminar: duas gravações do registro de sessões no mesmo tique do relógio
+  e do mesmo tamanho ("busy" -> "idle") não eram relidas. Acontecia mais no Windows (mtime avança a cada ~16 ms).
+- Testes que passavam do prazo ou dependiam de `/` e de permissões POSIX agora passam no Windows.
+
 ## [0.11.0] - 2026-10-13
 
 Para atualizar: `git pull` e `npm run docker:up` (ele também atualiza o mod do Habblaud nas contas). O acesso pelo
