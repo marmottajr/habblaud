@@ -10,6 +10,11 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Segurança:** pedidos que mudam o escritório (mensagens, novo agente, permissões) só são aceitos da própria
+  página do Habblaud; uma página aberta em outra porta do computador não passa mais.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

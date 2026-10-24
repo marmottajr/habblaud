@@ -217,6 +217,9 @@ describe('API HTTP', () => {
     expect(cross.status).toBe(403);
     expect((await snapshotOf(env.base)).meta.demo).toBe(false);
     const port = new URL(env.base).port;
+    const otherPort = await raw(env.base, '/api/demo', { method: 'POST', headers: { ...JSON_HEADERS, Host: `localhost:${port}`, Origin: 'http://localhost:1' }, body: demoOn });
+    expect(otherPort.status).toBe(403);
+    expect((await snapshotOf(env.base)).meta.demo).toBe(false);
     const same = await raw(env.base, '/api/demo', { method: 'POST', headers: { ...JSON_HEADERS, Host: `localhost:${port}`, Origin: `http://localhost:${port}` }, body: demoOn });
     expect(same.status).toBe(200);
   });
@@ -427,10 +430,13 @@ describe('guarda de Host/Origin', () => {
     }
   });
 
-  it('Origin: ausente, mesma origem ou local', () => {
+  it('Origin: ausente, mesma origem ou HABBLAUD_ALLOWED_HOSTS; outra porta do localhost só no dev', () => {
     expect(originAllowed(undefined, 'localhost:4747', allowed)).toBe(true);
     expect(originAllowed('http://localhost:4747', 'localhost:4747', allowed)).toBe(true);
-    expect(originAllowed('http://localhost:5173', '127.0.0.1:4747', allowed)).toBe(true); // Vite dev com proxy
+    expect(originAllowed('http://localhost:5173', '127.0.0.1:4747', allowed)).toBe(false); // outra porta local
+    expect(originAllowed('http://localhost:5173', '127.0.0.1:4747', allowed, true)).toBe(true); // modo dev (Vite)
+    expect(originAllowed('http://127.0.0.1:8080', '127.0.0.1:4747', allowed)).toBe(false);
+    expect(originAllowed('http://habblaud.lan:9999', 'localhost:4747', allowed)).toBe(true); // nome liberado: porta ignorada
     expect(originAllowed('http://192.168.0.10:4747', '192.168.0.10:4747', allowed)).toBe(true);
     expect(originAllowed('http://attacker.example', 'localhost:4747', allowed)).toBe(false);
     expect(originAllowed('http://1.2.3.4', 'localhost:4747', allowed)).toBe(false);

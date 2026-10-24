@@ -407,7 +407,7 @@ if (config.dev) {
 }
 
 // Host/Origin/Content-Type: barra DNS rebinding e CSRF antes de qualquer rota (inclusive o Vite).
-const guard = createRequestGuard({ allowedHosts: config.allowedHosts });
+const guard = createRequestGuard({ allowedHosts: config.allowedHosts, looseLoopbackOrigin: config.dev });
 
 server.on('request', (req, res) => {
   const url = parseUrl(req);

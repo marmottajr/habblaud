@@ -6,7 +6,8 @@
 //    (ou `*.localhost`) ou um nome liberado em HABBLAUD_ALLOWED_HOSTS.
 // 2) CSRF: requisições que mudam estado (POST) exigem `Content-Type: application/json` — o que um
 //    formulário ou um fetch "simples" de outro site não consegue enviar sem preflight de CORS, que
-//    este servidor nunca autoriza — e, quando há `Origin`, ele precisa ser da mesma origem ou local.
+//    este servidor nunca autoriza — e, quando há `Origin`, ele precisa ser da mesma origem que o Host
+//    ou um nome de HABBLAUD_ALLOWED_HOSTS (outra porta do localhost só passa no modo dev).
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
 import { tr } from '../../shared/i18n';
@@ -70,9 +71,10 @@ export function hostAllowed(host: string | undefined, allowed: ReadonlySet<strin
 
 /**
  * Origin aceito para requisições que mudam estado: ausente (curl, scripts), da mesma origem que o
- * Host da requisição, local (localhost/loopback) ou um nome de HABBLAUD_ALLOWED_HOSTS.
+ * Host da requisição ou um nome de HABBLAUD_ALLOWED_HOSTS. Outra porta do localhost/loopback só
+ * passa com `looseLoopback` (modo dev, Vite), como no terminal (http/pty.ts).
  */
-export function originAllowed(origin: string | undefined, host: string | undefined, allowed: ReadonlySet<string>): boolean {
+export function originAllowed(origin: string | undefined, host: string | undefined, allowed: ReadonlySet<string>, looseLoopback = false): boolean {
   if (origin === undefined) return true;
   if (origin === 'null') return false;
   let url: URL;
@@ -84,7 +86,7 @@ export function originAllowed(origin: string | undefined, host: string | undefin
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
   if (host !== undefined && url.host.toLowerCase() === host.trim().toLowerCase()) return true;
   const name = hostnameOf(url.host);
-  return !!name && (isLoopbackName(name) || allowed.has(name));
+  return !!name && ((looseLoopback && isLoopbackName(name)) || allowed.has(name));
 }
 
 export function isJsonContentType(value: string | undefined): boolean {
@@ -105,6 +107,8 @@ function reject(res: ServerResponse, status: number, message: string): void {
 export interface GuardOptions {
   /** Nomes extras aceitos no Host/Origin (HABBLAUD_ALLOWED_HOSTS). */
   allowedHosts?: ReadonlySet<string>;
+  /** Aceita Origin de qualquer porta do loopback (só no modo dev, para o Vite em outra porta). */
+  looseLoopbackOrigin?: boolean;
 }
 
 /**
@@ -127,7 +131,7 @@ export function createRequestGuard(opts: GuardOptions = {}): (req: IncomingMessa
     const method = req.method ?? 'GET';
     if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
-    if (!originAllowed(origin, host, allowed)) {
+    if (!originAllowed(origin, host, allowed, opts.looseLoopbackOrigin ?? false)) {
       reject(res, 403, tr('Origem não permitida.'));
       return true;
     }
