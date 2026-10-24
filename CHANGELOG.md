@@ -10,6 +10,24 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **O cartão “Pede permissão” explica em linguagem simples o que o agente quer fazer, com um selo de risco.** Quem
+  aprova pelo escritório nem sempre é programador: em vez de só `Write`, o caminho e o diff, o cartão agora diz “O
+  agente quer gravar o arquivo estado.json no caderno interno do Claude Code (~/.claude).”, “O agente quer copiar o
+  arquivo consultas.sql para a pasta docs do projeto salesshark.” ou “O agente quer apagar a pasta dist e tudo que
+  há dentro, na pasta do projeto loja.”, com **Risco baixo** (verde), **médio** (amarelo) ou **alto** (vermelho) e o
+  porquê. Caminhos viram lugares (“na pasta do projeto X”, “na sua Área de Trabalho”, “nas suas chaves e senhas”);
+  num comando com várias partes vale o pior risco; a `description` do agente aparece junto (“O agente descreve: …”,
+  com o verbo traduzido quando vem em inglês). Tudo por regras, sem modelo de IA (`shared/explain.ts`), também nos
+  pedidos do Codex e no modo demonstração. O nome técnico, o caminho e o comando/diff ficam recolhidos em
+  **Detalhes técnicos** (um clique abre); nas perguntas do `AskUserQuestion` nada muda, e um servidor antigo (sem a
+  explicação) mostra o cartão como antes.
+- **`HABBLAUD_EXPLICAR=claude` (opcional, desligado por padrão):** o servidor pede ao Claude Code deste computador
+  (`claude -p --model haiku`, sem hooks, plugins nem sessão gravada; tempo limite de 8 s; cache por pedido) uma frase
+  melhor para cada pedido, por cima da explicação automática. Usa o plano de quem roda o Habblaud; o risco nunca
+  muda.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
