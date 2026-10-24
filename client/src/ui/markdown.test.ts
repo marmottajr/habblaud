@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tokenizeBlocks, tokenizeInline, type MdBlock } from './markdown';
+import { splitTableRow, tokenizeBlocks, tokenizeInline, type MdBlock } from './markdown';
 
 describe('tokenizeBlocks', () => {
   it('separa parágrafos por linha em branco e preserva as quebras de linha dentro deles', () => {
@@ -83,13 +83,32 @@ describe('tokenizeBlocks', () => {
     ]);
   });
 
-  it('tabelas ficam como texto pré-formatado (linhas originais)', () => {
-    const table = '| Arquivo | Linhas |\n|---|---:|\n| a.ts | 10 |';
+  it('tabela vira cabeçalho, alinhamentos e linhas com o número de colunas do cabeçalho', () => {
+    const table = '| Arquivo | Linhas | Nota |\n|:---|---:|:-:|\n| a.ts | 10 |\n| b.ts | 2 | ok | extra |';
     expect(tokenizeBlocks(`Resumo:\n${table}\n\nfim`)).toEqual<MdBlock[]>([
       { type: 'paragraph', text: 'Resumo:' },
-      { type: 'table', text: table },
+      {
+        type: 'table',
+        align: ['left', 'right', 'center'],
+        head: ['Arquivo', 'Linhas', 'Nota'],
+        rows: [
+          ['a.ts', '10', ''],
+          ['b.ts', '2', 'ok'],
+        ],
+      },
       { type: 'paragraph', text: 'fim' },
     ]);
+  });
+
+  it('tabela sem separador (linhas começando com |) fica sem cabeçalho', () => {
+    expect(tokenizeBlocks('| a | b |\n| c |')).toEqual<MdBlock[]>([
+      { type: 'table', align: [null, null], head: null, rows: [['a', 'b'], ['c', '']] },
+    ]);
+  });
+
+  it('célula: barra escapada e barra dentro de `código` não dividem; crase sem par é literal', () => {
+    expect(splitTableRow('| `a | b` | x \\| y | `solta | z |')).toEqual(['`a | b`', 'x | y', '`solta', 'z']);
+    expect(splitTableRow('sem | pontas')).toEqual(['sem', 'pontas']);
   });
 
   it('barra solta num parágrafo não vira tabela', () => {
@@ -145,13 +164,32 @@ describe('tokenizeInline', () => {
     expect(tokenizeInline('_ênfase_')).toEqual([{ type: 'em', children: [{ type: 'text', text: 'ênfase' }] }]);
   });
 
-  it('links viram texto com o endereço à parte', () => {
+  it('links [texto](url) guardam o endereço à parte', () => {
     expect(tokenizeInline('veja [a doc](https://exemplo.com/x "título") aqui')).toEqual([
       { type: 'text', text: 'veja ' },
       { type: 'link', text: 'a doc', href: 'https://exemplo.com/x' },
       { type: 'text', text: ' aqui' },
     ]);
     expect(tokenizeInline('[sem link] e [x](com espaço)')).toEqual([{ type: 'text', text: '[sem link] e [x](com espaço)' }]);
+  });
+
+  it('endereço http(s) solto e <url> viram link, sem a pontuação da frase nem o ) sem par', () => {
+    expect(tokenizeInline('PR: https://github.com/a/b/pull/184. Veja (https://x.dev/a_(b)) e <https://y.dev/q?a=1>!')).toEqual([
+      { type: 'text', text: 'PR: ' },
+      { type: 'link', text: 'https://github.com/a/b/pull/184', href: 'https://github.com/a/b/pull/184' },
+      { type: 'text', text: '. Veja (' },
+      { type: 'link', text: 'https://x.dev/a_(b)', href: 'https://x.dev/a_(b)' },
+      { type: 'text', text: ') e ' },
+      { type: 'link', text: 'https://y.dev/q?a=1', href: 'https://y.dev/q?a=1' },
+      { type: 'text', text: '!' },
+    ]);
+  });
+
+  it('não vira link: dentro de `código`, colado numa palavra, ou sem nada depois de https://', () => {
+    expect(tokenizeInline('`https://a.dev` xhttps://b.dev https://')).toEqual([
+      { type: 'code', text: 'https://a.dev' },
+      { type: 'text', text: ' xhttps://b.dev https://' },
+    ]);
   });
 
   it('escapes com barra invertida', () => {
