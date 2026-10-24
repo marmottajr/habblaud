@@ -40,9 +40,11 @@ import { CodexSource } from './sources/codex/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
+import type { PermissionRequestInfo, PlainExplanation } from '../shared/types';
 import type { WorldLocale } from '../shared/world/protocol';
 import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
+import { createClaudeRefiner } from './permissions/explain-claude';
 import { AttachmentStore } from './spawn/attachments';
 import { recentFolders } from './spawn/folders';
 import { isDemoId } from '../shared/timeline';
@@ -228,6 +230,20 @@ const deliveryFiles = deliveries
 const timelineDir = join(config.dataDir, TIMELINE_DIR);
 const timeline = config.timeline ? new TimelineRecorder({ dir: timelineDir }) : undefined;
 if (timeline) hub.onSnapshot((snap) => timeline.ingest(snap));
+// Explicação em linguagem de leigo dos pedidos (shared/explain.ts) refinada pelo Claude Code local: opt-in com
+// HABBLAUD_EXPLICAR=claude (usa o plano de quem roda o Habblaud; sem o `claude`, fica só a explicação automática).
+const explicar = process.env.HABBLAUD_EXPLICAR?.trim().toLowerCase();
+let explainRefiner: ((info: PermissionRequestInfo, plain: PlainExplanation) => Promise<string | undefined>) | undefined;
+if (explicar === 'claude') {
+  const bin = runnableClaudeBin();
+  if (bin) {
+    explainRefiner = createClaudeRefiner({ claudeBin: bin });
+    log.info(tr('Explicação dos pedidos refinada pelo Claude Code local (HABBLAUD_EXPLICAR=claude): usa o seu plano, uma chamada curta por pedido.'));
+  } else log.warn(tr('HABBLAUD_EXPLICAR=claude, mas o executável "claude" não foi encontrado: fica só a explicação automática.'));
+} else if (explicar && explicar !== '0' && explicar !== 'off' && explicar !== 'false' && explicar !== 'no') {
+  log.warn(tr('HABBLAUD_EXPLICAR={0} não é reconhecido (só "claude"): fica só a explicação automática.', [explicar]));
+}
+
 // Responder pelo escritório (hook PermissionRequest): age sobre as sessões, então segue a mesma trava.
 const permissions = config.terminal
   ? new PermissionRegistry({
@@ -240,6 +256,8 @@ const permissions = config.terminal
       codexAccount: (account, codexHome) => codexAccountOf(accounts.entriesOf('codex'), account, codexHome),
       demoDecide: (id, d) => office.decideDemoPermission(id, d),
       demoDetail: (id) => office.demoPermission(id),
+      home: () => config.home,
+      refine: explainRefiner,
     })
   : undefined;
 late.permissions = permissions;

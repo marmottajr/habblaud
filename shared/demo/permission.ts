@@ -3,6 +3,7 @@
 // Puro: usado pelo simulador no servidor (HABBLAUD_DEMO=1) e no navegador (?mock=1).
 import type { PermissionRequestInfo } from '../types';
 import { describeTool } from '../activity';
+import { explainForLayperson } from '../explain';
 import { tr } from '../i18n';
 
 export interface DemoPermissionSource {
@@ -10,6 +11,14 @@ export interface DemoPermissionSource {
   files: readonly string[];
   /** Comandos de terminal do projeto fictício. */
   commands: readonly string[];
+  /** Pasta do projeto fictício (para a explicação dizer "no projeto X"). */
+  cwd?: string;
+}
+
+/** Explicação em linguagem de leigo de um pedido fictício (a mesma função do servidor). */
+function withPlain(p: PermissionRequestInfo, input: unknown, src: DemoPermissionSource): PermissionRequestInfo {
+  const plain = explainForLayperson(p.tool, input, { project: src.cwd ?? '/projetos/demo', home: '/Users/voce' });
+  return plain ? { ...p, plain } : p;
 }
 
 /** Quanto tempo o "hook" fictício espera antes de devolver o pedido ao terminal. */
@@ -97,34 +106,42 @@ export function demoPermission(id: string, src: DemoPermissionSource, rng: () =>
     const command = pick(src.commands);
     const d = describeTool('Bash', { command });
     const prefix = command.split(/\s+/).slice(0, 2).join(' ');
-    return {
-      ...base,
-      tool: 'Bash',
-      title: `Bash(${command})`,
-      text: d.text,
-      icon: d.icon,
-      input: command,
-      inputKind: 'command',
-      suggestions: [{ index: 0, rules: [`Bash(${prefix}:*)`], destination: 'localSettings' }],
-    };
+    return withPlain(
+      {
+        ...base,
+        tool: 'Bash',
+        title: `Bash(${command})`,
+        text: d.text,
+        icon: d.icon,
+        input: command,
+        inputKind: 'command',
+        suggestions: [{ index: 0, rules: [`Bash(${prefix}:*)`], destination: 'localSettings' }],
+      },
+      { command },
+      src,
+    );
   }
   if (roll < 0.8 && src.files.length) {
     const file = pick(src.files);
     const d = describeTool('Edit', { file_path: file });
-    return { ...base, tool: 'Edit', title: `Edit(${file})`, text: d.text, icon: d.icon, input: pick(DEMO_DIFFS).join('\n'), inputKind: 'diff' };
+    return withPlain({ ...base, tool: 'Edit', title: `Edit(${file})`, text: d.text, icon: d.icon, input: pick(DEMO_DIFFS).join('\n'), inputKind: 'diff' }, { file_path: file }, src);
   }
   const url = 'https://developer.mozilla.org/pt-BR/docs/Web/API/Fetch_API';
   const d = describeTool('WebFetch', { url });
-  return {
-    ...base,
-    tool: 'WebFetch',
-    title: `WebFetch(${url})`,
-    text: d.text,
-    icon: d.icon,
-    input: tr('Resuma como tratar erros de rede com fetch'),
-    inputKind: 'text',
-    suggestions: [{ index: 0, rules: ['WebFetch(domain:developer.mozilla.org)'], destination: 'localSettings' }],
-  };
+  return withPlain(
+    {
+      ...base,
+      tool: 'WebFetch',
+      title: `WebFetch(${url})`,
+      text: d.text,
+      icon: d.icon,
+      input: tr('Resuma como tratar erros de rede com fetch'),
+      inputKind: 'text',
+      suggestions: [{ index: 0, rules: ['WebFetch(domain:developer.mozilla.org)'], destination: 'localSettings' }],
+    },
+    { url },
+    src,
+  );
 }
 
 /**
@@ -157,13 +174,14 @@ export function demoCodexPermission(id: string, src: DemoPermissionSource, rng: 
   if (roll < 0.3 && src.files.length) {
     const file = pick(src.files);
     const d = describeTool('Edit', { file_path: file });
-    return { ...base, tool: 'apply_patch', title: `apply_patch(${file})`, text: d.text, icon: d.icon, input: demoPatchText(file, pick(DEMO_DIFFS)), inputKind: 'diff' };
+    const patch = demoPatchText(file, pick(DEMO_DIFFS));
+    return withPlain({ ...base, tool: 'apply_patch', title: `apply_patch(${file})`, text: d.text, icon: d.icon, input: patch, inputKind: 'diff' }, { command: patch }, src);
   }
   if (roll < 0.45) {
     const [host, command] = pick(DEMO_NETWORK);
-    return { ...base, tool: 'Bash', title: `Bash(${command})`, text: tr('Acesso à rede: {0}', [host]), icon: '🌐', input: command, inputKind: 'command' };
+    return withPlain({ ...base, tool: 'Bash', title: `Bash(${command})`, text: tr('Acesso à rede: {0}', [host]), icon: '🌐', input: command, inputKind: 'command' }, { command, description: `network-access ${host}` }, src);
   }
   const command = src.commands.length ? pick(src.commands) : 'npm test';
   const d = describeTool('Bash', { command });
-  return { ...base, tool: 'Bash', title: `Bash(${command})`, text: d.text, icon: d.icon, input: command, inputKind: 'command' };
+  return withPlain({ ...base, tool: 'Bash', title: `Bash(${command})`, text: d.text, icon: d.icon, input: command, inputKind: 'command' }, { command }, src);
 }

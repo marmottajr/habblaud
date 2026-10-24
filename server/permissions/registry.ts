@@ -16,9 +16,11 @@
 // sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
 // terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
 import { randomBytes } from 'node:crypto';
+import { homedir } from 'node:os';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
-import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
+import { explainForLayperson } from '../../shared/explain';
+import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo, PlainExplanation } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { toolView } from '../sources/terminal';
 import { codexToolView } from './codex';
@@ -83,6 +85,13 @@ export interface RegistryOptions {
   demoDecide?: (id: string, d: PermissionDecision) => boolean;
   /** Detalhe de um pedido fictício do demo (o snapshot já o traz). */
   demoDetail?: (id: string) => PermissionRequestInfo | undefined;
+  /** Pasta pessoal do usuário, para dizer "no caderno interno do Claude Code" em vez do caminho (padrão: os.homedir()). */
+  home?: () => string | undefined;
+  /**
+   * Refina a explicação em linguagem de leigo (HABBLAUD_EXPLICAR=claude, permissions/explain-claude.ts): devolve o
+   * `what` novo ou undefined para ficar com o heurístico. Roda depois do registro; o risco nunca muda.
+   */
+  refine?: (info: PermissionRequestInfo, plain: PlainExplanation) => Promise<string | undefined>;
   now?: () => number;
   /** Intervalo do relógio interno (start). */
   tickMs?: number;
@@ -418,6 +427,17 @@ export class PermissionRegistry {
     const suggestions = pickSuggestions(req.suggestions);
     if (suggestions.length) info.suggestions = suggestions;
     if (ask) info.questions = questions;
+    // Explicação em linguagem de leigo: o que, onde e o risco (shared/explain.ts). Não para as perguntas.
+    if (!ask) {
+      const agent = this.opts.office.get(target.id);
+      const plain = explainForLayperson(req.tool, req.input, {
+        agent: agent?.name,
+        project: req.cwd,
+        home: this.opts.home ? this.opts.home() : homedir(),
+        recent: agent?.recent.slice(-5),
+      });
+      if (plain) info.plain = plain;
+    }
 
     const p: Pending = {
       info,
@@ -444,7 +464,20 @@ export class PermissionRegistry {
       this.opts.office.noticePermission(target.id, `${desc.text}${by}`);
     }
     this.opts.office.markDirty();
+    if (info.plain && this.opts.refine) this.refine(p, info.plain);
     return { id, expiresAt: info.expiresAt + EXPIRY_GRACE_MS };
+  }
+
+  /** Troca o `what` da explicação pelo refinado quando ele chega, se o pedido ainda está em aberto. Nunca lança. */
+  private refine(p: Pending, plain: PlainExplanation): void {
+    this.opts
+      .refine!(p.info, plain)
+      .then((what) => {
+        if (!what || p.outcome || !this.pending.has(p.info.id)) return;
+        p.info.plain = { ...plain, what, refined: true };
+        this.opts.office.markDirty();
+      })
+      .catch((err) => log.warnOnce(`permissions-refine:${errMsg(err)}`, tr('Explicação do pedido: o refino falhou ({0}); fica a explicação automática.', [errMsg(err)])));
   }
 
   /** Detalhe completo de um pedido em aberto (com os argumentos), ou undefined. */

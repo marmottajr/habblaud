@@ -508,8 +508,8 @@ chega à mesa; pular para outro ponto mostra todos já no lugar.
 Com o plugin de permissões instalado (`npm run mod:install`, que o instala junto com o mod; no Claude Code anterior
 ao 2.1.287, `npm run hooks:install`), quando um agente pede permissão — rodar um comando, editar um arquivo, abrir
 uma página — o pedido aparece no escritório: o personagem levanta a mão, um aviso com **Responder**
-surge na tela e, nos detalhes do agente, o cartão **Pede permissão** mostra o comando (ou o diff da edição) com os
-botões:
+surge na tela e, nos detalhes do agente, o cartão **Pede permissão** explica em linguagem simples o que o agente quer
+fazer e onde, com um selo de risco, e mostra os botões:
 
 - **Aprovar** — e, quando o Claude Code sugere, **Aprovar e não perguntar de novo** (a mesma regra que o terminal
   ofereceria, por exemplo `Bash(npm test:*)` neste projeto);
@@ -518,6 +518,32 @@ botões:
 
 O diálogo continua aparecendo no terminal ao mesmo tempo, e vale o que você responder primeiro: respondeu no
 terminal, o pedido some do escritório sozinho. O contador **precisam de você** (e a tecla `P`) leva até cada pedido.
+
+**Entender o que se aprova.** Quem usa o escritório nem sempre é programador, então o cartão traduz o pedido para
+palavras do dia a dia, sem modelo de IA (só regras, em `shared/explain.ts`): “O agente quer gravar o arquivo
+estado.json no caderno interno do Claude Code (~/.claude).”, “O agente quer copiar o arquivo consultas.sql para a
+pasta docs do projeto salesshark.”, “O agente quer apagar a pasta dist e tudo que há dentro, na pasta do projeto
+loja.”. Caminhos viram lugares (“na pasta do projeto X”, “na sua Área de Trabalho”, “nas suas chaves e senhas”), e
+um selo colorido diz o risco de aprovar:
+
+- **Risco baixo** (verde): ler; gravar ou editar dentro do projeto da sessão ou nas pastas internas do Claude Code,
+  do Codex e do Habblaud; rodar testes, build, lint e scripts do projeto.
+- **Risco médio** (amarelo): comando que cria ou altera fora do projeto, instalar pacote, `git commit`/`push`/`pull`,
+  acesso à internet, nuvem, encerrar programas, ferramentas MCP que mudam algo.
+- **Risco alto** (vermelho): apagar (`rm`, `git reset --hard`, `git clean`, force push, `DROP`/`DELETE`), `sudo`,
+  mandar mensagem ou e-mail, dinheiro, mexer em chaves e senhas (`~/.ssh`, `.env`, credenciais), baixar e executar
+  da internet.
+
+Num comando com várias partes vale o pior risco. A `description` que o agente manda junto com o comando aparece
+também (“O agente descreve: …”, com o verbo traduzido quando vem em inglês). O nome técnico da ferramenta, o caminho
+e o comando ou diff continuam no cartão, recolhidos em **Detalhes técnicos** (um clique abre). Nas perguntas do
+`AskUserQuestion` nada muda.
+
+Opcional: com `HABBLAUD_EXPLICAR=claude` no ambiente do servidor, o Habblaud pede ao Claude Code deste computador
+(`claude -p --model haiku`, sem hooks, plugins nem sessão gravada) uma frase melhor para cada pedido, por cima da
+explicação automática. Isso **usa o seu plano** (uma chamada curta por pedido, com cache), leva alguns segundos e o
+risco nunca muda: o modelo só reescreve o texto; sem resposta em 8 s fica a explicação automática. Desligado por
+padrão.
 
 **Perguntas do agente** (`AskUserQuestion`) também: o cartão de perguntas mostra cada pergunta com as
 opções e as descrições, como o terminal mostraria. Escolha uma opção (ou várias, quando a pergunta deixa) ou escreva
@@ -728,6 +754,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (uma consulta às releases do repositório no GitHub a cada 6 h). |
+| `HABBLAUD_EXPLICAR` | desligado | `claude` refina a explicação em linguagem simples dos pedidos de permissão com o Claude Code deste computador (`claude -p --model haiku`; usa o seu plano). Ver [Responder pelo escritório](#responder-pelo-escritório). |
 | `HABBLAUD_LANG` | idioma do sistema (menos inglês), senão `pt-BR` | Idioma dos textos montados pelo servidor (atividades, avisos, logs): `pt-BR`, `en`, `es` ou `fr`. A interface segue o navegador ou a escolha em Configurações › Idioma. Ver [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar nome, letra ou cor, casado pelo nome da pasta da conta. Ex.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 
