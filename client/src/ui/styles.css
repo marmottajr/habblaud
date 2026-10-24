@@ -5387,7 +5387,7 @@ button.ui-term__think:hover,
     z-index: 42;
     top: calc(var(--top-h) + var(--gap));
     right: var(--gap);
-    bottom: var(--gap);
+    bottom: calc(var(--gap) + var(--kb, 0px));
     left: var(--gap);
     width: auto;
     height: auto;
@@ -5397,7 +5397,7 @@ button.ui-term__think:hover,
 @media (max-width: 600px) {
   .ui-term {
     z-index: 58;
-    inset: 0;
+    inset: 0 0 var(--kb, 0px);
     border: 0;
     border-radius: 0;
   }
