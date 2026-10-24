@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
@@ -103,6 +103,20 @@ describe('RemoteSessions', () => {
     const restarted = new RemoteSessions(SECRET, CFG, () => now, file);
     expect(restarted.verify(phone)).toBe(false);
     expect(restarted.verify(other)).toBe(true);
+    tmp.cleanup();
+  });
+
+  it('lista de tokens encerrados ilegível: as sessões anteriores deixam de valer; as novas valem', () => {
+    const now = 1_800_000_000_000;
+    const tmp = tempDir();
+    const file = join(tmp.dir, 'data', 'remote-revoked.json');
+    const before = new RemoteSessions(SECRET, CFG, () => now, file);
+    const phone = before.issue().token;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, '{ corrompido');
+    const restarted = new RemoteSessions(SECRET, CFG, () => now + 1_000, file);
+    expect(restarted.verify(phone)).toBe(false);
+    expect(restarted.verify(restarted.issue().token)).toBe(true);
     tmp.cleanup();
   });
 

@@ -104,6 +104,18 @@ describe('UpdateChecker', () => {
     expect(changes).toBe(1);
   });
 
+  it('onChange que lança não derruba o check()', async () => {
+    const f = fakeFetch([json(RELEASE, { headers: { ETag: 'W/"abc"' } })]);
+    const c = make({
+      fetch: f.fetch,
+      now: () => 1_000,
+      onChange: () => {
+        throw new Error('boom');
+      },
+    });
+    await expect(c.check()).resolves.toMatchObject({ available: true });
+  });
+
   it('304 com ETag mantém a release conhecida e só renova a data', async () => {
     const f = fakeFetch([json(RELEASE, { headers: { ETag: 'W/"abc"' } }), new Response(null, { status: 304 })]);
     let t = 1_000;

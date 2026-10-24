@@ -176,7 +176,13 @@ export class UpdateChecker {
     this.schedule(this.error ? RETRY_MS : CHECK_EVERY_MS);
     this.announce();
     const after = this.status();
-    if (JSON.stringify(after) !== before) this.opts.onChange?.();
+    if (JSON.stringify(after) !== before) {
+      try {
+        this.opts.onChange?.();
+      } catch (err) {
+        log.warn(tr('Aviso de versão nova falhou: {0}.', [errMsg(err)]));
+      }
+    }
     return after;
   }
 

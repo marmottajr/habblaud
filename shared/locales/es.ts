@@ -1954,6 +1954,7 @@ export const ES: Readonly<Record<string, string>> = {
   // server/updates/checker.ts
   "updates.json ilegível ({0}); verificando de novo.": "updates.json ilegible ({0}); verificando de nuevo.",
   "Verificação de versão nova falhou: {0}.": "La búsqueda de nueva versión falló: {0}.",
+  "Aviso de versão nova falhou: {0}.": "El aviso de nueva versión falló: {0}.",
   "A release mais recente de {0} tem uma tag fora do padrão de versão ({1}): ignorada.": "La release más reciente de {0} tiene una etiqueta fuera del formato de versión ({1}): ignorada.",
   "limite de consultas do GitHub atingido; tento de novo mais tarde": "se alcanzó el límite de consultas de GitHub; vuelvo a intentar más tarde",
   "o GitHub respondeu {0}": "GitHub respondió {0}",
@@ -2519,6 +2520,8 @@ export const ES: Readonly<Record<string, string>> = {
   // scripts/docker-up.ts
   "acesso remoto configurado, mas sem a CA local: rode npm run remote:setup.": "acceso remoto configurado, pero sin la CA local: ejecuta npm run remote:setup.",
   "Acesso remoto: certificado do servidor renovado ({0}).": "Acceso remoto: certificado del servidor renovado ({0}).",
+  "Acesso remoto: a lista de sessões encerradas está ilegível ({0}); quem estava conectado precisa entrar de novo.": "Acceso remoto: la lista de sesiones cerradas es ilegible ({0}); quien estaba conectado debe iniciar sesión de nuevo.",
+  "Acesso remoto: não deu para gravar a lista de sessões encerradas ({0}); vale até o próximo reinício.": "Acceso remoto: no se pudo guardar la lista de sesiones cerradas ({0}); vale hasta el próximo reinicio.",
   "Acesso remoto: monta {0} em {1}, somente leitura.": "Acceso remoto: monta {0} en {1}, solo lectura.",
   "acesso remoto: não consegui conferir o certificado ({0}).": "acceso remoto: no se pudo verificar el certificado ({0}).",
   "Acesso remoto: publica {0} (porta {1} do container).": "Acceso remoto: publica {0} (puerto {1} del contenedor).",

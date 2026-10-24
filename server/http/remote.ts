@@ -27,6 +27,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/password';
 import { hostAllowed } from './guard';
+import { log } from '../log';
 import { getLocale, tr } from '../../shared/i18n';
 
 export type RemoteFeature = 'permissions' | 'messages' | 'terminal' | 'spawn';
@@ -131,6 +132,8 @@ export class RemoteSessions {
   private readonly key: Buffer;
   /** Assinatura -> validade dos tokens encerrados por "Sair" antes de vencer (o cookie apagado não basta: uma cópia valeria até expirar). */
   private readonly revoked = new Map<string, number>();
+  /** Tokens emitidos antes disto não valem (a lista de encerrados estava ilegível ao subir). */
+  private notBefore = 0;
 
   constructor(
     secret: Buffer,
@@ -155,7 +158,7 @@ export class RemoteSessions {
 
   verify(token: string | undefined): boolean {
     const parsed = this.parse(token);
-    return !!parsed && !this.revoked.has(parsed.sig);
+    return !!parsed && parsed.exp - SESSION_MS >= this.notBefore && !this.revoked.has(parsed.sig);
   }
 
   /** Encerra este token (botão "Sair"); token inválido ou vencido não muda nada. */
@@ -183,12 +186,15 @@ export class RemoteSessions {
     if (!this.revokedFile) return;
     try {
       const data: unknown = JSON.parse(readFileSync(this.revokedFile, 'utf8'));
+      if (!data || typeof data !== 'object') throw new Error('formato inválido');
       const now = this.now();
       for (const [sig, exp] of Object.entries(data as Record<string, unknown>)) {
         if (/^[A-Za-z0-9_-]{43}$/.test(sig) && typeof exp === 'number' && exp > now) this.revoked.set(sig, exp);
       }
-    } catch {
-      // sem arquivo (ou ilegível): ninguém encerrado ainda
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return; // ninguém encerrado ainda
+      this.notBefore = this.now();
+      log.warn(tr('Acesso remoto: a lista de sessões encerradas está ilegível ({0}); quem estava conectado precisa entrar de novo.', [(err as Error).message]));
     }
   }
 
@@ -199,8 +205,8 @@ export class RemoteSessions {
       const tmp = `${this.revokedFile}.tmp`;
       writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.revoked)), { mode: 0o600 });
       renameSync(tmp, this.revokedFile);
-    } catch {
-      // segue valendo em memória até o próximo reinício
+    } catch (err) {
+      log.warn(tr('Acesso remoto: não deu para gravar a lista de sessões encerradas ({0}); vale até o próximo reinício.', [(err as Error).message]));
     }
   }
 }
