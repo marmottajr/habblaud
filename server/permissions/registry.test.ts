@@ -127,6 +127,52 @@ describe('PermissionRegistry: registro', () => {
     expect(commit.notices[0]).toMatchObject({ level: 'alert', agentId: MAIN });
   });
 
+  it('explicação em linguagem de leigo: no snapshot e no detalhe, com o risco; não nas perguntas', () => {
+    const { office, registry } = setup();
+    office.commit();
+    const id = registered(registry.register(hookInput({ tool_name: 'Write', tool_input: { file_path: '/p/loja/src/novo.ts', content: 'x' } })));
+    const a = office.commit().snapshot.agents.find((x) => x.id === MAIN)!;
+    expect(a.permission!.plain).toEqual({
+      risk: 'baixo',
+      what: 'O agente quer gravar o arquivo novo.ts na pasta src do projeto loja (cria ou substitui o conteúdo).',
+      why: 'Risco baixo: mexe só dentro do projeto, e o git guarda a versão anterior.',
+    });
+    expect(registry.detail(id)!.plain).toEqual(a.permission!.plain);
+    // rm -rf fora do projeto: alto. O cwd do hook é o projeto da sessão.
+    const rm = registered(registry.register(hookInput({ tool_input: { command: 'rm -rf /p/outro/dist' } })));
+    expect(registry.detail(rm)!.plain).toMatchObject({ risk: 'alto', what: 'O agente quer apagar a pasta dist e tudo que há dentro, fora do projeto (/p/outro/dist).' });
+    // Pergunta: o cartão mostra as perguntas; sem explicação.
+    const q = registered(registry.register(askInput()));
+    expect(registry.detail(q)!.plain).toBeUndefined();
+  });
+
+  it('refino (HABBLAUD_EXPLICAR=claude): troca só o texto quando chega, se o pedido ainda está em aberto', async () => {
+    let resolveIt: (s: string | undefined) => void = () => {};
+    const refine = () => new Promise<string | undefined>((r) => (resolveIt = r));
+    let now = 1_000_000;
+    let permissions: PermissionRegistry | undefined;
+    const office = new Office({ names: new NameStore(null), version: 't', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => undefined, permissions: () => permissions?.snapshot() ?? new Map(), now: () => now });
+    office.addMain({ id: MAIN, account: 'acc', sessionId: SESSION, cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'working' });
+    permissions = new PermissionRegistry({ office, viewers: () => 1, now: () => now, refine });
+    office.commit();
+    const id = registered(permissions.register(hookInput({ tool_input: { command: 'rm -rf dist' } })));
+    const before = permissions.detail(id)!.plain!;
+    expect(before.risk).toBe('alto');
+    expect(before.refined).toBeUndefined();
+    resolveIt('O agente quer apagar a pasta dist, que guarda a versão compilada da loja.');
+    await new Promise((r) => setTimeout(r, 0));
+    const after = permissions.detail(id)!.plain!;
+    expect(after).toEqual({ ...before, what: 'O agente quer apagar a pasta dist, que guarda a versão compilada da loja.', refined: true });
+    expect(after.risk).toBe('alto');
+    expect(office.commit().snapshot.agents.find((x) => x.id === MAIN)!.permission!.plain!.refined).toBe(true);
+    // Pedido já respondido: o refino que chega depois não mexe.
+    const id2 = registered(permissions.register(hookInput({ tool_input: { command: 'ls' } })));
+    expect(permissions.decide(id2, { behavior: 'allow' })).toBe('ok');
+    resolveIt('tarde demais');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(permissions.detail(id2)).toBeUndefined();
+  });
+
   it('subagente acompanhado recebe o pedido; desconhecido vai para o principal com o tipo', () => {
     const { office, registry } = setup();
     office.addSub({ id: SUB, parentId: MAIN, sessionId: SESSION, role: 'Explore', background: true, startedAt: 0 });

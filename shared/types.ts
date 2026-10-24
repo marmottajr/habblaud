@@ -619,6 +619,26 @@ export interface PermissionSuggestionInfo {
   destination: string;
 }
 
+/** Risco de aprovar um pedido, para quem não é programador (shared/explain.ts). */
+export type PlainRisk = 'baixo' | 'medio' | 'alto';
+
+/**
+ * Explicação em linguagem de leigo de um pedido de permissão (shared/explain.ts): o que o agente quer fazer e onde,
+ * em palavras (nunca só o caminho cru), o risco de aprovar e por quê. Montada sem modelo de IA; HABBLAUD_EXPLICAR=claude
+ * refina o `what` com o Claude Code local (server/permissions/explain-claude.ts), sem mudar o risco.
+ */
+export interface PlainExplanation {
+  /** "O agente quer gravar o arquivo estado.json no caderno interno do Claude Code (~/.claude)." */
+  what: string;
+  /** "Risco baixo: não mexe nos seus projetos." */
+  why?: string;
+  risk: PlainRisk;
+  /** "Logo antes, o agente estava: rodando testes." */
+  context?: string;
+  /** O `what` foi refinado pelo Claude Code local (HABBLAUD_EXPLICAR=claude). */
+  refined?: boolean;
+}
+
 /**
  * Pedido de permissão pendente que dá para responder pelo Habblaud: o hook PermissionRequest do Claude Code
  * (mod/habblaud-permissoes/hooks/permission-hook.mjs) o registra e fica esperando a decisão. Só existe com bind local (a mesma
@@ -642,6 +662,8 @@ export interface PermissionRequestInfo {
   inputKind?: TerminalInputKind;
   /** Pedido de um subagente que o Habblaud ainda não mostra: o tipo dele (ex.: "Explore"). */
   subagent?: string;
+  /** Explicação em linguagem de leigo (o que, onde, risco). Ausente nas perguntas do AskUserQuestion. */
+  plain?: PlainExplanation;
   /** Regras "sempre permitir" que podem ser aplicadas junto com a aprovação. */
   suggestions?: PermissionSuggestionInfo[];
   /**

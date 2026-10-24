@@ -79,7 +79,7 @@ const PROJECTS: DemoProject[] = [
     prompts: [tr('Cria a seção de depoimentos na home'), tr('Melhora o SEO das páginas do blog'), tr('Adiciona formulário de contato')],
     tasks: [tr('Seção de depoimentos'), tr('Meta tags do blog'), 'Sitemap', tr('Formulário de contato')],
     queries: ['astro sitemap integration', 'schema.org organization json-ld'],
-    commands: ['npm run build', 'npm run dev', 'git status', 'npx lighthouse http://localhost:4321'],
+    commands: ['npm run build', 'npm run dev', 'git status', 'npx lighthouse http://localhost:4321', 'rm -rf dist && npm run build'],
     greps: ['<meta', 'description'],
   },
   {
@@ -470,7 +470,8 @@ export class DemoSimulator {
     a.phaseUntil = now + this.ms(25_000, 50_000);
     const id = `${this.prefix}perm-${this.tag}-${++this.seq}`;
     const codex = a.info.provider === 'codex';
-    a.info.permission = codex ? demoCodexPermission(id, a.project, a.rng, now) : demoPermission(id, a.project, a.rng, now, kind);
+    const src = { ...a.project, cwd: `${ROOT}/${a.project.name}` };
+    a.info.permission = codex ? demoCodexPermission(id, src, a.rng, now) : demoPermission(id, src, a.rng, now, kind);
     const reason = codex ? tr('aprovar um comando') : a.info.permission.tool === ASK_TOOL ? tr('responder uma pergunta') : tr('aprovar uma permissão');
     a.info.waitingFor = reason;
     this.setStatus(a, 'waiting', now);

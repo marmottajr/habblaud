@@ -11,6 +11,7 @@ import {
   nextPermissionAgent,
   permissionAgents,
   permissionOptions,
+  plainView,
   type AskChoice,
 } from './permission';
 
@@ -88,6 +89,33 @@ describe('responder pelo escritório (peças puras)', () => {
   it('isLocalHostname: a mesma regra do servidor para aceitar respostas', () => {
     for (const h of ['localhost', 'habblaud.localhost', '127.0.0.1', '127.1.2.3', '[::1]', '::1', 'LOCALHOST']) expect(isLocalHostname(h), h).toBe(true);
     for (const h of ['192.168.0.10', 'meu-mac.local', 'habblaud.lan', '128.0.0.1', '127.0.0.1.nip.io']) expect(isLocalHostname(h), h).toBe(false);
+  });
+});
+
+describe('explicação em linguagem de leigo no cartão (plainView)', () => {
+  const plain = { risk: 'alto' as const, what: ' O agente quer apagar a pasta dist e tudo que há dentro, na pasta do projeto loja. ', why: 'Risco alto: apagar não dá para desfazer (fora do git).', context: 'Logo antes, o agente estava: rodando testes.' };
+
+  it('com plain: selo de risco colorido, o que, por quê e contexto, para o cartão mostrar em destaque', () => {
+    expect(plainView({ tool: 'Bash', plain })).toEqual({
+      risk: 'alto',
+      riskClass: 'is-alto',
+      riskText: 'Risco alto',
+      what: 'O agente quer apagar a pasta dist e tudo que há dentro, na pasta do projeto loja.',
+      why: 'Risco alto: apagar não dá para desfazer (fora do git).',
+      context: 'Logo antes, o agente estava: rodando testes.',
+      refined: false,
+    });
+    expect(plainView({ tool: 'Write', plain: { risk: 'baixo', what: 'O agente quer gravar o arquivo estado.json no caderno interno do Claude Code (~/.claude).', refined: true } })).toMatchObject({ riskClass: 'is-baixo', riskText: 'Risco baixo', why: '', context: '', refined: true });
+    expect(plainView({ tool: 'Edit', plain: { risk: 'medio', what: 'x' } })).toMatchObject({ riskClass: 'is-medio', riskText: 'Risco médio' });
+  });
+
+  it('sem plain, pergunta ou plain inválido: null (o cartão fica como antes, com os detalhes abertos)', () => {
+    expect(plainView({ tool: 'Bash' })).toBeNull();
+    expect(plainView(undefined)).toBeNull();
+    const q: AskQuestion = { index: 0, question: 'Qual?', options: [{ index: 0, label: 'A' }] };
+    expect(plainView({ tool: 'AskUserQuestion', questions: [q], plain })).toBeNull();
+    expect(plainView({ tool: 'Bash', plain: { risk: 'enorme' as never, what: 'x' } })).toBeNull();
+    expect(plainView({ tool: 'Bash', plain: { risk: 'baixo', what: '   ' } })).toBeNull();
   });
 });
 
