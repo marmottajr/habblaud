@@ -309,6 +309,77 @@ describe('ClaudeWatcher', () => {
     expect(c.agent('sess-a:e1')!.status).toBe('done');
   });
 
+  describe('subagente retomado (SendMessage)', () => {
+    // Entrega o subagente ao principal e deixa o personagem sair do escritório (passada a graça de 25 s).
+    function entregaESai() {
+      const mainId = bootWithSession();
+      appendLines(c.transcript('sess-a'), [L.assistant([L.tool('toolu_r', 'Agent', { description: 'Mapear arquivos', subagent_type: 'Explore', prompt: 'x' })])]);
+      const path = c.subFile('sess-a', 'r1', { agentType: 'Explore', description: 'Mapear arquivos', toolUseId: 'toolu_r', requestShape: 'foreground' }, [
+        L.prompt('Mapeie os arquivos do carrinho', { agentId: 'r1' }),
+        L.assistant([L.tool('g1', 'Grep', { pattern: 'useCart' })], { agentId: 'r1' }),
+        L.result('g1', 'src/Cart.tsx', { agentId: 'r1' }),
+      ]);
+      c.poll();
+      appendLines(c.transcript('sess-a'), [L.result('toolu_r', 'achei', { toolUseResult: { status: 'completed', agentId: 'r1' } })]);
+      c.poll();
+      expect(c.agent('sess-a:r1')!.status).toBe('done');
+      c.advance(26_000);
+      c.poll();
+      expect(c.agent('sess-a:r1')).toBeUndefined();
+      c.poll(); // o watcher solta o subagente que já saiu do escritório e anota o tamanho do arquivo
+      return { mainId, path };
+    }
+
+    it('volta ao escritório quando o mesmo arquivo recebe trabalho novo depois de ele sair', () => {
+      const { path } = entregaESai();
+      c.advance(10_000);
+      appendLines(path, [
+        L.prompt('Agora confira também os testes', { agentId: 'r1' }),
+        L.assistant([L.tool('g2', 'Grep', { pattern: 'cart.test' })], { agentId: 'r1' }),
+      ]);
+      c.poll();
+      expect(c.agent('sess-a:r1')).toMatchObject({ kind: 'sub', status: 'working', title: 'Mapear arquivos' });
+      // Fica aberto: o fim antigo da chamada original não o conclui de novo no ciclo seguinte.
+      c.advance(1_000);
+      c.poll();
+      expect(c.agent('sess-a:r1')!.status).toBe('working');
+    });
+
+    it('volta também dentro da graça de 25 s, enquanto ainda aparece como entregue', () => {
+      const mainId = bootWithSession();
+      appendLines(c.transcript('sess-a'), [L.assistant([L.tool('toolu_r', 'Agent', { description: 'Mapear arquivos', subagent_type: 'Explore', prompt: 'x' })])]);
+      const path = c.subFile('sess-a', 'r1', { agentType: 'Explore', description: 'Mapear arquivos', toolUseId: 'toolu_r', requestShape: 'foreground' }, [
+        L.prompt('Mapeie os arquivos do carrinho', { agentId: 'r1' }),
+        L.assistant([L.tool('g1', 'Grep', { pattern: 'useCart' })], { agentId: 'r1' }),
+      ]);
+      c.poll();
+      appendLines(c.transcript('sess-a'), [L.result('toolu_r', 'achei', { toolUseResult: { status: 'completed', agentId: 'r1' } })]);
+      c.poll();
+      expect(c.agent('sess-a:r1')!.status).toBe('done');
+      c.advance(5_000);
+      appendLines(path, [L.assistant([L.tool('g2', 'Grep', { pattern: 'cart.test' })], { agentId: 'r1' })]);
+      c.poll();
+      expect(c.agent('sess-a:r1')!.status).toBe('working');
+      expect(c.agent(mainId)!.stats.subagents).toBe(1);
+    });
+
+    it('a cauda do fim normal (texto de fecho com end_turn) não o reabre', () => {
+      const { path } = entregaESai();
+      appendLines(path, [L.assistant([L.text('Pronto, mapeei tudo.')], { agentId: 'r1', stop: 'end_turn' })]);
+      c.poll();
+      c.advance(1_000);
+      c.poll();
+      expect(c.agent('sess-a:r1')).toBeUndefined();
+    });
+
+    it('subagente entregue que não escreve mais continua fora do escritório', () => {
+      entregaESai();
+      c.advance(60_000);
+      c.poll();
+      expect(c.agent('sess-a:r1')).toBeUndefined();
+    });
+  });
+
   it('agentes de workflow: entram pela pasta workflows/ e saem com a notificação do workflow', () => {
     bootWithSession();
     appendLines(c.transcript('sess-a'), [
