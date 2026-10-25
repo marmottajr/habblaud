@@ -98,6 +98,11 @@ export interface WorldApi {
    * câmera; ao voltar, a simulação avança o tempo que passou (como com a aba em segundo plano).
    */
   setSuspended?(suspended: boolean): void;
+  /**
+   * (Opcional, aditivo) Limite de quadros por segundo do desenho (0 = sem limite). Com o terminal aberto em janela o
+   * escritório continua à vista, mas a 30 qps gasta cerca de metade da CPU.
+   */
+  setFrameCap?(fps: number): void;
   destroy(): void;
 }
 

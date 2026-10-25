@@ -77,6 +77,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   /** Escritório fora da tela (cidade aberta): sem laço de desenho nem teclado da câmera. */
   let suspended = false;
   let suspendedAt = 0;
+  /** Limite de quadros por segundo (0 = o do monitor). */
+  let frameCap = 0;
   let userMoved = false;
   let framed = false;
   let lastCols = -1;
@@ -273,6 +275,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   const loop = (ts: number) => {
     raf = requestAnimationFrame(loop);
+    // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
+    if (frameCap && lastTs && ts - lastTs < 1000 / frameCap - 2) return;
     const real = Date.now();
     const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
@@ -463,6 +467,9 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       suspendedAt = 0;
       hiddenAt = 0;
       raf = requestAnimationFrame(loop);
+    },
+    setFrameCap: (fps) => {
+      frameCap = Math.max(0, fps);
     },
     destroy: () => {
       cancelAnimationFrame(raf);
