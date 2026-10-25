@@ -4526,9 +4526,9 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: var(--radius);
+  /* Sem backdrop-filter: com o fundo quase opaco o desfoque não aparece, e ele refazia a tela inteira a cada quadro da
+   * rolagem (no celular a conversa não rolava fluida). */
   background: rgba(10, 12, 18, 0.96);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
   border: 1px solid var(--ui-line-strong);
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.35),
@@ -5400,6 +5400,9 @@ button.ui-term__think:hover,
     inset: 0;
     border: 0;
     border-radius: 0;
+    /* Tela cheia: opaco e sem sombra, o navegador não desenha o escritório por baixo a cada quadro da rolagem. */
+    background: #0a0c12;
+    box-shadow: none;
   }
 
   .ui-term__kind,

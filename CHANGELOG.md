@@ -10,6 +10,20 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Escritório mais leve:** parado, o escritório é desenhado a 30 quadros por segundo (15 com a janela sem foco),
+  cerca de metade da CPU; arrastar, dar zoom e a câmera seguindo alguém continuam no ritmo do monitor.
+
+### Corrigido
+
+- **Terminal mais leve, principalmente no celular.** O escritório continuava sendo desenhado atrás do terminal em tela
+  cheia e ocupava o aparelho inteiro: a digitação chegava com atraso. Agora, com o terminal aberto numa tela de até
+  600 px, o desenho do escritório para e volta quando o terminal fecha; nas telas maiores, onde o escritório segue à
+  vista, ele é desenhado a 30 quadros por segundo enquanto o terminal está aberto. A rolagem do histórico ficou
+  fluida: o terminal não usa mais `backdrop-filter` (com o fundo quase opaco o desfoque não aparecia e era refeito a
+  cada quadro) e, no celular, fica opaco e sem sombra.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

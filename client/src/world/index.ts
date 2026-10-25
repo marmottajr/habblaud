@@ -18,6 +18,7 @@ import { Renderer } from './render/renderer';
 import { Sim, type VisitLight } from './sim/sim';
 import { NO_INTENT, VISITOR_ID, visitorInfo, type VisitorIntent } from './sim/visitor';
 import { SoundCues } from './sound-cues';
+import { ACTIVE_GRACE_MS, frameCapFor } from './pacing';
 
 export * from './api';
 export type { WorldDebug } from './debug';
@@ -77,6 +78,12 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   /** Escritório fora da tela (cidade aberta): sem laço de desenho nem teclado da câmera. */
   let suspended = false;
   let suspendedAt = 0;
+  /** Limite pedido pela interface (0 = nenhum); o laço ainda aplica o ritmo de escritório parado (pacing.ts). */
+  let frameCap = 0;
+  /** Última entrada do usuário no escritório (performance.now()): o laço segue a 60 qps por ACTIVE_GRACE_MS. */
+  let lastInputAt = 0;
+  /** A câmera se mexeu no último quadro desenhado (animação, seguir, arrastar, pinça). */
+  let cameraMoved = false;
   let userMoved = false;
   let framed = false;
   let lastCols = -1;
@@ -235,6 +242,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     interact: () => {
       userMoved = true;
+      lastInputAt = performance.now();
       camera.follow = null;
       camera.stop();
     },
@@ -243,6 +251,11 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     active: () => !suspended,
     keys: () => !visitMode,
   });
+
+  // Arrasto, pinça e hover não passam por interact() a cada movimento: o laço fica a 60 qps enquanto houver entrada.
+  const markInput = () => (lastInputAt = performance.now());
+  canvas.addEventListener('pointermove', markInput, { signal: abort.signal, passive: true });
+  canvas.addEventListener('pointerdown', markInput, { signal: abort.signal, passive: true });
 
   // ------------------------------------------------------------------ dados
 
@@ -273,6 +286,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   const loop = (ts: number) => {
     raf = requestAnimationFrame(loop);
+    // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
+    const cap = frameCapFor({
+      uiCap: frameCap,
+      active: cameraMoved || camera.animating || !!playback || performance.now() - lastInputAt < ACTIVE_GRACE_MS,
+      focused: document.hasFocus(),
+    });
+    if (cap && lastTs && ts - lastTs < 1000 / cap - 2) return;
     const real = Date.now();
     const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
@@ -304,7 +324,12 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (visitMode && sim.visitor && (sim.visitorIntent.dx || sim.visitorIntent.dy) && camera.follow !== VISITOR_ID) followVisitor();
       const followCh = camera.follow ? sim.person(camera.follow) : undefined;
       if (camera.follow && !followCh) camera.follow = null;
+      const cx = camera.x;
+      const cy = camera.y;
+      const cz = camera.zoom;
       camera.update(real, followCh ? camera.centerFor(followCh.x, followCh.y - 12, camera.zoom) : null, realDt);
+      // seguir alguém andando ou a câmera deslizando: 30 qps aí viraria tranco
+      cameraMoved = Math.abs(camera.x - cx) + Math.abs(camera.y - cy) > 0.01 || Math.abs(camera.zoom - cz) > 1e-4;
       renderer.frame(now, dt, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
       overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
       renderer.pruneHeads();
@@ -463,6 +488,9 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       suspendedAt = 0;
       hiddenAt = 0;
       raf = requestAnimationFrame(loop);
+    },
+    setFrameCap: (fps) => {
+      frameCap = Math.max(0, fps);
     },
     destroy: () => {
       cancelAnimationFrame(raf);
