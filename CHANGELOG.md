@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Subagente retomado volta ao escritório.** Quando o Claude Code retomava um subagente que já tinha terminado
+  (com `SendMessage`), ele voltava a trabalhar mas o personagem não reaparecia: o Habblaud ainda o tratava como
+  entregue. Agora, se o subagente volta a trabalhar depois do fim, ele reaparece e sai de novo quando terminar.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
