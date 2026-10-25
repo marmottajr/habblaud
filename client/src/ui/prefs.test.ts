@@ -53,8 +53,14 @@ describe('preferências', () => {
     expect(loadPrefs(broken)).toEqual(DEFAULT_PREFS);
     expect(() => savePrefs(broken, DEFAULT_PREFS)).not.toThrow();
   });
+  it('economia de energia: valida e repassa ao mundo', () => {
+    expect(sanitizePrefs({ powerSave: true }).powerSave).toBe(true);
+    expect(sanitizePrefs({ powerSave: 'sim' }).powerSave).toBe(false);
+    expect(worldOptionsFrom({ ...DEFAULT_PREFS, powerSave: true }).powerSave).toBe(true);
+  });
+
   it('extrai só as opções do mundo', () => {
-    expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'day' })).toEqual({ showNames: true, bubbles: 'important', liveliness: 'normal', dayNight: false, daylight: 'day', theme: 'auto' });
+    expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'day' })).toEqual({ showNames: true, bubbles: 'important', liveliness: 'normal', dayNight: false, daylight: 'day', theme: 'auto', powerSave: false });
     expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'night' })).toMatchObject({ dayNight: true, daylight: 'night' });
   });
   it('ciclo dia/noite: valida o modo e migra o interruptor antigo', () => {

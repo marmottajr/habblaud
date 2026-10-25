@@ -76,7 +76,7 @@ const VIGNETTE_ALPHA = 0.2;
 const VIGNETTE_EDGE = `rgba(18,40,26,${VIGNETTE_ALPHA})`;
 
 export class Renderer {
-  readonly ctx: CanvasRenderingContext2D;
+  ctx: CanvasRenderingContext2D;
   readonly areas = new Map<string, AreaVis>();
   readonly heads = new Map<string, HeadInfo>();
   exterior: ExteriorLayout;
@@ -118,7 +118,7 @@ export class Renderer {
   private theme: SeasonalTheme = 'none';
 
   constructor(
-    readonly canvas: HTMLCanvasElement,
+    public canvas: HTMLCanvasElement,
     private readonly art: ArtModule,
     private readonly sim: Sim,
     private readonly camera: Camera,
@@ -126,6 +126,13 @@ export class Renderer {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.exterior = layoutExterior(sim.building.cols);
     this.lighting = new Lighting(art, sim);
+  }
+
+  /** Troca o canvas em que o mundo é desenhado (economia de energia: um canvas em 1× fora da tela). */
+  setTarget(canvas: HTMLCanvasElement): void {
+    if (canvas === this.canvas) return;
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d', { alpha: false })!;
   }
 
   setAssets(a: WorldAssets | null): void {

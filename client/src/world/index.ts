@@ -5,7 +5,7 @@ import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
 import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
-import { Camera, overviewFrame } from './camera';
+import { Camera, overviewFrame, renderDpr } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
 import { RECEPTION_ID } from './layout/core';
@@ -57,7 +57,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   // Simulação e desenho são recriados quando o timelapse entra, pula ou sai (rebuild).
   let sim = new Sim(art, () => options, undefined, { visit: visitMode });
   let renderer = new Renderer(canvas, art, sim, camera);
-  let overlay = new Overlay(renderer.ctx, sim, renderer, camera);
+  /** Canvas da tela: sempre na densidade real (textos nítidos). */
+  const view = renderer.ctx;
+  /** Economia de energia: o mundo é desenhado neste canvas em 1× e ampliado no da tela (null fora da economia). */
+  let scene: HTMLCanvasElement | null = null;
+  /** Densidade do canvas da tela (a real, de 1 a 3). */
+  let viewDpr = 1;
+  let overlay = new Overlay(view, sim, renderer, camera);
   let assets: WorldAssets | null = null;
   /** Timelapse ligado: relógio próprio do mundo (`worldNow`), acelerado pelo fator de animação. */
   let playback: WorldPlayback | null = null;
@@ -85,15 +91,27 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   // ------------------------------------------------------------------ tamanho/DPR
 
   const resize = () => {
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    viewDpr = renderDpr(window.devicePixelRatio, false);
+    const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
-    const pw = Math.floor(w * dpr);
-    const ph = Math.floor(h * dpr);
+    const pw = Math.floor(w * viewDpr);
+    const ph = Math.floor(h * viewDpr);
     if (canvas.width !== pw || canvas.height !== ph) {
       canvas.width = pw;
       canvas.height = ph;
     }
+    // economia: cenário num canvas à parte só quando a densidade dele fica abaixo da tela (senão desenha direto)
+    if (dpr < viewDpr) {
+      scene ??= document.createElement('canvas');
+      const sw = Math.floor(w * dpr);
+      const sh = Math.floor(h * dpr);
+      if (scene.width !== sw || scene.height !== sh) {
+        scene.width = sw;
+        scene.height = sh;
+      }
+    } else scene = null;
+    renderer.setTarget(scene ?? canvas);
     camera.setView(w, h, dpr);
     updateBounds();
   };
@@ -282,8 +300,9 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     if (playback) worldNow += dt * 1000;
     const now = playback ? worldNow : real;
     try {
-      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
+      const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
+      const devDpr = renderDpr(window.devicePixelRatio, false);
+      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr || devDpr !== viewDpr) resize();
       sim.update(dt, now);
       // partidas e apostas resolvidas: para o feed (as do timelapse são encenação do passado: ficam fora)
       const events = sim.social.events;
@@ -306,7 +325,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (camera.follow && !followCh) camera.follow = null;
       camera.update(real, followCh ? camera.centerFor(followCh.x, followCh.y - 12, camera.zoom) : null, realDt);
       renderer.frame(now, dt, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
-      overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
+      if (scene) {
+        // economia: o mundo (1×) é ampliado sem suavizar; os textos vêm depois, na densidade da tela
+        view.setTransform(1, 0, 0, 1, 0, 0);
+        view.imageSmoothingEnabled = false;
+        view.drawImage(scene, 0, 0, canvas.width, canvas.height);
+      }
+      overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover }, viewDpr);
       renderer.pruneHeads();
       // No timelapse o mundo fica mudo: o teclado e o elevador em alta velocidade só fariam barulho.
       if (soundCbs.size && !playback) cues.update(now, (c) => soundCbs.forEach((cb) => cb(c)));
@@ -372,13 +397,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     // As carteiras ao vivo gravam a cada 5 s: não perde o que mudou desde a última vez (no replay, não grava nada).
     sim.social.wallets.save(Date.now());
     sim = new Sim(art, () => options, playback ? null : undefined, { visit: visitMode });
-    renderer = new Renderer(canvas, art, sim, camera);
+    renderer = new Renderer(scene ?? canvas, art, sim, camera);
     if (assets) renderer.setAssets(assets);
     if (playback) {
       const p = playback;
       renderer.clock = () => p.clock();
     }
-    overlay = new Overlay(renderer.ctx, sim, renderer, camera);
+    overlay = new Overlay(view, sim, renderer, camera);
     debug = createDebug(sim, renderer, camera, markMoved);
     cues = new SoundCues(sim, camera);
     lastCols = -1;
@@ -413,8 +438,15 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     getOptions: () => ({ ...options }),
     setOptions: (o) => {
+      const wasPowerSave = !!options.powerSave;
       options = { ...options, ...o };
       if (o.followSelected !== undefined) camera.follow = o.followSelected && selection?.type === 'agent' ? selection.id : null;
+      // nova densidade: o zoom atual pode não ser mais um nível nítido
+      if (!!options.powerSave !== wasPowerSave && framed) {
+        resize();
+        if (userMoved) camera.zoomAt(camera.snapZoom(camera.zoom), camera.viewW / 2, camera.viewH / 2, Date.now(), true);
+        else overview(true);
+      }
     },
     setViewInsets: (ins) => {
       const v = (n: number | undefined, cur: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : cur);

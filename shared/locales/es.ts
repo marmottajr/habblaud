@@ -644,6 +644,8 @@ export const ES: Readonly<Record<string, string>> = {
   "Aparência": "Apariencia",
   "Escritório": "Oficina",
   "Mostrar nomes": "Mostrar nombres",
+  "Economia de energia": "Ahorro de energía",
+  "Desenha o cenário em resolução menor e amplia; nomes e balões continuam nítidos. Bem menos CPU em telas nítidas (celular, Retina).": "Dibuja el escenario a menor resolución y lo amplía; los nombres y globos siguen nítidos. Mucha menos CPU en pantallas nítidas (móvil, Retina).",
   "Etiqueta com o nome acima de cada personagem.": "Etiqueta con el nombre sobre cada personaje.",
   "Notificações do navegador": "Notificaciones del navegador",
   "Avisa quando alguém precisa de você e a aba está em segundo plano.": "Avisa cuando alguien te necesita y la pestaña está en segundo plano.",
