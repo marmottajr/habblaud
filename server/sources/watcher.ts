@@ -97,6 +97,8 @@ interface SubTracker {
   meta?: SubagentMeta;
   tail: FileTail;
   state: TranscriptState;
+  /** Retomado depois do fim (SendMessage): o fim registrado da chamada original já não vale; quem conclui é a ociosidade. */
+  resumed?: boolean;
 }
 
 interface SessionTracker {
@@ -746,8 +748,10 @@ export class ClaudeWatcher implements AgentSource {
       for (const line of r.lines) results.push(parseWatchedLine(state, line, { idPrefix: id, now }));
       if (!r.more) break;
     }
+    // Retomada: o arquivo cresceu depois do fim e não termina em end_turn (a cauda do fim normal termina).
+    const resumed = mode === 'regrown' && !state.ended;
     const finished =
-      this.isFinished(t, file, meta) ||
+      (!resumed && this.isFinished(t, file, meta)) ||
       (mode !== 'new' && concludedByIdle({ now, lastWriteAt: tail.mtimeMs, ended: state.ended, pendingTool: state.pendingTools.size > 0 }));
     if (finished) {
       t.known.set(file.path, tail.size);
@@ -769,7 +773,7 @@ export class ClaudeWatcher implements AgentSource {
     });
     if (!added) return;
     t.known.delete(file.path);
-    const sub: SubTracker = { agentId: file.agentId, id, file, meta, tail, state };
+    const sub: SubTracker = { agentId: file.agentId, id, file, meta, tail, state, resumed };
     t.subs.set(file.agentId, sub);
     for (const r of results) this.applyResult(t, id, r, mode === 'new');
     this.applySubSummary(sub);
@@ -820,14 +824,19 @@ export class ClaudeWatcher implements AgentSource {
         if (!r.more) break;
       }
       if (office.isSubDone(sub.id)) {
-        if (fresh > 0 && !this.isFinished(t, sub.file, sub.meta)) {
+        // Entregue e voltou a trabalhar (sem end_turn): retomada. Só texto de fecho depois do fim não reabre.
+        const finished = this.isFinished(t, sub.file, sub.meta);
+        if (fresh > 0 && (!finished || !sub.state.ended)) {
           const since = office.get(sub.id)?.statusSince ?? now;
-          if (now - since > 3_000) office.reactivateSub(sub.id);
+          if (now - since > 3_000) {
+            if (finished) sub.resumed = true;
+            office.reactivateSub(sub.id);
+          }
         }
         continue;
       }
       const done =
-        this.isFinished(t, sub.file, sub.meta) ||
+        (!sub.resumed && this.isFinished(t, sub.file, sub.meta)) ||
         concludedByIdle({ now, lastWriteAt: sub.tail.mtimeMs, ended: sub.state.ended, pendingTool: sub.state.pendingTools.size > 0 });
       if (done) {
         office.completeSub(sub.id);
