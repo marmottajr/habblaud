@@ -177,6 +177,12 @@ describe('previewText', () => {
     expect(splitPreview('curto', 6)).toMatchObject({ headEnd: 5, collapsed: false });
   });
 
+  it('splitPreview com 0 linhas: recolhe tudo a partir de 3 linhas, até 2 linhas curtas ficam à vista', () => {
+    expect(splitPreview('ok\nfeito', 0)).toMatchObject({ collapsed: false, headEnd: 8 });
+    expect(splitPreview('a\nb\nc', 0)).toMatchObject({ collapsed: true, headEnd: 0, hiddenLines: 3 });
+    expect(splitPreview('x'.repeat(401), 0)).toMatchObject({ collapsed: true, headEnd: 0, hiddenLines: 1 });
+  });
+
   it('rótulo do botão', () => {
     expect(moreLabel(1)).toBe('… +1 linha');
     expect(moreLabel(14)).toBe('… +14 linhas');

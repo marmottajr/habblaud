@@ -40,10 +40,13 @@ import { intlLocale, tr } from '../../../shared/i18n';
 
 /** Máximo de itens no DOM: os mais antigos saem primeiro. */
 export const TERMINAL_DOM_LIMIT = 1500;
-/** Linhas do resultado visíveis antes do "… +N linhas". */
+/** Linhas do resultado com erro visíveis antes do "… +N linhas". */
 export const RESULT_PREVIEW_LINES = 6;
-/** Entrada de ferramenta (comando, diff, JSON) longa: recolhida nas primeiras linhas. */
-export const INPUT_PREVIEW_LINES = 10;
+/** Resultado sem erro: recolhido por inteiro (só o "… +N linhas"), para a conversa caber na tela. */
+export const OK_RESULT_PREVIEW_LINES = 0;
+/** Entrada de ferramenta (comando, diff, JSON): sempre recolhida; o título já mostra o começo. */
+const INPUT_PREVIEW_LINES = 0;
+const INPUT_PREVIEW_CHARS = 0;
 /** Prompt do usuário muito longo (texto colado): recolhido. */
 export const PROMPT_PREVIEW_LINES = 24;
 
@@ -274,9 +277,10 @@ export interface PreviewSplit {
 
 /**
  * Prévia recolhida de um texto longo: as primeiras `maxLines` linhas (e no máximo `maxChars` caracteres).
- * Só recolhe se sobrarem ao menos 3 linhas (esconder 1 ou 2 linhas atrás de um clique não compensa).
+ * Só recolhe se sobrarem ao menos 3 linhas (esconder 1 ou 2 linhas atrás de um clique não compensa); com `maxLines`
+ * 0, até 2 linhas curtas continuam à vista.
  */
-export function splitPreview(raw: string, maxLines: number, maxChars = maxLines * 200): PreviewSplit {
+export function splitPreview(raw: string, maxLines: number, maxChars = Math.max(maxLines, 2) * 200): PreviewSplit {
   const text = raw.replace(/\s+$/, '');
   const lines = text === '' ? [] : text.split('\n');
   const total = lines.length;
@@ -425,8 +429,8 @@ function revealWithin(el: Element, stop: Element): void {
  * Bloco de texto que recolhe quando é longo, com "… +N linhas" para expandir (e "recolher" depois). O texto inteiro
  * fica no DOM (o resto escondido), para a busca achar e destacar o que está recolhido.
  */
-function collapsible(raw: string, maxLines: number, cls: string, fill: Fill = fillPlain): HTMLElement {
-  const p = splitPreview(raw, maxLines);
+function collapsible(raw: string, maxLines: number, cls: string, fill: Fill = fillPlain, maxChars?: number): HTMLElement {
+  const p = splitPreview(raw, maxLines, maxChars);
   const body = h('div', { class: 'ui-term__pre' });
   const box = h('div', { class: cls }, body);
   if (!p.collapsed) {
@@ -445,6 +449,8 @@ function collapsible(raw: string, maxLines: number, cls: string, fill: Fill = fi
   const more = h('button', { class: 'ui-term__more', type: 'button', attrs: { 'aria-expanded': 'false' } });
   const set = (v: boolean) => {
     open = v;
+    // Nada à vista enquanto recolhido: sem a moldura, só o "… +N linhas".
+    box.classList.toggle('is-shut', !open && p.headEnd === 0);
     rest.hidden = !open;
     if (dots) dots.hidden = open;
     setText(more, open ? tr('recolher') : moreLabel(p.hiddenLines));
@@ -488,7 +494,7 @@ function row(kind: string, at: number, now: number, ...children: (Node | null)[]
 function resultBlock(r: ResultEntry, copy: Copier): HTMLElement {
   const out = h('div', { class: 'ui-term__out' });
   const text = r.text.replace(/\s+$/, '');
-  if (text) out.append(collapsible(text, RESULT_PREVIEW_LINES, 'ui-term__res-text'));
+  if (text) out.append(collapsible(text, r.error ? RESULT_PREVIEW_LINES : OK_RESULT_PREVIEW_LINES, 'ui-term__res-text'));
   else out.append(h('span', { class: 'ui-term__empty', text: r.error ? tr('(erro sem mensagem)') : tr('(sem saída)'), attrs: { 'data-chrome': '' } }));
   if (r.truncated) out.append(h('span', { class: 'ui-term__cut', text: tr('(resultado cortado)'), attrs: { 'data-chrome': '' } }));
   const el = h('div', { class: `ui-term__result${r.error ? ' is-error' : ''}` }, h('span', { class: 'ui-term__elbow', text: '⎿', attrs: { 'aria-hidden': 'true' } }), out);
@@ -500,13 +506,13 @@ function toolInput(t: ToolEntry): HTMLElement | null {
   if (!showToolInput(t)) return null;
   const kind = t.inputKind ?? 'text';
   const input = t.input!.replace(/\s+$/, '');
-  if (kind === 'diff') return collapsible(input, INPUT_PREVIEW_LINES, 'ui-term__in ui-term__in--diff', fillDiff);
+  if (kind === 'diff') return collapsible(input, INPUT_PREVIEW_LINES, 'ui-term__in ui-term__in--diff', fillDiff, INPUT_PREVIEW_CHARS);
   if (kind === 'command') {
-    const box = collapsible(input, INPUT_PREVIEW_LINES, 'ui-term__in ui-term__in--command');
+    const box = collapsible(input, INPUT_PREVIEW_LINES, 'ui-term__in ui-term__in--command', fillPlain, INPUT_PREVIEW_CHARS);
     box.prepend(h('span', { class: 'ui-term__dollar', text: '$', attrs: { 'aria-hidden': 'true' } }));
     return box;
   }
-  return collapsible(input, INPUT_PREVIEW_LINES, `ui-term__in ui-term__in--${kind === 'json' ? 'json' : 'text'}`);
+  return collapsible(input, INPUT_PREVIEW_LINES, `ui-term__in ui-term__in--${kind === 'json' ? 'json' : 'text'}`, fillPlain, INPUT_PREVIEW_CHARS);
 }
 
 interface ToolRefs {

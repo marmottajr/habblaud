@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Terminal mais compacto:** a entrada das ferramentas (comando, diff, código) e a saída sem erro ficam recolhidas;
+  aparecem o título e o "… +N linhas", que abre num clique (a busca abre sozinha o trecho achado). Saída de até 2
+  linhas curtas continua à vista, e a saída com erro mostra as 6 primeiras linhas. A conversa fica cerca de 60% mais
+  curta.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

@@ -4791,6 +4791,23 @@
   user-select: none;
 }
 
+/* Bloco recolhido sem nada à vista: só o "… +N linhas", sem moldura nem "$". */
+.ui-term__in.is-shut {
+  display: block;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.is-shut > .ui-term__pre,
+.is-shut > .ui-term__dollar {
+  display: none;
+}
+
+.is-shut > .ui-term__more {
+  margin-top: 0;
+}
+
 .ui-term__in--json,
 .ui-term__in--text {
   color: var(--term-dim);
