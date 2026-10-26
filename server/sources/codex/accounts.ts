@@ -1,8 +1,9 @@
 // Contas do Codex: uma pasta CODEX_HOME por conta (~/.codex, ~/.codex-trabalho...). Node puro e sem dependências
 // do servidor: também é importado por scripts/docker-up.ts (via tsx) no host.
 //
-// Descoberta: HABBLAUD_CODEX_DIRS (lista separada por vírgula) substitui tudo; senão CODEX_HOME e `$HOME/.codex*`
-// que tenham cara de pasta do Codex (isCodexHome). Letra da conta: o alias de shell `alias x='CODEX_HOME=... codex'`
+// Descoberta: HABBLAUD_CODEX_DIRS (lista separada por vírgula) substitui tudo; senão CODEX_HOME, `$HOME/.codex*` e
+// os `codex-home` das empresas do Paperclip que tenham cara de pasta do Codex (isCodexHome). Letra da conta: o alias
+// de shell `alias x='CODEX_HOME=... codex'`
 // (sem CODEX_HOME = a pasta padrão); sem alias, uma letra derivada que não colide com as do Claude Code. Cor: da
 // paleta das contas, sem repetir as do Claude Code. Nome: "Codex" (ou "Codex X" com mais de uma conta). O plano
 // vem depois, dos arquivos de sessão (rate_limits.plan_type).
@@ -40,6 +41,30 @@ function isDir(p: string): boolean {
   }
 }
 
+/** CODEX_HOME gerenciados pelo Paperclip: ~/.paperclip/instances/<instância>/companies/<empresa>/codex-home. */
+export function discoverPaperclipCodexDirs(home: string): string[] {
+  const instances = join(home, '.paperclip', 'instances');
+  const found: string[] = [];
+  try {
+    for (const instance of readdirSync(instances, { withFileTypes: true })) {
+      if (!instance.isDirectory() && !instance.isSymbolicLink()) continue;
+      const companies = join(instances, instance.name, 'companies');
+      try {
+        for (const company of readdirSync(companies, { withFileTypes: true })) {
+          if (!company.isDirectory() && !company.isSymbolicLink()) continue;
+          const dir = join(companies, company.name, 'codex-home');
+          if (isCodexHome(dir)) found.push(dir);
+        }
+      } catch {
+        // Instância sem empresas (ou sem permissão) não impede as outras fontes.
+      }
+    }
+  } catch {
+    // Paperclip não instalado neste usuário.
+  }
+  return found.sort((a, b) => a.localeCompare(b));
+}
+
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
@@ -52,8 +77,8 @@ export function defaultCodexHome(env: NodeJS.ProcessEnv, home: string): string {
 
 /**
  * Pastas do Codex observadas. HABBLAUD_CODEX_DIRS (lista separada por vírgula) substitui a detecção e vale como
- * veio (só precisa existir: uma conta recém-criada ainda não tem sessões). Senão: CODEX_HOME e `$HOME/.codex*` que
- * passem em isCodexHome. Ordem estável: a padrão primeiro, depois alfabética.
+ * veio (só precisa existir: uma conta recém-criada ainda não tem sessões). Senão: CODEX_HOME, `$HOME/.codex*` e os
+ * `codex-home` do Paperclip que passem em isCodexHome. Ordem estável: a padrão primeiro, depois alfabética.
  */
 export function discoverCodexDirs(env: NodeJS.ProcessEnv = process.env, home: string = env.HOME || homedir()): string[] {
   const override = splitList(env.HABBLAUD_CODEX_DIRS);
@@ -71,6 +96,7 @@ export function discoverCodexDirs(env: NodeJS.ProcessEnv = process.env, home: st
   } catch {
     // $HOME ilegível (ex.: container sem home)
   }
+  found.push(...discoverPaperclipCodexDirs(home));
   const dirs = [...new Set(found.map((p) => expandHome(p, home)))];
   dirs.sort((a, b) => (a === main ? 0 : 1) - (b === main ? 0 : 1) || a.localeCompare(b));
   return dirs;

@@ -213,8 +213,9 @@ não ficarem dois capturando o uso ou respondendo o mesmo pedido.
 
 Se você também usa o **Codex** da OpenAI (a CLI `codex` ou o app), as sessões dele entram no mesmo escritório: cada
 projeto é uma sala — a mesma sala do Claude Code, quando os dois estão abertos no mesmo projeto — e cada sessão, um
-personagem com o selo **CODEX**. O Habblaud acha sozinho a pasta do Codex (`~/.codex`, `CODEX_HOME` ou `~/.codex*`) e
-lê as conversas, sem instalar nada. Para ver o Codex **ao vivo** (o que está fazendo agora, quem precisa de você) e
+personagem com o selo **CODEX**. O Habblaud acha sozinho a pasta do Codex (`~/.codex`, `CODEX_HOME`, `~/.codex*` ou
+os `codex-home` das empresas do Paperclip) e lê as conversas, sem instalar nada. Para ver o Codex **ao vivo** (o que
+está fazendo agora, quem precisa de você) e
 aprovar comandos pelo escritório, instale os hooks:
 
 ```bash

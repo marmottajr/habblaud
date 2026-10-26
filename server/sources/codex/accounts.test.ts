@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ACCOUNT_COLORS, discoverClaudeDirs, detectAccounts, parseToolAliases } from '../../accounts/detect';
 import { tempDir } from '../../test/fixtures';
-import { codexPlanLabel, detectCodexAccounts, discoverCodexDirs } from './accounts';
+import { codexPlanLabel, detectCodexAccounts, discoverCodexDirs, discoverPaperclipCodexDirs } from './accounts';
 
 let cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -37,6 +37,16 @@ describe('contas do Codex', () => {
     expect(discoverCodexDirs({ CODEX_HOME: other }, h.dir)).toEqual([other, main, work]);
     // A lista explícita vale como veio (só precisa existir).
     expect(discoverCodexDirs({ HABBLAUD_CODEX_DIRS: `~/.codex-vazia, ${other}, /nao/existe` }, h.dir)).toEqual([join(h.dir, '.codex-vazia'), other]);
+  });
+
+  it('descobre os codex-home das empresas do Paperclip sem aceitar pastas vazias', () => {
+    const h = home();
+    const software = h.codex('.paperclip/instances/default/companies/software/codex-home');
+    const website = h.codex('.paperclip/instances/teste/companies/website/codex-home', 'year');
+    h.codex('.paperclip/instances/default/companies/vazia/codex-home', 'none');
+
+    expect(discoverPaperclipCodexDirs(h.dir)).toEqual([software, website]);
+    expect(discoverCodexDirs({}, h.dir)).toEqual([software, website]);
   });
 
   it('letra pelo alias de shell (CODEX_HOME), derivada sem colidir com o Claude Code; cor sem repetir', () => {

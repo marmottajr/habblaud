@@ -320,8 +320,9 @@ Fontes de agentes (`sources/source.ts`): `SourceSet` junta a do Claude Code (`Cl
 Codex, a do Codex (`sources/codex/`); o histórico idem (`HistorySet`). Agentes, contas, fontes e sessões do histórico
 do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threadId>`, `sessionId` = threadId.
 
-- **Contas** (`sources/codex/accounts.ts`): `HABBLAUD_CODEX_DIRS` (substitui) ou `CODEX_HOME` e `~/.codex*` com cara
-  de Codex (`isCodexHome`: `thread-writer-locks/`, `archived_sessions/`, `config.toml`, `auth.json` ou
+- **Contas** (`sources/codex/accounts.ts`): `HABBLAUD_CODEX_DIRS` (substitui) ou `CODEX_HOME`, `~/.codex*` e
+  `~/.paperclip/instances/*/companies/*/codex-home` com cara de Codex (`isCodexHome`: `thread-writer-locks/`,
+  `archived_sessions/`, `config.toml`, `auth.json` ou
   `sessions/AAAA/`, sem `projects/`, que só o Claude Code cria). Uma pasta do Codex nunca vira conta do Claude Code.
   `auth.json` e `config.toml` nunca são lidos; o plano vem de `rate_limits.plan_type`.
 - **Sessões abertas** (`sources/codex/files.ts`, `source.ts`): `thread-writer-locks/<threadId>.lock` existindo há 3 s
