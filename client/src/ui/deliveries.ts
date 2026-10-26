@@ -299,7 +299,7 @@ export class Deliveries implements UiComponent {
   }
 
   private who(d: DeliveryInfo, size: 'sm' | 'md'): HTMLElement {
-    const agent = d.agentId ? this.ctx.agent(d.agentId) : undefined;
+    const agent = (d.agentId ? this.ctx.agent(d.agentId) : undefined) ?? d.appearance;
     if (agent) return createAvatar(agent, size);
     const letter = (d.agentName ?? projectName(d.project) ?? '?').trim().charAt(0).toUpperCase() || '?';
     return h('span', { class: `ui-deliv-initial ui-deliv-initial--${size}`, text: letter, attrs: { 'aria-hidden': 'true' } });

@@ -50,6 +50,7 @@ import { DictationService } from './dictation/dictation';
 import { createWhisperTranscriber, findWhisper } from './dictation/whisper';
 import { DeliveryIndex } from './deliveries/deliveries';
 import { FileFetcher } from './deliveries/fetcher';
+import type { AgentInfo } from '../shared/types';
 import { WorldClient } from './world/client';
 import { createWorldRoutes } from './world/http';
 import { WorldService } from './world/service';
@@ -196,6 +197,12 @@ const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+// Último estado do agente de cada sessão: entregas de quem já saiu do escritório (sem agentId) mantêm nome e avatar.
+// shortcut: só em memória, some ao reiniciar o servidor; persistir se isso incomodar.
+const seenAgents = new Map<string, AgentInfo>();
+office.onChange(() => {
+  for (const a of office.list()) if (a.kind === 'main') seenAgents.set(`${a.account}:${a.sessionId}`, a);
+});
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -210,6 +217,10 @@ const deliveries = history
         return st === 'working' || st === 'waiting' || st === 'shell';
       },
       agentName: (id) => office.list().find((a) => a.id === id)?.name,
+      lastSeen: (account, sessionId) => {
+        const a = seenAgents.get(`${account}:${sessionId}`);
+        return a && { name: a.name, appearance: { seed: a.seed, look: a.look, kind: a.kind, ...(a.parts ? { parts: a.parts } : {}) } };
+      },
     })
   : undefined;
 const deliveryFiles = deliveries

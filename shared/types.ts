@@ -578,6 +578,8 @@ export interface DeliveryInfo {
   agentId?: string;
   /** Nome do agente (o do escritório) ou o título da sessão. */
   agentName?: string;
+  /** Aparência do agente, guardada enquanto ele esteve no escritório: o avatar continua depois que ele sai. */
+  appearance?: Pick<AgentInfo, 'seed' | 'look' | 'kind' | 'parts'>;
   project?: string;
   /** O que foi pedido (uma linha). */
   request: string;

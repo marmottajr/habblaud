@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Entregas: o avatar e o nome do agente continuam depois que ele sai do escritório.** A entrega só achava o agente
+  enquanto ele estava aberto; encerrado, o cartão caía para a inicial e o título da sessão. Agora o servidor guarda o
+  último nome e aparência de cada sessão e manda na entrega (só em memória: some ao reiniciar o servidor).
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
