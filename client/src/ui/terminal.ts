@@ -687,9 +687,11 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.reconnEl,
       this.findBtn,
       ...(this.actions ? [this.actions.el] : []),
-      maximizeButton(() => this.movable),
+      maximizeButton(() => this.movable, () => this.focusPrompt()),
       close,
     );
+    // Duplo clique na barra também maximiza/restaura (movable.ts): o foco volta à caixa de mensagem.
+    bar.addEventListener('dblclick', () => this.focusPrompt());
 
     // Barra de ferramentas: filtro (segmentado) e a busca, que aparece com Ctrl/⌘+F ou a lupa.
     const filters = h('div', { class: 'ui-seg ui-term__filter', role: 'radiogroup', attrs: { 'aria-label': tr('Filtrar a conversa') } });
@@ -830,7 +832,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private start(id: string, session: RecentSession | null, opener: HTMLElement | null): void {
     if (opener && !this.el.contains(opener)) this.opener = opener;
     if (this.id === id) {
-      this.focusLog();
+      this.focusPrompt();
       return;
     }
     // Um terminal por vez: abrir outro substitui o atual (a busca e o filtro continuam valendo).
@@ -849,7 +851,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.el.classList.toggle('is-session', !!session);
     this.connect();
     this.render();
-    this.focusLog();
+    this.focusPrompt();
     this.ctx.invalidate();
   }
 
@@ -1329,6 +1331,13 @@ export class TerminalPanel implements UiComponent, TerminalControl {
 
   private focusLog(): void {
     this.scroll.focus({ preventScroll: true });
+  }
+
+  /** Ao abrir: a caixa de mensagem, se dá para escrever nela; senão, a conversa (sessão encerrada, sem extensão). */
+  private focusPrompt(): void {
+    const ta = this.composer.el.querySelector('textarea');
+    if (ta && !ta.disabled && ta.offsetParent) ta.focus({ preventScroll: true });
+    else this.focusLog();
   }
 
   // ---------------------------------------------------------------- estado e rodapé

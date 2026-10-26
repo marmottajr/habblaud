@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Terminal pronto para escrever:** ao abrir o terminal de um agente, ao maximizar e ao restaurar (botão ou duplo
+  clique na barra), o foco vai para a caixa de mensagem. Com a sessão encerrada ou sem caixa de mensagem, o foco
+  continua na conversa, como antes.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
