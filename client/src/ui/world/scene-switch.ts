@@ -8,7 +8,7 @@ import type { Selection } from '../../world/api';
 import type { UiComponent, UiContext } from '../context';
 import { h, setAttr, setHidden, setText, setTitle } from '../dom';
 import { ICONS } from '../icons';
-import { worldGate } from './settings-world';
+import { worldGate } from './world-gate';
 import { worldSectionMode, type WorldGate } from './world-model';
 
 /** O que a interface precisa da cena da cidade (implementado em app.ts, com a cena carregada sob demanda). */

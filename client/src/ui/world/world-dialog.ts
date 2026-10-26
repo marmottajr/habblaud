@@ -1,10 +1,12 @@
 // A janela do Habblaud World: um <dialog> modal (top layer, fundo escurecido, foco preso, Esc fecha) com o botão
 // próprio na barra do topo (ícone de cidade, só com o servidor do mundo configurado) e aberto também pelo chip
 // "no mundo" / "pausado" ao lado da versão, pelos popups de lançamento ("Criar conta", "Criar personagem") e pelo
-// aviso "Enquanto você estava fora". O conteúdo é o WorldSettingsGroup (settings-world.ts): conta, lista de espera,
+// aviso "Enquanto você estava fora". O conteúdo é o WorldSettingsGroup (settings-world.ts, num pedaço separado do
+// bundle, baixado quando o servidor do mundo está configurado ou a janela é aberta): conta, lista de espera,
 // personagem, "Seu prédio", dispositivos, conta e dados, bloqueados e sair. O cabeçalho leva o prédio em pixels, o
 // título, o chip do estado da conta e o botão de fechar; o corpo rola. A dica do tema em Configurações › Aparência
-// continua vindo do grupo (themeNote/onThemePicked), por isso o grupo mora aqui e o popover só recebe os dois.
+// continua vindo do grupo (themeNote/onThemePicked), por isso o grupo mora aqui e o popover só recebe os dois
+// (a dica entra no themeSlot, que existe desde o início, quando o grupo chega).
 //
 // Dois modais ao mesmo tempo (o popup da lista de espera logo depois do cadastro, ou "Ver o que foi enviado"):
 // showModal() empilha na top layer, o Esc fecha só o de cima e o foco volta a esta janela quando ele fecha.
@@ -13,7 +15,8 @@ import type { WorldSource, WorldThemeChoice } from '../../net/world';
 import type { UiComponent, UiContext } from '../context';
 import { h, iconButton, setHidden } from '../dom';
 import { ICONS } from '../icons';
-import { WorldSettingsGroup, worldGate } from './settings-world';
+import type { WorldSettingsGroup } from './settings-world';
+import { worldGate } from './world-gate';
 import { WORLD_BUILDING_ICON } from './world-popups';
 import { worldSectionMode, type WorldScreen } from './world-model';
 
@@ -27,7 +30,12 @@ export interface WorldThemeLink {
 
 export class WorldDialog implements UiComponent, WorldThemeLink {
   readonly el: HTMLDialogElement;
-  private readonly group: WorldSettingsGroup;
+  private group: WorldSettingsGroup | null = null;
+  private loading: Promise<WorldSettingsGroup> | null = null;
+  /** Falhou o download do grupo: o render para de tentar sozinho (cada render seria uma nova tentativa). */
+  private loadFailed = false;
+  private readonly heading: HTMLElement;
+  private readonly themeSlot: HTMLElement;
   private readonly body: HTMLElement;
   private readonly title: HTMLElement;
   /** Quem tinha o foco antes de abrir (o botão da barra, o chip…): volta para lá ao fechar. */
@@ -39,17 +47,19 @@ export class WorldDialog implements UiComponent, WorldThemeLink {
     /** O botão da barra do topo: some sem o servidor do mundo configurado e ganha aria-expanded. */
     private readonly button: HTMLElement,
   ) {
-    this.group = new WorldSettingsGroup(ctx, src);
+    this.themeSlot = h('span');
+    setHidden(this.themeSlot, true);
     const badge = h('span', { class: 'ui-world-dialog__badge', attrs: { 'aria-hidden': 'true' } });
     badge.innerHTML = WORLD_BUILDING_ICON;
     this.title = h('h2', { class: 'ui-world-dialog__title', text: tr('Habblaud World'), tabIndex: -1, attrs: { id: TITLE_ID } });
     const close = iconButton(ICONS.close, tr('Fechar (Esc)'), () => this.close(), 'ui-icon-btn--sm');
-    this.body = h('div', { class: 'ui-world-dialog__body' }, this.group.el);
+    this.body = h('div', { class: 'ui-world-dialog__body' });
+    this.heading = h('div', { class: 'ui-world-dialog__heading' }, this.title);
     this.el = h(
       'dialog',
       // `aria-modal` só enquanto aberto (fechado, o <dialog> fica no DOM e não pode parecer um modal aberto).
       { class: 'ui-world-dialog', attrs: { 'aria-labelledby': TITLE_ID } },
-      h('div', { class: 'ui-world-dialog__head' }, badge, h('div', { class: 'ui-world-dialog__heading' }, this.title, this.group.chip), close),
+      h('div', { class: 'ui-world-dialog__head' }, badge, this.heading, close),
       this.body,
     );
     // Clique no fundo (fora do conteúdo) fecha.
@@ -68,11 +78,11 @@ export class WorldDialog implements UiComponent, WorldThemeLink {
   }
 
   get themeNote(): HTMLElement {
-    return this.group.themeNote;
+    return this.themeSlot;
   }
 
   onThemePicked(theme: WorldThemeChoice): Promise<void> {
-    return this.group.onThemePicked(theme);
+    return this.load().then((g) => g.onThemePicked(theme));
   }
 
   get isOpen(): boolean {
@@ -81,7 +91,14 @@ export class WorldDialog implements UiComponent, WorldThemeLink {
 
   /** Abre (se fechada) e, com `screen`, vai para a tela pedida (o cadastro, o personagem, o prédio…). */
   show(screen?: WorldScreen, opener?: HTMLElement | null): void {
-    this.group.show(screen);
+    if (this.group) this.group.show(screen);
+    else
+      void this.load()
+        .then((g) => {
+          g.show(screen);
+          this.ctx.invalidate();
+        })
+        .catch(() => this.ctx.announce(tr('Não foi possível abrir o Habblaud World.')));
     if (this.el.open) return;
     this.opener = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     if (typeof this.el.showModal === 'function') this.el.showModal();
@@ -121,6 +138,27 @@ export class WorldDialog implements UiComponent, WorldThemeLink {
     const hidden = worldSectionMode(this.src.meta(), worldGate(this.ctx, this.src)) === 'hidden';
     setHidden(this.button, hidden);
     if (hidden && this.el.open) this.close();
-    this.group.render(this.el.open);
+    if (!hidden && !this.group && !this.loadFailed) void this.load().catch(() => {});
+    this.group?.render(this.el.open);
+  }
+
+  private load(): Promise<WorldSettingsGroup> {
+    this.loading ??= import('./settings-world').then((m) => {
+      const group = new m.WorldSettingsGroup(this.ctx, this.src);
+      this.body.append(group.el);
+      this.heading.append(group.chip);
+      this.themeSlot.append(group.themeNote);
+      setHidden(this.themeSlot, false);
+      this.group = group;
+      this.loadFailed = false;
+      this.ctx.invalidate();
+      return group;
+    });
+    // Falhou (rede caiu no meio do download): a próxima abertura baixa de novo.
+    this.loading.catch(() => {
+      this.loading = null;
+      this.loadFailed = true;
+    });
+    return this.loading;
   }
 }

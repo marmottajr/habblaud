@@ -12,7 +12,6 @@
 // muda, nunca dentro do render.
 import { getLocale, intlLocale, tr } from '../../../../shared/i18n';
 import type { Appearance } from '../../art/api';
-import { access } from '../../net/access';
 import {
   buildingFromMeta,
   FAKE_CODE,
@@ -27,6 +26,7 @@ import {
 } from '../../net/world';
 import { BuildingCard, SentDialog } from './building';
 import { buildBlocked } from './blocked';
+import { worldGate } from './world-gate';
 import { TRAITS, TRAIT_IDS, type TraitId } from '../../../../shared/world/traits';
 import { AppearanceFields } from '../appearance-fields';
 import { createAvatar } from '../avatar';
@@ -63,7 +63,6 @@ import {
   type VisibilitySwitch,
   type WorldAction,
   type WorldFlash,
-  type WorldGate,
   type WorldScreen,
   type WorldSectionMode,
   type WorldUi,
@@ -242,12 +241,6 @@ function visibilityText(key: VisibilitySwitch): { label: string; hint: string } 
     case 'knocks':
       return { label: tr('Avisar quando baterem na porta'), hint: tr('Quem estiver na porta do seu prédio pode bater; o aviso chega aqui no Habblaud, sem o nome de quem bateu.') };
   }
-}
-
-/** As travas da seção nesta página (celular, endereço local, trava do terminal, modo demonstração). */
-export function worldGate(ctx: UiContext, src: WorldSource): WorldGate {
-  const a = access();
-  return { remote: a.remote, local: a.local, terminal: !!ctx.store.liveSnapshot?.meta.terminal, fake: src.fake };
 }
 
 /** Tela montada: o elemento e, se precisar, o que atualizar sem refazer (texto, estado dos botões). */

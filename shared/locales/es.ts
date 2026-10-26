@@ -121,6 +121,8 @@ export const ES: Readonly<Record<string, string>> = {
   // client/src/ui/daystats-launcher.ts
   "Meu dia: para onde foi o tempo (M)": "Mi día: a dónde se fue el tiempo (M)",
   "Não foi possível abrir o painel Meu dia.": "No se pudo abrir el panel Mi día.",
+  "Não foi possível abrir o timelapse.": "No se pudo abrir el timelapse.",
+  "Não foi possível abrir o Habblaud World.": "No se pudo abrir Habblaud World.",
 
   // client/src/ui/daystats-model.ts
   "Esperando você": "Esperándote",

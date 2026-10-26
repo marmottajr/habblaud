@@ -6,7 +6,7 @@ import { h, iconButton, setAttr, setHidden, setText, setTitle, setVariant } from
 import { formatDuration, formatInt } from './format';
 import { FALLBACK_MARK, ICONS } from './icons';
 import { computeCounters, shellLine, shellWaitIn, shellWaitingAgents, waitingAgents, type Counters } from './model';
-import { TIMELAPSE_ICONS } from './timelapse';
+import { TIMELAPSE_ICONS } from './timelapse-icons';
 import { focusPermission, nextPermissionAgent, permissionAgents } from './permission';
 import { UsageCards } from './usage';
 import { VersionChip } from './version';

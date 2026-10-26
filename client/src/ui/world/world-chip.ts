@@ -10,7 +10,7 @@ import { tr } from '../../../../shared/i18n';
 import type { WorldSource } from '../../net/world';
 import type { UiComponent, UiContext } from '../context';
 import { h, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from '../dom';
-import { worldGate } from './settings-world';
+import { worldGate } from './world-gate';
 import { likesTodayChip } from './away-summary';
 import { agentsText, floorsText, nextVisitorAlert, VISITOR_ALERT_START, visitorsText, worldChipState, type WorldChipState } from './world-model';
 

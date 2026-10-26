@@ -16,7 +16,7 @@ import { h } from '../dom';
 import { pixelIcon } from '../icons';
 import { safeLocalStorage } from '../prefs';
 import { extLink, WORLD_PRIVACY_URL } from './links';
-import { worldGate } from './settings-world';
+import { worldGate } from './world-gate';
 import {
   APPROVED_SEEN_KEY,
   EMPTY_POPUP_MEMORY,

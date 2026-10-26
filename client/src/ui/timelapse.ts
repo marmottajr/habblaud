@@ -12,7 +12,7 @@ import { animScale } from '../world/playback';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setStyleVar, setText, setTitle } from './dom';
 import { formatClock } from './format';
-import { pixelIcon } from './icons';
+import { TIMELAPSE_ICONS } from './timelapse-icons';
 import { intlLocale, tr } from '../../../shared/i18n';
 
 export const SPEEDS = [60, 180, 600] as const;
@@ -24,24 +24,6 @@ const PUSH_MS = 200;
 const SEEK_MS = 120;
 /** Passo do teclado na linha do tempo (setas): 1 min. */
 const STEP_S = 60;
-
-export const TIMELAPSE_ICONS = {
-  // Relógio com a seta de voltar no tempo.
-  timelapse: pixelIcon([
-    '....#####..',
-    '..##.....#.',
-    '##.#......#',
-    '.###..#...#',
-    '..##..#...#',
-    '......###.#',
-    '#.........#',
-    '.#.......#.',
-    '..#######..',
-  ]),
-  play: pixelIcon(['##......', '####....', '######..', '########', '######..', '####....', '##......']),
-  pause: pixelIcon(['###..###', '###..###', '###..###', '###..###', '###..###', '###..###', '###..###']),
-  peak: pixelIcon(['#####', '.###.', '..#..']),
-};
 
 const dayFmt = new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', day: 'numeric', month: 'short' });
 const hhmm = (at: number) => formatClock(at, false);

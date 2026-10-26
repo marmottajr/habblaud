@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Página abre mais leve:** o player do timelapse e a janela do Habblaud World passam a ser baixados só quando usados
+  (o timelapse na primeira abertura; a janela do World quando o servidor do mundo está configurado ou ao abri-la).
+  O pedaço principal do client (`app-*.js`) caiu de 718.878 bytes (236.489 com gzip) para 524.796 (173.383 com gzip); somando todo o JS carregado
+  na abertura da página, de 827.223 (277.827 com gzip) para 769.582 (261.916 com gzip).
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

@@ -40,6 +40,9 @@ class ElementStub extends EventTarget {
   style = { getPropertyValue: () => '', setProperty() {} };
   private attrs = new Map<string, string>();
   append(...children: ElementStub[]): void { this.children.push(...children.filter((el) => el instanceof ElementStub)); }
+  insertBefore(child: ElementStub, ref: ElementStub): void {
+    if (child instanceof ElementStub) this.children.splice(Math.max(0, this.children.indexOf(ref)), 0, child);
+  }
   replaceChildren(...children: ElementStub[]): void { this.children = children; }
   setAttribute(name: string, value: string): void { this.attrs.set(name, value); }
   getAttribute(name: string): string | null { return this.attrs.get(name) ?? null; }
@@ -98,18 +101,22 @@ describe('timelapse: relógio dos painéis', () => {
       setOptions() {},
       setPlayback: (p: WorldPlayback | null) => { playback = p; },
     } as unknown as WorldApi;
-    const render = vi.spyOn(TimelapsePlayer.prototype, 'render');
+    const show = vi.spyOn(TimelapsePlayer.prototype, 'show');
     createUI(new ElementStub() as unknown as HTMLElement, new OfficeStore(), world);
     const ctx = vi.mocked(SoundControl).mock.calls.at(-1)![0];
-    const player = render.mock.contexts[0] as TimelapsePlayer;
+    expect(ctx.now()).toBe(live);
+    // O player só existe depois da primeira abertura (chunk sob demanda): abre pelo botão e espera o módulo.
+    ctx.toggleTimelapse();
+    for (let i = 0; i < 50 && !show.mock.calls.length; i++) await vi.dynamicImportSettled();
+    expect(show).toHaveBeenCalled();
+    const player = show.mock.contexts[0] as TimelapsePlayer;
     const control = (name: string) => {
       const find = (el: ElementStub): ElementStub | undefined => el.className === name ? el : el.children.filter(Boolean).map(find).find(Boolean);
       return find(player.el as unknown as ElementStub)!;
     };
     const play = control('ui-icon-btn ui-lapse__play');
     const range = control('ui-lapse__range');
-    expect(ctx.now()).toBe(live);
-    await player.show();
+    await show.mock.results[0].value;
     play.dispatchEvent(new Event('click'));
     vi.advanceTimersByTime(120_000);
     expect(player.badge.children[2].textContent).toBe('09:00');
