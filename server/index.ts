@@ -30,6 +30,8 @@ import { createPermissionRoutes } from './permissions/http';
 import { PermissionRegistry } from './permissions/registry';
 import { codexAccountOf } from './codex/http';
 import { createCodexQueueRunner, findCodexBin } from './messages/codex';
+import { createAsideRoutes, handleAsideProgress } from './asides/http';
+import { AsideStore } from './asides/store';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
 import type { CodexLive } from './sources/codex/live';
@@ -126,6 +128,7 @@ const office = new Office({
   terminal: config.terminal,
   permissions: () => late.permissions?.snapshot() ?? new Map(),
   messages: config.messages ? () => late.messages?.reachable() ?? new Set() : undefined,
+  asides: config.messages ? () => late.messages?.asideReachable() ?? new Set() : undefined,
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('desligado') }, list: [] }),
   updates: () => updates.status(),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
@@ -274,7 +277,12 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      onSettled: (id, status, error) => asides?.settled(id, status, error),
     })
+  : undefined;
+// Bate-papo paralelo: as conversas ficam em <dataDir>/asides/ (uma por sessão). Só com as mensagens ligadas.
+const asides = messages
+  ? new AsideStore({ dir: join(config.dataDir, 'asides'), office, queue: (id, req) => messages.aside(id, req), discard: (id) => messages.discard(id) })
   : undefined;
 late.messages = messages;
 
@@ -327,6 +335,7 @@ if (timeline) {
 }
 permissions?.start();
 messages?.start();
+asides?.start();
 stats.start();
 updates.start();
 worldUplink?.start();
@@ -358,6 +367,7 @@ const api = createApiHandler({
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
+  asides: asides ? { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) } : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   attachments,
@@ -553,6 +563,7 @@ function shutdown(signal: string): void {
   timeline?.stop();
   permissions?.stop();
   messages?.stop();
+  asides?.stop();
   ptys?.stopAll();
   updates.stop();
   worldViewer?.stop();

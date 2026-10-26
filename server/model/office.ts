@@ -74,6 +74,8 @@ export interface OfficeDeps {
    * Ausente = mensagens pelo escritório desligadas (OfficeSnapshot.meta.messages).
    */
   messages?: () => ReadonlySet<string>;
+  /** Agentes cujo plugin responde perguntas paralelas (MessageRegistry.asideReachable): viram AgentInfo.canAside. */
+  asides?: () => ReadonlySet<string>;
   /** Verificação de versão nova no GitHub (ver OfficeSnapshot.meta.updates). */
   updates?: () => UpdateStatus;
   /** Terminais interativos (PtyManager): estado do recurso e os abertos. */
@@ -977,6 +979,8 @@ export class Office {
     // Mensagens pelo escritório: principais presentes cuja sessão está com o plugin conectado. No demo quem decide é
     // o simulador; com o recurso desligado, ninguém recebe.
     for (const a of real) if (reach?.has(a.id) && a.kind === 'main' && a.status !== 'offline' && a.status !== 'done') a.canMessage = true;
+    const asideReach = this.deps.asides?.();
+    for (const a of real) if (asideReach?.has(a.id) && a.canMessage) a.canAside = true;
     const demoAgents = (this.demoSnap?.agents ?? []).map((a) => {
       if (reach || !a.canMessage) return a;
       const { canMessage: _off, ...rest } = a;

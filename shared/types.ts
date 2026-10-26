@@ -5,6 +5,7 @@
 // Renomear/remover campos quebra servidor, mundo e UI ao mesmo tempo.
 
 import type { AppearanceParts } from './appearance';
+import type { AsideRequest } from './asides';
 import type { WorldMeta } from './world/api';
 
 export type AgentKind = 'main' | 'sub';
@@ -186,6 +187,11 @@ export interface AgentInfo {
    * e perguntou pela caixa de entrada há pouco. Ver POST /api/messages.
    */
   canMessage?: boolean;
+  /**
+   * Dá para fazer perguntas paralelas a este agente (bate-papo ao lado, POST /api/asides): ele recebe mensagens e o
+   * plugin da sessão declarou, na última rodada da caixa de entrada, que as responde. Plugin antigo não declara.
+   */
+  canAside?: boolean;
 }
 
 export interface RoomInfo {
@@ -735,4 +741,6 @@ export interface InboxMessage {
   id: string;
   /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. */
   text: string;
+  /** Pergunta do bate-papo paralelo: o plugin a responde por `$.model.fork`, sem entrar na conversa; sem texto e sem atividade no feed. */
+  aside?: AsideRequest;
 }

@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Bate-papo paralelo no Claude Code:** no terminal de um agente, o botão de balão na barra de cima abre uma janela
+  lateral onde dá para perguntar sobre a conversa sem interromper o agente e sem a pergunta entrar no contexto dele (o
+  `/btw`). O plugin `habblaud-mensagens` responde com `$.model.fork`, a resposta aparece de uma vez (o fork não faz
+  streaming) e as conversas ficam guardadas por sessão em `<dataDir>/asides/`. O botão só aparece para sessões cujo
+  plugin declara que sabe responder; **rode `npm run mod:install` de novo** e reabra as sessões do Claude Code
+  (plugin antigo continua só com as mensagens, sem o botão).
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

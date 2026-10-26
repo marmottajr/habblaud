@@ -900,6 +900,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/mod/summary` | For the Claude Code mod: version, how many agents, how many are working and who needs you (without the demo and, with `?account=&session=`, without its own session). |
 | `/api/permissions…` | Answering from the office: the permission hook registers the request (permission or question) and waits; the page fetches the details and decides or answers. Local access only. |
 | `/api/messages…` and `/api/mod/inbox…` | Sending messages: the page puts the message in the queue and follows its delivery; the `habblaud-mensagens` plugin fetches it, delivers it to the session and confirms. Local access only. |
+| `/api/asides…` and `/api/mod/aside` | Side chat: the page asks next to an agent whose plugin declared it can answer (`canAside`); the plugin sends the answer back without it entering the conversation. Local access only. |
 | `POST /api/codex/events` | Events from the Codex hooks (session opened, tool, approval, end of turn). Local access only. |
 | `/api/codex/bridge/poll` and `/ack` | `npm run codex:bridge` fetches the messages for Codex and confirms delivery. Local access only. |
 

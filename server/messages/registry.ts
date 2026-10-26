@@ -20,6 +20,7 @@
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
 import { describeMessage, MESSAGE_MAX } from '../../shared/messages';
+import type { AsideRequest } from '../../shared/asides';
 import type { Activity, AgentInfo, InboxMessage, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
@@ -46,6 +47,7 @@ export const ERR_NOT_CONFIRMED = tr('a sessão não confirmou a entrega');
 export const ERR_GONE = tr('o agente saiu do escritório');
 export const ERR_REFUSED = tr('a sessão não aceitou a mensagem');
 export const ERR_SESSION_CHANGED = tr('a conversa do agente mudou (/clear ou /resume) antes da entrega');
+export const ERR_ASIDE_UNSUPPORTED = tr('o plugin habblaud-mensagens desta sessão é antigo e não responde perguntas paralelas (rode npm run mod:install de novo e reabra a sessão)');
 export const ERR_CODEX_UNAVAILABLE =
   tr('não há como entregar ao Codex agora: rode o Habblaud fora do Docker com o `codex` no PATH (ou HABBLAUD_CODEX_BIN) ou, no Docker, deixe o npm run codex:bridge rodando no Mac');
 export const ERR_CODEX_NOT_FETCHED = tr('o auxiliar do Codex não buscou a mensagem: o npm run codex:bridge está rodando no Mac?');
@@ -90,6 +92,8 @@ export interface MessageRegistryOptions {
   sentTimeoutMs?: number;
   keepMs?: number;
   demoDeliveryMs?: number;
+  /** Toda mensagem resolvida (entregue ou falha), inclusive a confirmação atrasada que corrige uma falha. */
+  onSettled?: (id: string, status: 'delivered' | 'failed', error?: string) => void;
 }
 
 export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string };
@@ -112,8 +116,10 @@ interface Entry {
   msg: OutboxMessage;
   /** O texto como foi digitado; esvazia quando a mensagem se resolve. */
   text: string;
-  /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
-  activity: ReturnType<typeof describeMessage>;
+  /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado); a pergunta paralela não tem. */
+  activity?: ReturnType<typeof describeMessage>;
+  /** Pergunta do bate-papo paralelo: sem texto e sem atividade no feed; o plugin a responde com a cópia da conversa. */
+  aside?: AsideRequest;
   /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
   target: string;
   /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
@@ -184,6 +190,8 @@ export class MessageRegistry {
   private messages = new Map<string, Entry>();
   /** Última vez que a sessão de cada agente principal perguntou pela caixa de entrada. */
   private seen = new Map<string, number>();
+  /** Agentes cujo plugin declarou, na última rodada, que responde perguntas paralelas (vale enquanto há presença). */
+  private asideCapable = new Set<string>();
   /** Última vez que o auxiliar do Codex no host buscou mensagens. */
   private bridgeAt?: number;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -237,6 +245,17 @@ export class MessageRegistry {
     return out;
   }
 
+  /**
+   * Agentes principais que recebem mensagens e cujo plugin declarou, na última rodada, que responde perguntas
+   * paralelas (`asides: true` no corpo). Plugin antigo não declara: o agente fica de fora e nunca recebe uma. É o que
+   * o Office põe no snapshot (AgentInfo.canAside).
+   */
+  asideReachable(): Set<string> {
+    const out = new Set<string>();
+    for (const id of this.asideCapable) if (this.canMessage(id)) out.add(id);
+    return out;
+  }
+
   canMessage(agentId: string): boolean {
     const a = this.opts.office.get(agentId);
     if (a?.provider === 'codex') return this.codexAvailable() && present(a) && a.kind === 'main';
@@ -286,6 +305,39 @@ export class MessageRegistry {
   }
 
   /**
+   * Pergunta do bate-papo paralelo (AsideStore): entra na mesma fila das mensagens, só para sessões cujo plugin
+   * declarou que a responde. O plugin só a inicia e confirma na hora; a resposta chega por outra rota. Mesmos
+   * resultados de `send`.
+   */
+  aside(agentId: string, request: AsideRequest): SendResult {
+    const agent = this.opts.office.get(agentId);
+    if (!agent) return { error: 'not-found' };
+    const reason = unavailableReason(agent, this.canMessage(agentId));
+    if (reason) return { error: 'unavailable', reason };
+    if (!this.asideCapable.has(agentId)) return { error: 'unavailable', reason: ERR_ASIDE_UNSUPPORTED };
+    let open = 0;
+    for (const e of this.messages.values()) if (e.msg.agentId === agentId && !isFinal(e)) open++;
+    if (open >= MAX_OPEN) return { error: 'too-many' };
+
+    const now = this.now();
+    const id = `m-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
+    const entry: Entry = { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, text: '', aside: request, target: agent.sessionId };
+    this.messages.set(id, entry);
+    return { message: { ...entry.msg } };
+  }
+
+  /**
+   * Retira da fila uma pergunta paralela que o plugin ainda não buscou (o usuário a cancelou): sem isto, a próxima
+   * rodada a entregaria e o modelo gastaria tokens com uma pergunta já desistida. Já buscada (`sent`), resolvida ou que
+   * não é pergunta paralela: nada muda (o plugin é parado pelo `progress`, em AsideStore). Devolve true se retirou.
+   */
+  discard(id: string): boolean {
+    const e = this.messages.get(id);
+    if (!e?.aside || e.msg.status !== 'queued') return false;
+    return this.messages.delete(id);
+  }
+
+  /**
    * Rodada do plugin: marca a presença da sessão e entrega as próximas mensagens do agente dela (marcando-as
    * `sent`). Sessão sem agente principal conhecido: nenhuma mensagem. Corpo inválido: lança InvalidRequest.
    */
@@ -302,18 +354,25 @@ export class MessageRegistry {
 
     const now = this.now();
     const was = this.canMessage(agent.id);
+    const wasAside = this.asideCapable.has(agent.id);
     this.seen.set(agent.id, now);
-    // Só a mudança de presença mexe no snapshot (a rodada se repete a cada 2 s).
-    if (!was) this.opts.office.markDirty();
+    // O plugin declara a cada rodada se responde perguntas paralelas: sem o campo (plugin antigo), não responde.
+    const asides = r.asides === true;
+    if (asides) this.asideCapable.add(agent.id);
+    else this.asideCapable.delete(agent.id);
+    // Só a mudança de presença ou de capacidade mexe no snapshot (a rodada se repete a cada 2 s).
+    if (!was || wasAside !== asides) this.opts.office.markDirty();
 
     const out: InboxMessage[] = [];
     for (const e of this.messages.values()) {
       if (out.length >= INBOX_BATCH) break;
       if (e.demo || e.codex || e.msg.agentId !== agent.id || e.msg.status !== 'queued' || e.target !== session) continue;
+      // Plugin que não declarou a capacidade nunca recebe o item: ele o entregaria à sessão como um prompt vazio.
+      if (e.aside && !asides) continue;
       this.setStatus(e, 'sent', now);
       e.session = session;
       e.sentAt = now;
-      out.push({ id: e.msg.id, text: e.text });
+      out.push({ id: e.msg.id, text: e.text, ...(e.aside ? { aside: e.aside } : {}) });
     }
     return out;
   }
@@ -417,6 +476,7 @@ export class MessageRegistry {
     for (const [agentId, at] of this.seen) {
       if (now - at < this.presenceMs && present(this.opts.office.get(agentId))) continue;
       this.seen.delete(agentId);
+      this.asideCapable.delete(agentId);
       this.opts.office.markDirty();
     }
     if (this.bridgeAt !== undefined && now - this.bridgeAt >= this.presenceMs) {
@@ -490,9 +550,15 @@ export class MessageRegistry {
     if (status === 'delivered') {
       delete e.msg.error;
       // A do demo vai para o agente fictício (Office.deliverDemoMessage).
-      if (!e.demo) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
+      if (!e.demo && e.activity) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
     }
     e.text = '';
+    delete e.aside;
+    try {
+      this.opts.onSettled?.(e.msg.id, status, e.msg.error);
+    } catch (err) {
+      log.warnOnce(`messages-settled:${errMsg(err)}`, tr('Mensagens: falha ao avisar a resolução de uma mensagem ({0}).', [errMsg(err)]));
+    }
   }
 
   private fail(e: Entry, now: number, error: string): void {

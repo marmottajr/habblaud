@@ -6,6 +6,7 @@
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
 import type { AppearanceParts } from '../../../shared/appearance';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
+import type { AsideTopic } from '../../../shared/asides';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { tr } from '../../../shared/i18n';
 
@@ -323,6 +324,45 @@ export class OfficeStore {
     if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
     const error = (body as { error?: unknown } | undefined)?.error;
     return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]) };
+  }
+
+  /**
+   * Bate-papo paralelo com um agente (/api/asides, server/asides/http.ts): chamada JSON; devolve o status e o
+   * corpo, ou a mensagem do servidor em `error` quando não é a resposta de sucesso esperada. Sem conexão: lança. Não
+   * existe no ?mock=1. O guard exige Content-Type JSON em tudo que muda coisas (inclusive o DELETE sem corpo).
+   */
+  private async asideCall<T extends object>(url: string, success: number, init: RequestInit = {}): Promise<T | { error: string }> {
+    if (this.mock) return { error: tr('indisponível no modo de demonstração') };
+    const res = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json' } });
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+    }
+    if (res.status === success && body && typeof body === 'object') return body as T;
+    const error = (body as { error?: unknown } | undefined)?.error;
+    return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]) };
+  }
+
+  /** Conversas do bate-papo paralelo da sessão atual do agente, da mais nova para a mais velha. */
+  asides(agentId: string): Promise<{ topics: AsideTopic[] } | { error: string }> {
+    return this.asideCall(`/api/asides?agentId=${encodeURIComponent(agentId)}`, 200);
+  }
+
+  /** Faz uma pergunta paralela (numa conversa existente ou, sem `topicId`, numa nova): devolve a conversa. */
+  askAside(agentId: string, question: string, topicId?: string): Promise<{ topic: AsideTopic } | { error: string }> {
+    return this.asideCall('/api/asides', 201, { method: 'POST', body: JSON.stringify({ agentId, question, ...(topicId ? { topicId } : {}) }) });
+  }
+
+  /** Para a pergunta em andamento da conversa. */
+  cancelAside(agentId: string, topicId: string): Promise<{ ok: true } | { error: string }> {
+    return this.asideCall(`/api/asides/${encodeURIComponent(topicId)}/cancel`, 200, { method: 'POST', body: JSON.stringify({ agentId }) });
+  }
+
+  /** Apaga a conversa (o servidor recusa com pergunta em andamento). */
+  deleteAside(agentId: string, topicId: string): Promise<{ ok: true } | { error: string }> {
+    return this.asideCall(`/api/asides/${encodeURIComponent(topicId)}?agentId=${encodeURIComponent(agentId)}`, 200, { method: 'DELETE' });
   }
 
   /** Situação de uma mensagem (GET /api/messages/:id). null = o servidor não a conhece (404). Sem conexão: lança. */

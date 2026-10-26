@@ -89,8 +89,13 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
 | `POST /api/messages` | (página) `{agentId, text}`: manda uma mensagem a um agente principal; `201 OutboxMessage`; só com bind local (ver abaixo) |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
-| `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
+| `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?, asides?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}`; `asides: true` declara que o plugin responde perguntas paralelas |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
+| `GET /api/asides?agentId=` | (página) as conversas do bate-papo paralelo da sessão atual do agente, da mais nova para a mais velha: `{topics: AsideTopic[]}` |
+| `POST /api/asides` | (página) `{agentId, question, topicId?}`: faz uma pergunta paralela (conversa nova sem `topicId`); `201 {topic}`; 409 se o agente não responde (plugin antigo, sem plugin) ou já há uma pergunta em andamento; só com bind local |
+| `POST /api/asides/:topicId/cancel` | (página) `{agentId}`: para a pergunta em andamento da conversa |
+| `DELETE /api/asides/:topicId?agentId=` | (página) apaga a conversa (409 com pergunta em andamento) |
+| `POST /api/mod/aside` | (plugin) `AsideProgress` `{sessionId, turnId, text, state, error?}`: sinal de vida (`running`) e a resposta inteira (`complete`/`failed`/`cancelled`); responde `{cancel: boolean}` |
 
 O snapshot (SSE e `GET /api/snapshot`) leva só as últimas 8 atividades de cada agente em `recent`; o histórico
 de até 200 (inclusive o começo de transcripts longos, lido em segundo plano) vem de `GET /api/agents/:id`.
@@ -281,6 +286,20 @@ As rotas (`messages/http.ts`) seguem a trava do terminal e mais uma chave: `Serv
 Erros de `POST /api/messages`: 400 (corpo inválido, texto vazio ou longo demais), 404 (agente desconhecido), 409 (o
 agente não recebe: subagente, saiu ou sessão sem o plugin conectado) e 429. O estado sai em `meta.messages` do
 snapshot e em `messages` no `/api/health`.
+
+### Bate-papo paralelo (`asides/`)
+
+Perguntas ao lado de um agente, sem entrar na conversa dele (o `/btw`). A página pergunta em `POST /api/asides`; o
+`AsideStore` guarda as conversas por sessão em `<dataDir>/asides/<sessionId>.json` (só ids no formato uuid viram nome de
+arquivo) e põe a pergunta na fila das mensagens (`MessageRegistry.aside`), que a entrega ao plugin da sessão num item do
+`inbox` com `aside` e sem texto. O plugin só a inicia, confirma na hora e manda a resposta por `POST /api/mod/aside`
+(sinal de vida a cada 1 s; sem notícia em 30 s a pergunta falha).
+
+**Quem responde:** o servidor não adivinha pelo `provider`. A cada rodada do `inbox` o plugin declara `asides: true`
+(`MessageRegistry` guarda isso enquanto há presença); só então o agente sai no snapshot com `canAside: true`, que é o
+que mostra o botão do chat na página, e só então o `aside` é aceito e entregue. Plugin antigo não manda o campo: o
+botão não aparece, `POST /api/asides` dá 409 com o motivo (reinstalar com `npm run mod:install`) e o item nunca sai
+para ele.
 
 Qualquer processo local consegue chamar essas rotas (como as de permissão): ligar as mensagens é aceitar que um
 programa da própria máquina possa digitar nas sessões que têm o plugin.

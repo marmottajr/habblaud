@@ -942,6 +942,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/mod/summary` | Pour le mod de Claude Code : version, nombre d'agents, combien travaillent et qui a besoin de vous (sans la démo et, avec `?account=&session=`, sans la session elle-même). |
 | `/api/permissions…` | Répondre depuis le bureau : le hook de permission enregistre la demande (permission ou question) et attend ; la page récupère le détail et décide ou répond. En accès local uniquement. |
 | `/api/messages…` et `/api/mod/inbox…` | Envoyer des messages : la page met le message en file et suit sa remise ; le plugin `habblaud-mensagens` le récupère, le remet à la session et confirme. En accès local uniquement. |
+| `/api/asides…` et `/api/mod/aside` | Discussion parallèle : la page pose une question à côté d'un agent dont le plugin a déclaré pouvoir répondre (`canAside`) ; le plugin renvoie la réponse sans qu'elle entre dans la conversation. En accès local uniquement. |
 | `POST /api/codex/events` | Événements des hooks de Codex (session ouverte, outil, validation, fin du tour). En accès local uniquement. |
 | `/api/codex/bridge/poll` et `/ack` | `npm run codex:bridge` récupère les messages pour Codex et confirme leur remise. En accès local uniquement. |
 

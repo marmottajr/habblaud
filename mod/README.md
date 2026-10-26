@@ -82,7 +82,7 @@ esquema do `hooks.json`).
 (no painel do agente ou no terminal da tecla T), como se você tivesse digitado no terminal:
 
 - **Busca:** a cada 2 s, só em sessões que desenham (no `claude -p` não pergunta nada),
-  `POST http://127.0.0.1:<HABBLAUD_PORT ou 4747>/api/mod/inbox` com `{session, account}`. A pergunta também marca a
+  `POST http://127.0.0.1:<HABBLAUD_PORT ou 4747>/api/mod/inbox` com `{session, account, asides: true}`. A pergunta também marca a
   sessão como presente: é ela que mostra, na página, a caixa de mensagem do agente (sem o plugin, a página dá a dica
   de instalar). Fora do ar, ou respondendo outra coisa (403 com as mensagens desligadas, 404 numa versão sem a
   rota), passa a perguntar a cada 30 s até ele voltar.
@@ -96,6 +96,14 @@ esquema do `hooks.json`).
   conta como entregue (as seguintes vão em seguida, na ordem). Assim uma rodada nunca passa de uns poucos segundos e
   a presença (10 s) e a confirmação (30 s) do servidor não vencem com a sessão ocupada; o preço é que uma recusa
   depois desses 2 s não chega à página.
+- **Pergunta paralela (bate-papo ao lado):** o `asides: true` da busca declara ao Habblaud que este plugin sabe
+  respondê-las; versões anteriores do plugin não mandam o campo e o Habblaud nunca lhes entrega uma (nem mostra o
+  botão do chat). Um item com `aside` **não** vai à sessão como prompt: `$.model.fork({ prompt })` manda a conversa
+  de agora mais a pergunta (e as anteriores do bate-papo) ao modelo da sessão, sem ferramentas e sem nada entrar na
+  conversa, como o `/btw`. A rodada só inicia a pergunta e confirma na hora; um `POST /api/mod/aside` por segundo
+  (sinal de vida) e, no fim, outro com a resposta inteira ou o motivo da falha (inclusive a recusa de uma sessão
+  interrompida, mostrada como veio). O `$.model.fork` não faz streaming nem aborta: a resposta aparece de uma vez, e
+  parar a pergunta na página descarta o resultado quando ele chegar. Uma pergunta por sessão; no máximo 3 min.
 
 Fica separado do mod `habblaud` de propósito: aquele só observa; este age, digitando na sessão em seu nome. Para
 ficar sem ele: `npm run mod:install -- --sem-mensagens` (um já instalado continua; para tirar:
@@ -108,15 +116,17 @@ Saída de `claude plugin validate --strict mod/habblaud-mensagens`:
 
 ```
 ❯ ./register.ts hooks: session.start
-❯ ./register.ts calls: $.clock.after (via waitAtMost), $.clock.every (via schedule), $.env.get (via readEnv), $.http.fetch (via postJson), $.prompt.submit (via submitOne), $.session.id (via round), $.session.surfaces (via round)
+❯ ./register.ts calls: $.clock.after (via waitAtMost), $.clock.every (via runAside), $.clock.every (via schedule), $.env.get (via readEnv), $.http.fetch (via postJson), $.model.fork (via forkOne), $.prompt.submit (via submitOne), $.session.id (via round), $.session.surfaces (via round)
 ❯ ./register.ts env writes: nothing
 ❯ ./register.ts env reads: CLAUDE_CODE_ENTRYPOINT, CLAUDE_CONFIG_DIR, HABBLAUD_PORT, HOME, USERPROFILE
 ```
 
-Em palavras: um hook só (`session.start`, que liga o relógio das rodadas); a única ação na sessão é o
-`$.prompt.submit` das mensagens; não lê a conversa, não grava arquivo nenhum, fala só com `127.0.0.1` e lê quatro
-variáveis de ambiente (a conta sai do `CLAUDE_CONFIG_DIR`, como no mod). `$.clock.after` é o prazo de 2 s de cada
-pedido ao Habblaud e de cada `$.prompt.submit`.
+Em palavras: um hook só (`session.start`, que liga o relógio das rodadas); as ações na sessão são o
+`$.prompt.submit` das mensagens e o `$.model.fork` das perguntas paralelas (ele lê a conversa só para o modelo
+responder: o plugin nunca a lê nem a guarda, e a pergunta e a resposta não entram nela); não grava arquivo nenhum,
+fala só com `127.0.0.1` e lê quatro variáveis de ambiente (a conta sai do `CLAUDE_CONFIG_DIR`, como no mod).
+`$.clock.after` é o prazo de 2 s de cada pedido ao Habblaud e de cada `$.prompt.submit` (e as pausas entre as
+tentativas de mandar o desfecho de uma pergunta paralela); `$.clock.every` em `runAside` é o sinal de vida dela.
 
 Porta: `HABBLAUD_PORT` (padrão 4747). Precisa do Claude Code 2.1.287+ e de um Habblaud com as mensagens ligadas: a
 mesma trava do terminal e das permissões (porta presa ao `127.0.0.1` e cabeçalho Host local) e `HABBLAUD_MENSAGENS`

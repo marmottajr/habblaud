@@ -2,11 +2,13 @@
 // ao plugin, confirmação, prazos, agente que sai, limpeza das resolvidas e a entrega fictícia do demo.
 // Tudo com dados sintéticos e relógio injetado.
 import { describe, expect, it } from 'vitest';
+import { AsideStore } from '../asides/store';
 import type { AgentInfo } from '../../shared/types';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import {
+  ERR_ASIDE_UNSUPPORTED,
   ERR_GONE,
   ERR_NOT_CONFIRMED,
   ERR_NOT_FETCHED,
@@ -16,11 +18,13 @@ import {
   KEEP_MS,
   MAX_OPEN,
   MessageRegistry,
+  type MessageRegistryOptions,
   PRESENCE_MS,
   QUEUED_TIMEOUT_MS,
   SENT_TIMEOUT_MS,
   type SendResult,
 } from './registry';
+
 
 setQuiet(true);
 
@@ -29,7 +33,7 @@ const SESSION = 'sess-1';
 const OTHER = 'acc:2';
 const SUB = `${SESSION}:a1b2c3`;
 
-function setup() {
+function setup(extra: Partial<MessageRegistryOptions> = {}) {
   let now = 1_000_000;
   const clock = { now: () => now, advance: (ms: number) => (now += ms) };
   let registry: MessageRegistry | undefined;
@@ -41,6 +45,7 @@ function setup() {
     sources: () => [],
     accountName: () => undefined,
     messages: () => registry?.reachable() ?? new Set(),
+    asides: () => registry?.asideReachable() ?? new Set(),
     now: clock.now,
   });
   office.addMain({ id: MAIN, account: 'acc', sessionId: SESSION, cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'idle' });
@@ -50,6 +55,7 @@ function setup() {
     demoAgent: (id) => office.demoAgent(id),
     demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
     now: clock.now,
+    ...extra,
   });
   return { office, registry, clock };
 }
@@ -326,5 +332,149 @@ describe('MessageRegistry: demo', () => {
     office.setDemo(false);
     registry.tick();
     expect(registry.get(id)).toMatchObject({ status: 'failed', error: ERR_GONE });
+  });
+});
+
+describe('MessageRegistry: perguntas paralelas (aside)', () => {
+  const req = { topicId: 't-1', turnId: 'q-1', index: 0, question: 'o que faz agora?', history: [] };
+  const UUID = '0199b0c0-1234-7abc-8def-0123456789ab';
+  const BOT = `acc:${UUID}`;
+
+  function setupAside(extra: Partial<MessageRegistryOptions> = {}) {
+    const ctx = setup(extra);
+    ctx.office.addMain({ id: BOT, account: 'acc', sessionId: UUID, cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'idle' });
+    return ctx;
+  }
+
+  it('a rodada que declara asides:true acende canAside no snapshot (só na transição); sem o campo, apaga', () => {
+    const { office, registry } = setupAside();
+    expect(snapAgent(office, BOT)?.canAside).toBeUndefined();
+    registry.inbox({ session: UUID, account: 'acc' });
+    expect(registry.canMessage(BOT)).toBe(true);
+    expect(snapAgent(office, BOT)?.canAside).toBeUndefined();
+    expect(registry.asideReachable().size).toBe(0);
+
+    registry.inbox({ session: UUID, account: 'acc', asides: true });
+    expect(office.commit().changed).toBe(true);
+    expect(snapAgent(office, BOT)).toMatchObject({ canMessage: true, canAside: true });
+    expect(registry.asideReachable()).toEqual(new Set([BOT]));
+    registry.inbox({ session: UUID, account: 'acc', asides: true });
+    expect(office.commit().changed).toBe(false);
+
+    registry.inbox({ session: UUID, account: 'acc' });
+    expect(snapAgent(office, BOT)?.canAside).toBeUndefined();
+  });
+
+  it('a capacidade some junto com a presença', () => {
+    const { registry, clock } = setupAside();
+    registry.inbox({ session: UUID, asides: true });
+    clock.advance(PRESENCE_MS);
+    registry.tick();
+    expect(registry.asideReachable().size).toBe(0);
+    registry.inbox({ session: UUID });
+    expect(registry.asideReachable().size).toBe(0);
+  });
+
+  it('aside sai em inbox() com aside e text vazio, sem atividade no feed', () => {
+    const { office, registry } = setupAside();
+    registry.inbox({ session: UUID, asides: true });
+    expect(registry.aside('nao-existe', req)).toEqual({ error: 'not-found' });
+    const id = sent(registry.aside(BOT, req));
+    expect(registry.inbox({ session: UUID, asides: true })).toEqual([{ id, text: '', aside: req }]);
+    registry.ack({ session: UUID, results: [{ id, ok: true }] });
+    expect(registry.get(id)?.status).toBe('delivered');
+    expect(snapAgent(office, BOT)?.recent ?? []).toEqual([]);
+  });
+
+  it('plugin antigo (sem asides:true): aside é recusado com o motivo e nada sai pela caixa de entrada', () => {
+    const { registry } = setupAside();
+    registry.inbox({ session: UUID });
+    expect(registry.aside(BOT, req)).toEqual({ error: 'unavailable', reason: ERR_ASIDE_UNSUPPORTED });
+    // Sem presença nenhuma, vale o motivo de sempre (plugin ausente).
+    expect(registry.aside(OTHER, req)).toMatchObject({ error: 'unavailable', reason: expect.stringMatching(/mod:install/) });
+  });
+
+  it('a capacidade some depois da pergunta entrar na fila: o item espera e a rodada sem asides não o leva', () => {
+    const { registry } = setupAside();
+    registry.inbox({ session: UUID, asides: true });
+    const id = sent(registry.aside(BOT, req));
+    expect(registry.inbox({ session: UUID })).toEqual([]);
+    expect(registry.get(id)?.status).toBe('queued');
+    expect(registry.inbox({ session: UUID, asides: true })).toHaveLength(1);
+  });
+
+  it('ack ok chama onSettled(id, delivered, undefined)', () => {
+    const calls: unknown[][] = [];
+    const { registry } = setupAside({ onSettled: (...a) => calls.push(a) });
+    registry.inbox({ session: UUID, asides: true });
+    const id = sent(registry.aside(BOT, req));
+    registry.inbox({ session: UUID, asides: true });
+    registry.ack({ session: UUID, results: [{ id, ok: true }] });
+    expect(calls).toEqual([[id, 'delivered', undefined]]);
+  });
+
+  it('o prazo queued vencido chama onSettled(id, failed, ERR_NOT_FETCHED)', () => {
+    const calls: unknown[][] = [];
+    const { registry, clock } = setupAside({ onSettled: (...a) => calls.push(a) });
+    registry.inbox({ session: UUID, asides: true });
+    const id = sent(registry.aside(BOT, req));
+    clock.advance(QUEUED_TIMEOUT_MS);
+    registry.inbox({ session: SESSION });
+    registry.tick();
+    expect(calls).toEqual([[id, 'failed', ERR_NOT_FETCHED]]);
+  });
+
+  it('um onSettled que lança não impede a mensagem de virar failed', () => {
+    const { registry, clock } = setupAside({
+      onSettled: () => {
+        throw new Error('boom');
+      },
+    });
+    registry.inbox({ session: UUID, asides: true });
+    const id = sent(registry.aside(BOT, req));
+    clock.advance(QUEUED_TIMEOUT_MS);
+    expect(() => registry.tick()).not.toThrow();
+    expect(registry.get(id)).toMatchObject({ status: 'failed', error: ERR_NOT_FETCHED });
+  });
+
+  it('discard retira a pergunta queued: inbox() não a entrega mais, a vaga volta e get() não a conhece', () => {
+    const { registry } = setupAside();
+    registry.inbox({ session: UUID, asides: true });
+    const id = sent(registry.aside(BOT, req));
+    expect(registry.discard(id)).toBe(true);
+    expect(registry.inbox({ session: UUID, asides: true })).toEqual([]);
+    expect(registry.get(id)).toBeUndefined();
+    const ids = Array.from({ length: MAX_OPEN }, () => sent(registry.aside(BOT, req)));
+    expect(registry.aside(BOT, req)).toEqual({ error: 'too-many' });
+    expect(registry.discard(ids[0]!)).toBe(true);
+    expect(registry.aside(BOT, req)).toHaveProperty('message');
+  });
+
+  it('discard não mexe em pergunta já buscada, em mensagem comum nem em id desconhecido', () => {
+    const { registry } = setupAside();
+    registry.inbox({ session: UUID, asides: true });
+    const id = sent(registry.aside(BOT, req));
+    expect(registry.inbox({ session: UUID, asides: true })).toHaveLength(1);
+    expect(registry.discard(id)).toBe(false);
+    expect(registry.get(id)?.status).toBe('sent');
+    const msg = sent(registry.send({ agentId: BOT, text: 'oi' }));
+    expect(registry.discard(msg)).toBe(false);
+    expect(registry.inbox({ session: UUID, asides: true })).toEqual([{ id: msg, text: 'oi' }]);
+    expect(registry.discard('m-nao')).toBe(false);
+  });
+
+  it('cancelar pela AsideStore uma pergunta queued: o plugin nunca a recebe', () => {
+    let store: AsideStore | undefined;
+    const { office, registry } = setupAside({ onSettled: (...a) => store?.settled(...a) });
+    store = new AsideStore({ dir: null, office, queue: (id, r) => registry.aside(id, r), discard: (id) => registry.discard(id) });
+    registry.inbox({ session: UUID, asides: true });
+    const first = store.ask({ agentId: BOT, question: 'a' });
+    if (!('topic' in first)) throw new Error(`recusada: ${JSON.stringify(first)}`);
+    expect(store.cancel(first.topic.id, { agentId: BOT })).toEqual({ ok: true });
+    expect(registry.inbox({ session: UUID, asides: true })).toEqual([]);
+    expect(store.ask({ agentId: BOT, question: 'b', topicId: first.topic.id })).toHaveProperty('topic');
+    const out = registry.inbox({ session: UUID, asides: true });
+    expect(out).toHaveLength(1);
+    expect(out[0]?.aside?.question).toBe('b');
   });
 });

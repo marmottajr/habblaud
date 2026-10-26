@@ -9,6 +9,7 @@
 // testado em ui/terminal.test.ts; a montagem usa só textContent (o markdown das respostas vem de ui/markdown.ts).
 // Sessão do Codex: selo "Codex" no cabeçalho e um spinner neutro no rodapé (o ✻ é do Claude Code).
 import type { AgentInfo, Provider, RecentSession, TerminalEntry, TerminalInit } from '../../../shared/types';
+import { AsideChat } from './aside';
 import { MessageComposer } from './composer';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
@@ -636,6 +637,9 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private roomEl: HTMLElement;
   private reconnEl: HTMLElement;
   private findBtn: HTMLButtonElement;
+  /** Botão do bate-papo paralelo (só agente cujo plugin responde perguntas paralelas e que está pronto para receber mensagens) e a janela lateral dele. */
+  private chatBtn: HTMLButtonElement;
+  private chat: AsideChat;
   private alertEl: HTMLElement;
   private alertText: HTMLElement;
   private searchBox: HTMLElement;
@@ -677,6 +681,10 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.reconnEl = h('span', { class: 'ui-term__reconn', text: tr('reconectando…'), hidden: true, role: 'status' });
     this.findBtn = iconButton(ICONS.search, tr('Buscar na conversa ({0})', [findKey]), () => this.toggleSearch(), 'ui-icon-btn--sm ui-term__find');
     setAttr(this.findBtn, 'aria-expanded', 'false');
+    this.chat = new AsideChat(ctx);
+    this.chatBtn = iconButton(ICONS.chat, tr('Bate-papo paralelo: pergunte sem interromper o agente'), () => this.toggleChat(), 'ui-icon-btn--sm ui-term__chat-btn');
+    this.chatBtn.hidden = true;
+    setAttr(this.chatBtn, 'aria-pressed', 'false');
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
     const bar = h(
       'div',
@@ -686,6 +694,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       h('div', { class: 'ui-term__who' }, this.accEl, this.nameEl, this.provEl, this.roleEl, this.roomEl),
       this.reconnEl,
       this.findBtn,
+      this.chatBtn,
       ...(this.actions ? [this.actions.el] : []),
       maximizeButton(() => this.movable),
       close,
@@ -753,10 +762,26 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       { class: 'ui-term', role: 'dialog', hidden: true, tabIndex: -1, attrs: { 'aria-label': tr('Terminal') } },
       bar,
       this.tabs.el,
-      tools,
-      h('div', { class: 'ui-term__body' }, this.alertEl, this.scroll, this.newBtn),
-      h('div', { class: 'ui-term__foot' }, this.status, this.composer.el),
+      h(
+        'div',
+        { class: 'ui-term__split' },
+        h(
+          'div',
+          { class: 'ui-term__main' },
+          tools,
+          h('div', { class: 'ui-term__body' }, this.alertEl, this.scroll, this.newBtn),
+          h('div', { class: 'ui-term__foot' }, this.status, this.composer.el),
+        ),
+        this.chat.el,
+      ),
     );
+    // A janela lateral alarga o terminal (CSS: .is-chat) e, ao ser dispensada, devolve o foco à caixa de mensagem.
+    this.chat.onToggle = (open) => {
+      this.el.classList.toggle('is-chat', open);
+      setAttr(this.chatBtn, 'aria-pressed', String(open));
+      this.chatBtn.classList.toggle('is-on', open);
+    };
+    this.chat.onDismiss = () => this.composer.el.querySelector('textarea')?.focus({ preventScroll: true });
     this.el.addEventListener('keydown', (e) => this.onKey(e));
     // Arrastar pela barra solta a janela (ui/movable.ts).
     this.movable = new Movable(this.el, bar, { key: 'habblaud.move.term', enabled: () => !ctx.isNarrow() });
@@ -785,6 +810,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
 
   close(): void {
     if (this.id === null) return;
+    this.chat.close();
     this.disconnect();
     this.stopSpinner();
     this.closeSearch(false);
@@ -823,7 +849,17 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.renderFooter();
     this.renderState();
     // Mensagens só para a sessão ao vivo (no histórico, a caixa diz que a sessão foi encerrada).
-    this.composer.render(this.session ? undefined : this.ctx.agent(this.id), this.id);
+    const kind = this.composer.render(live ?? undefined, this.id);
+    // Bate-papo paralelo: só o agente principal ao vivo cujo plugin declarou que responde (AgentInfo.canAside), fora do demo.
+    const chatOk = !!live && live.kind === 'main' && live.canAside === true && kind === 'ready' && !this.ctx.store.mock;
+    setHidden(this.chatBtn, !chatOk);
+    this.chat.render(chatOk ? (live ?? undefined) : undefined, chatOk);
+  }
+
+  private toggleChat(): void {
+    const live = this.session || this.id === null ? undefined : this.ctx.agent(this.id);
+    if (!live || live.kind !== 'main' || !live.canAside || this.chatBtn.hidden) return;
+    this.chat.toggle(live.id);
   }
 
   /** Abre o painel numa conversa nova (agente ou sessão do histórico); a mesma conversa só recebe o foco. */
@@ -834,6 +870,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       return;
     }
     // Um terminal por vez: abrir outro substitui o atual (a busca e o filtro continuam valendo).
+    this.chat.close();
     this.disconnect();
     this.clear();
     this.id = id;
