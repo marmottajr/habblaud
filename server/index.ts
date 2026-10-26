@@ -40,7 +40,7 @@ import { CodexSource } from './sources/codex/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
-import type { WorldLocale } from '../shared/world/protocol';
+import { toWorldLocale } from '../shared/world/locale';
 import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
 import { AttachmentStore } from './spawn/attachments';
@@ -162,7 +162,7 @@ const worldUplink =
           const b = readBuildInfo(config.rootDir);
           return { commit: b.commit, dirty: b.dirty };
         },
-        locale: () => getLocale() as WorldLocale,
+        locale: () => toWorldLocale(getLocale()),
         store: worldStore,
         canAct: () => config.terminal,
         agents: () => office.list(),

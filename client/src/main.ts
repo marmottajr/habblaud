@@ -6,6 +6,7 @@ const LOADERS: Partial<Record<Locale, () => Promise<Readonly<Record<string, stri
   en: () => import('../../shared/locales/en').then((m) => m.EN),
   es: () => import('../../shared/locales/es').then((m) => m.ES),
   fr: () => import('../../shared/locales/fr').then((m) => m.FR),
+  'zh-CN': () => import('../../shared/locales/zh-CN').then((m) => m.ZH_CN),
 };
 
 const locale = getLocale();

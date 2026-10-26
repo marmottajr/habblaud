@@ -30,16 +30,16 @@ export function relativeTime(at: number, now: number): string {
 /** Duração legível: "12 s", "3 min", "2 h 10 min", "3 d 4 h". */
 export function formatDuration(ms: number): string {
   const v = Math.max(0, ms);
-  if (v < MINUTE) return `${Math.floor(v / SECOND)} s`;
-  if (v < HOUR) return `${Math.floor(v / MINUTE)} min`;
+  if (v < MINUTE) return tr('{0} s', [Math.floor(v / SECOND)]);
+  if (v < HOUR) return tr('{0} min', [Math.floor(v / MINUTE)]);
   if (v < DAY) {
     const h = Math.floor(v / HOUR);
     const m = Math.floor((v % HOUR) / MINUTE);
-    return m ? `${h} h ${m} min` : `${h} h`;
+    return m ? tr('{0} h {1} min', [h, m]) : tr('{0} h', [h]);
   }
   const d = Math.floor(v / DAY);
   const h = Math.floor((v % DAY) / HOUR);
-  return h ? `${d} d ${h} h` : `${d} d`;
+  return h ? tr('{0} d {1} h', [d, h]) : tr('{0} d', [d]);
 }
 
 /**
@@ -61,7 +61,7 @@ export function formatCountdown(target: number, now: number): string {
   const diff = target - now;
   if (diff <= 0) return tr('agora');
   if (diff < MINUTE) return tr('em menos de 1 min');
-  return `em ${formatDuration(diff)}`;
+  return tr('em {0}', [formatDuration(diff)]);
 }
 
 function startOfDay(t: number): number {
@@ -91,16 +91,16 @@ export function formatResetAt(resetsAt: number, now: number): string {
 /** Duração compacta para espaços mínimos: "45s", "29min", "1h29", "2h", "3d4h". */
 export function compactDuration(ms: number): string {
   const v = Math.max(0, ms);
-  if (v < MINUTE) return `${Math.floor(v / SECOND)}s`;
-  if (v < HOUR) return `${Math.floor(v / MINUTE)}min`;
+  if (v < MINUTE) return tr('{0}s', [Math.floor(v / SECOND)]);
+  if (v < HOUR) return tr('{0}min', [Math.floor(v / MINUTE)]);
   if (v < DAY) {
     const h = Math.floor(v / HOUR);
     const m = Math.floor((v % HOUR) / MINUTE);
-    return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+    return m ? tr('{0}h{1}', [h, String(m).padStart(2, '0')]) : tr('{0}h', [h]);
   }
   const d = Math.floor(v / DAY);
   const h = Math.floor((v % DAY) / HOUR);
-  return h ? `${d}d${h}h` : `${d}d`;
+  return h ? tr('{0}d{1}h', [d, h]) : tr('{0}d', [d]);
 }
 
 export const FIVE_HOURS_MS = 5 * HOUR;

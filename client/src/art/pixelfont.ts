@@ -34,14 +34,27 @@ const DIACRITIC: Readonly<Record<string, readonly [string, Mark]>> = {
 
 /** Largura em px de `text` desenhado por pixelText (3 px por letra + 1 px de espaço). */
 export function pixelTextWidth(text: string): number {
-  return Math.max(0, [...text].length * 4 - 1);
+  return Math.max(0, [...text].reduce((width, ch) => width + (isHan(ch) ? 9 : 4), 0) - 1);
 }
+
+const isHan = (ch: string): boolean => /\p{Script=Han}/u.test(ch);
 
 /** Desenha texto em minúsculas (3x5 por letra, 1px de espaço, com acentos e cedilha) via fillRect. */
 export function pixelText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string): number {
   ctx.fillStyle = color;
   let cx = x;
   for (const raw of text.toLowerCase()) {
+    // O alfabeto bitmap 3×5 não tem ideogramas: reserve 8 px e use a fonte CJK local.
+    if (isHan(raw)) {
+      ctx.save();
+      ctx.font = '8px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(raw, cx, y - 2);
+      ctx.restore();
+      cx += 9;
+      continue;
+    }
     const dia = DIACRITIC[raw];
     const ch = dia ? dia[0] : raw;
     const g = GLYPHS[ch] ?? GLYPHS[' '];

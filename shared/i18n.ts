@@ -9,7 +9,7 @@
 // Os textos de atividade são montados pelo servidor, então seguem o idioma do servidor.
 import { DICTIONARIES } from './locales/all';
 
-export type Locale = 'pt-BR' | 'en' | 'es' | 'fr';
+export type Locale = 'pt-BR' | 'en' | 'es' | 'fr' | 'zh-CN';
 
 /** Na ordem do seletor; o nome de cada idioma vai na própria língua, para quem não entende o idioma atual. */
 export const LOCALES: { id: Locale; name: string }[] = [
@@ -17,6 +17,7 @@ export const LOCALES: { id: Locale; name: string }[] = [
   { id: 'en', name: 'English' },
   { id: 'es', name: 'Español' },
   { id: 'fr', name: 'Français' },
+  { id: 'zh-CN', name: '简体中文' },
 ];
 
 /** Chave da preferência salva no navegador. */
@@ -32,8 +33,10 @@ export function registerDictionary(l: Locale, dict: Readonly<Record<string, stri
 
 /** "fr-FR", "fr_CA.UTF-8", "pt", "pt_BR"... -> idioma suportado; undefined se não for nenhum deles. */
 export function normalizeLocale(v: string | null | undefined): Locale | undefined {
-  const s = (v ?? '').trim().toLowerCase().replace('_', '-');
+  const s = (v ?? '').trim().toLowerCase().replaceAll('_', '-');
   if (!s) return undefined;
+  // zh é a preferência genérica; variantes tradicionais continuam sem tradução própria.
+  if (s === 'zh' || /^zh-(?:cn|sg)(?:[.\-@]|$)/.test(s) || /^zh-hans(?:[.\-@]|$)/.test(s)) return 'zh-CN';
   if (s === 'fr' || s.startsWith('fr-')) return 'fr';
   if (s === 'pt' || s.startsWith('pt-')) return 'pt-BR';
   if (s === 'en' || s.startsWith('en-')) return 'en';
@@ -113,5 +116,6 @@ export function tr(src: string, args?: readonly unknown[]): string {
 
 /** Idioma no formato do Intl (datas, números). */
 export function intlLocale(): string {
+  if (current === 'zh-CN') return 'zh-CN';
   return current === 'fr' ? 'fr-FR' : current === 'en' ? 'en-US' : current === 'es' ? 'es' : 'pt-BR';
 }

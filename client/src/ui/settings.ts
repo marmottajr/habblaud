@@ -43,7 +43,7 @@ interface SwitchRefs {
 }
 
 export function switchRow(label: string, hintText: string, onToggle: () => void): SwitchRefs & { row: HTMLElement } {
-  const id = `ui-sw-${label.replace(/\W+/g, '-').toLowerCase()}`;
+  const id = `ui-sw-${label.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}`;
   const btn = h('button', { class: 'ui-switch', type: 'button', role: 'switch', attrs: { 'aria-checked': 'false', 'aria-labelledby': id } }, h('span', { class: 'ui-switch__knob' }));
   btn.addEventListener('click', onToggle);
   const hint = h('span', { class: 'ui-set__hint', text: hintText });
@@ -159,6 +159,7 @@ export class SettingsPopover implements UiComponent {
       [['auto', tr('Automático')], ...LOCALES.map((l): [LanguageChoice, string] => [l.id, l.name])],
       (v) => pickLanguage(v),
     );
+    this.language.row.classList.add('ui-set--language');
     this.language.row.append(
       h('span', { class: 'ui-set__hint', text: tr('Os textos das atividades vêm do servidor: seguem HABBLAUD_LANG ou o idioma do sistema onde o Habblaud roda (o inglês, só com HABBLAUD_LANG=en).') }),
     );

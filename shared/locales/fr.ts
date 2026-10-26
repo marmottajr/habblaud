@@ -2270,6 +2270,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Nova sessão": "Nouvelle session",
   "Abre um Claude Code novo nesta pasta, num terminal interativo": "Ouvre un nouveau Claude Code dans ce dossier, dans un terminal interactif",
   "em {0}": "dans {0}",
+  "na sala {0}": "dans {0}",
 
   // client/src/ui/deliveries.ts
   "1 passo": "1 étape",
@@ -3290,4 +3291,17 @@ export const FR: Readonly<Record<string, string>> = {
   "Carimbo deixado na portaria: {0}": "Tampon laissé à l'accueil : {0}",
   "Entre no prédio ou chegue mais perto da porta para carimbar.": "Entrez dans l'immeuble ou approchez-vous de la porte pour tamponner.",
   "O carimbo não foi deixado. Tente de novo.": "Le tampon n'a pas été laissé. Réessayez.",
+  // client/src/ui/format.ts: localized durations and countdowns
+  "{0} s": "{0} s",
+  "{0} min": "{0} min",
+  "{0} h {1} min": "{0} h {1} min",
+  "{0} h": "{0} h",
+  "{0} d {1} h": "{0} j {1} h",
+  "{0} d": "{0} j",
+  "{0}s": "{0}s",
+  "{0}min": "{0}min",
+  "{0}h{1}": "{0}h{1}",
+  "{0}h": "{0}h",
+  "{0}d{1}h": "{0}j{1}h",
+  "{0}d": "{0}j",
 };

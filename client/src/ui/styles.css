@@ -55,6 +55,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Fontes do sistema têm glifos chineses e métricas legíveis nos títulos também. */
+html:lang(zh-CN) .ui-root {
+  --font-ui: system-ui, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  --font-px: var(--font-ui);
+}
+
 .ui-root *,
 .ui-root *::before,
 .ui-root *::after {
@@ -2867,6 +2873,11 @@
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--ui-line);
+}
+
+.ui-set--language .ui-seg {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .ui-seg__opt {

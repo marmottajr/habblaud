@@ -43,6 +43,12 @@ const CHARACTER: WorldCharacterInput = {
 };
 
 describe('HttpWorldApi', () => {
+  it('cadastro em chinês envia um idioma aceito pelo servidor público', async () => {
+    const { calls, api } = recorder(202, {});
+    await api.register({ email: 'a@b.co', password: 'x'.repeat(12), name: 'Pixel', locale: 'zh-CN' });
+    expect(JSON.parse(String(calls[0].init?.body)).locale).toBe('en');
+  });
+
   it('cada ação vai para a rota do contrato, com JSON (mesmo vazio) nos POST/PUT', async () => {
     const { calls, api } = recorder(202, {});
     await api.register({ email: 'a@b.co', password: 'x'.repeat(12), name: 'Ana Pixel', locale: 'pt-BR' });

@@ -597,7 +597,7 @@ export class DayPanel implements UiComponent {
               { class: 'ui-day__wait-who' },
               chip,
               h('span', { class: 'ui-day__wait-name', text: w.agentName }),
-              h('span', { class: 'ui-day__muted', text: `${tr('em {0}', [w.roomName])} · ${w.when}${w.reason ? ` · ${w.reason}` : ''}` }),
+              h('span', { class: 'ui-day__muted', text: `${tr('na sala {0}', [w.roomName])} · ${w.when}${w.reason ? ` · ${w.reason}` : ''}` }),
             ),
           ),
         ),

@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import * as appearance from '../appearance';
 import { LOCALES as UI_LOCALES } from '../i18n';
+import { toWorldLocale } from './locale';
 import schemaJson from './schema.json';
 import { compileValidator } from './schema-validator';
 import {
@@ -215,7 +216,7 @@ describe('listas do protocolo', () => {
     expect(TRAIT_CLASHES.map((p) => p.join('×'))).toEqual(['timidez×piadas', 'timidez×fofoca', 'apostas×economia', 'esporte×sonecas', 'calma×competicao']);
     for (const [a, b] of TRAIT_CLASHES) expect(TRAIT_IDS.includes(a) && TRAIT_IDS.includes(b)).toBe(true);
     expect(LOCALES).toBe(WORLD_LOCALES);
-    expect([...WORLD_LOCALES]).toEqual(UI_LOCALES.map((l) => l.id));
+    expect([...WORLD_LOCALES]).toEqual([...new Set(UI_LOCALES.map((l) => toWorldLocale(l.id)))]);
     expect(GOODBYE_REASONS).toEqual(expect.arrayContaining(['waiting', 'unauthorized', 'banned', 'suspended', 'update', 'no_player']));
     expect(PLAYER_NAME_LIMITS).toEqual({ min: 3, max: 20 });
   });

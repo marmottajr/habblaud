@@ -11,7 +11,7 @@ import { focusPermission, nextPermissionAgent, permissionAgents } from './permis
 import { UsageCards } from './usage';
 import { VersionChip } from './version';
 import { wordmark } from './widgets';
-import { tr } from '../../../shared/i18n';
+import { getLocale, tr } from '../../../shared/i18n';
 
 interface CounterRefs {
   el: HTMLElement;
@@ -237,7 +237,7 @@ export class TopBar implements UiComponent {
     const all = this.ctx.store.snapshot?.agents ?? [];
     const agents = shellWaitingAgents(all, now);
     setText(refs.value, formatInt(n));
-    setText(refs.label, n === 1 ? 'shell' : 'shells');
+    setText(refs.label, getLocale() === 'zh-CN' ? tr('Comando') : n === 1 ? 'shell' : 'shells');
     const who = agents.length === 1 ? agents[0].name : tr('{0} agentes', [formatInt(agents.length)]);
     setAttr(refs.el, 'aria-label', tr('{0} {1}; {2} esperando. Ir até o próximo.', [formatInt(n), n === 1 ? tr('shell rodando') : tr('shells rodando'), who]));
     // Dica: quem espera o quê, do que espera há mais tempo.

@@ -13,6 +13,7 @@
 // visibilidade, o id da conta no status e o selo "não verificado" do prédio.
 import type { AppearanceParts } from '../../../shared/appearance';
 import type { Locale } from '../../../shared/i18n';
+import { toWorldLocale } from '../../../shared/world/locale';
 import type { OfficeSnapshot } from '../../../shared/types';
 import {
   isWorldThemeChoice,
@@ -365,7 +366,7 @@ export class HttpWorldApi implements WorldClient {
   }
 
   register(body: { email: string; password: string; name: string; locale: Locale }) {
-    return this.done(this.call('POST', '/register', body));
+    return this.done(this.call('POST', '/register', { ...body, locale: toWorldLocale(body.locale) }));
   }
   verify(body: { email: string; code: string }) {
     return this.done(this.call('POST', '/verify', body));

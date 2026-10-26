@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **简体中文 (chinês simplificado):** interface, atividades, ajuda e mensagens do servidor traduzidas; seleção nas
+  Configurações, detecção de `zh-CN`/`zh-SG`/`zh-Hans` e datas e números no formato chinês. No servidor, use
+  `HABBLAUD_LANG=zh-CN`. O World mantém um idioma aceito pelo protocolo público (inglês para a interface chinesa).
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

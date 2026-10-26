@@ -3,6 +3,8 @@ import { getLocale, intlLocale, normalizeLocale, serverLocale, setLocale, tr } f
 import { EN } from './locales/en';
 import { ES } from './locales/es';
 import { FR } from './locales/fr';
+import { ZH_CN } from './locales/zh-CN';
+import { LOCALES } from './i18n';
 
 const placeholders = (s: string) => new Set(s.match(/\{\w+\}/g) ?? []);
 
@@ -29,6 +31,28 @@ describe('i18n', () => {
   it('em PT devolve o próprio texto, com as lacunas preenchidas', () => {
     expect(tr('Lendo {0}', ['app.ts'])).toBe('Lendo app.ts');
     expect(tr('Texto que ninguém traduziu')).toBe('Texto que ninguém traduziu');
+  });
+
+  it('reconhece chinês simplificado sem confundir variantes tradicionais', () => {
+    for (const locale of ['zh', 'zh-CN', 'zh_SG.UTF-8', 'zh-Hans', 'zh-Hans-CN', 'zh_Hans_SG']) {
+      expect(normalizeLocale(locale)).toBe('zh-CN');
+    }
+    for (const locale of ['zh-TW', 'zh-HK', 'zh-Hant', 'zh-Hant-CN', 'zh-CNonsense']) {
+      expect(normalizeLocale(locale)).toBeUndefined();
+    }
+    expect(LOCALES).toContainEqual({ id: 'zh-CN', name: '简体中文' });
+    expect(serverLocale({ HABBLAUD_LANG: 'zh-CN' }, 'en-US')).toBe('zh-CN');
+    expect(serverLocale({ LANG: 'zh_CN.UTF-8' })).toBe('zh-CN');
+    expect(serverLocale({}, 'zh-Hans')).toBe('zh-CN');
+  });
+
+  it('traduz chinês com lacunas e usa o formato de data e número chinês', () => {
+    setLocale('zh-CN');
+    expect(tr('Lendo {0}', ['app.ts'])).toBe('读取 app.ts');
+    expect(tr('Erro: {0}', ['offline'])).toBe('错误：offline');
+    expect(tr('Ganhei de {a} a {b}! 🏆')).toBe('我以 {a} 比 {b} 赢了！🏆');
+    expect(tr('Texto que ninguém traduziu')).toBe('Texto que ninguém traduziu');
+    expect(intlLocale()).toBe('zh-CN');
   });
 
   it('em francês traduz e pode reordenar as lacunas', () => {
@@ -63,7 +87,7 @@ describe('i18n', () => {
   });
 
   it('nenhuma tradução fica vazia nem perde ou inventa lacunas', () => {
-    for (const [lang, dict] of Object.entries({ en: EN, es: ES, fr: FR })) {
+    for (const [lang, dict] of Object.entries({ en: EN, es: ES, fr: FR, 'zh-CN': ZH_CN })) {
       for (const [pt, t] of Object.entries(dict)) {
         expect(t.trim(), `${lang}: ${pt}`).not.toBe('');
         const original = placeholders(pt);

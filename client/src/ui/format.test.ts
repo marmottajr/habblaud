@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLocale } from '../../../shared/i18n';
 import {
   calendarDayDiff,
   clampPercent,
@@ -26,6 +27,19 @@ const S = 1_000;
 const M = 60 * S;
 const H = 60 * M;
 const D = 24 * H;
+
+describe('tempos em chinês simplificado', () => {
+  afterEach(() => setLocale('pt-BR'));
+  it('traduz durações e contagens regressivas sem deixar o prefixo português', () => {
+    setLocale('zh-CN');
+    expect(formatDuration(12 * S)).toBe('12 秒');
+    expect(formatDuration(2 * H + 10 * M)).toBe('2 小时 10 分钟');
+    expect(formatDuration(3 * D + 4 * H)).toBe('3 天 4 小时');
+    expect(compactDuration(2 * H + 10 * M)).toBe('2时10分');
+    expect(formatCountdown(10 * M, 0)).toBe('10 分钟后');
+    expect(relativeTime(0, 10 * M)).toBe('10 分钟前');
+  });
+});
 
 describe('relativeTime', () => {
   const now = new Date(2026, 9, 6, 14, 0, 0).getTime();

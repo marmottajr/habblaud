@@ -33,6 +33,9 @@ Ao usar o World, sai do computador, por HTTPS, para o servidor do mundo:
 | Baixar meus dados | Ao clicar em "Baixar meus dados" (`GET /v1/me/export`, só com o token; uma vez por dia) | O servidor devolve, num arquivo JSON, o que guarda da sua conta (inclusive o nome reservado, o país e os IPs do cadastro e do último login); nada novo sai do computador |
 | Versão do Habblaud | Em toda chamada, no cabeçalho `User-Agent` (`Habblaud/1.0.0`) | Compatibilidade e diagnóstico |
 
+Quando a interface está em chinês simplificado (`zh-CN`), o cadastro e o `hello` do WebSocket enviam `en`, um idioma
+aceito pelo servidor público. Os e-mails e avisos do World usam inglês; nenhum campo novo é enviado.
+
 Enquanto a conta está na lista de espera, o Habblaud aberto pergunta ao servidor do mundo, a cada 30 minutos, se o
 acesso já foi liberado (`GET /v1/me`, só com o token do dispositivo, sem mais nada). Liberado ou fora da conta, para.
 
