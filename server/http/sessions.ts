@@ -6,7 +6,8 @@
 // pasta da conta (cada ferramenta valida o seu: sources/history.ts para o Claude Code): nada de path traversal.
 // Quem lista e resolve é o HistorySet (sources/source.ts), que junta o histórico de todas as ferramentas.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { RecentSessionsResponse } from '../../shared/types';
+import { tmpdir } from 'node:os';
+import type { RecentSession, RecentSessionsResponse } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { HISTORY_DAYS, HISTORY_LIMIT } from '../sources/history';
 import type { SessionLookup } from '../sources/source';
@@ -62,7 +63,7 @@ export function handleSessionsRoute(req: IncomingMessage, res: ServerResponse, p
     history
       .list()
       .then((sessions) => {
-        const body: RecentSessionsResponse = { sessions, days: HISTORY_DAYS, limit: HISTORY_LIMIT };
+        const body: RecentSessionsResponse = { sessions: sessions.filter((s) => !isTestSession(s)), days: HISTORY_DAYS, limit: HISTORY_LIMIT };
         sendJson(res, 200, body);
       })
       .catch((err) => {
@@ -78,4 +79,17 @@ export function handleSessionsRoute(req: IncomingMessage, res: ServerResponse, p
   const found = history.resolve(account, sessionId);
   if ('error' in found) return sendJson(res, found.status, { error: found.error });
   terminals.attachSession(req, res, `session:${account}:${sessionId}`, found.path, found.createParser);
+}
+
+/**
+ * Sessão de teste, fora do Histórico: fechada e rodada numa pasta temporária, ou sem nenhuma instrução sua (nem
+ * título, nem primeiro pedido para usar no lugar). Sessão aberta aparece sempre.
+ */
+export function isTestSession(s: RecentSession): boolean {
+  if (s.open) return false;
+  if (!s.title) return true;
+  if (!s.project) return false;
+  const p = s.project.replace(/\\/g, '/');
+  const tmp = tmpdir().replace(/\\/g, '/').replace(/\/+$/, '');
+  return [tmp, '/tmp'].some((t) => p === t || p.startsWith(`${t}/`));
 }

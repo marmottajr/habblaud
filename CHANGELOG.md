@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Histórico: sessões de teste ficam de fora.** Sessão já encerrada que rodou numa pasta temporária (`/tmp`, ou a do
+  sistema) ou que não tem nenhuma instrução sua (nem título, nem primeiro pedido) não aparece mais na lista. Vale para
+  todas as ferramentas; sessão aberta no escritório aparece sempre.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

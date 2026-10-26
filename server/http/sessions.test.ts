@@ -5,6 +5,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { RecentSessionsResponse, TerminalEntry, TerminalInit } from '../../shared/types';
@@ -17,6 +18,7 @@ import { HistorySet, type HistoryProvider } from '../sources/source';
 import { encodeCwd } from '../sources/watcher';
 import { appendLines, L, symlinkOrSkip, tempDir, writeLines } from '../test/fixtures';
 import { createApiHandler } from './app';
+import { isTestSession } from './sessions';
 import { createRequestGuard } from './guard';
 import { Hub } from './sse';
 import { TerminalStreams } from './terminal';
@@ -264,7 +266,7 @@ describe('histórico de sessões: outra ferramenta', () => {
     return {
       provider: 'codex',
       hasAccount: (a) => a === '.codex',
-      list: async () => [{ account: '.codex', provider: 'codex', sessionId: XID, projectDir: '2026/10/09', lastAt: Date.now() + 60_000, size: 4, open: false }],
+      list: async () => [{ account: '.codex', provider: 'codex', sessionId: XID, projectDir: '2026/10/09', lastAt: Date.now() + 60_000, size: 4, open: false, title: 'Relatório' }],
       resolve: (_account, sessionId) =>
         sessionId === XID
           ? { path, createParser: () => ({ push: (): TerminalEntry[] => [{ kind: 'user', id: `cx-${++n}`, at: 0, text: 'cx' }] }) }
@@ -299,6 +301,18 @@ describe('histórico de sessões: outra ferramenta', () => {
     } finally {
       await env.close();
     }
+  });
+});
+
+describe('histórico de sessões: sessões de teste', () => {
+  const base = { account: '.claude', sessionId: SID, projectDir: '-p', lastAt: 0, size: 1 };
+  it('fora: fechada sem instrução ou em pasta temporária; aberta fica sempre', () => {
+    expect(isTestSession({ ...base, open: false, title: 'Arruma o carrinho', project: CWD })).toBe(false);
+    expect(isTestSession({ ...base, open: false, project: CWD })).toBe(true);
+    expect(isTestSession({ ...base, open: false, title: 't', project: '/tmp/probe1' })).toBe(true);
+    expect(isTestSession({ ...base, open: false, title: 't', project: join(tmpdir(), 'x') })).toBe(true);
+    expect(isTestSession({ ...base, open: false, title: 't', project: '/tmpx/a' })).toBe(false);
+    expect(isTestSession({ ...base, open: true, project: '/tmp/probe1' })).toBe(false);
   });
 });
 
