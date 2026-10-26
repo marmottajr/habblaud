@@ -644,6 +644,8 @@ export const ES: Readonly<Record<string, string>> = {
   "Aparência": "Apariencia",
   "Escritório": "Oficina",
   "Mostrar nomes": "Mostrar nombres",
+  "Economia de energia": "Ahorro de energía",
+  "Escritório sempre a 10 quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e cenário em resolução menor. Menos CPU e bateria; quem anda fica um pouco aos saltos.": "Oficina siempre a 10 cuadros por segundo (5 con la ventana sin foco), incluso con gente caminando, y escenario a menor resolución. Menos CPU y batería; quien camina se ve un poco a saltos.",
   "Etiqueta com o nome acima de cada personagem.": "Etiqueta con el nombre sobre cada personaje.",
   "Notificações do navegador": "Notificaciones del navegador",
   "Avisa quando alguém precisa de você e a aba está em segundo plano.": "Avisa cuando alguien te necesita y la pestaña está en segundo plano.",

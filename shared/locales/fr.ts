@@ -611,6 +611,8 @@ export const FR: Readonly<Record<string, string>> = {
   "Configurações": "Réglages",
   "Escritório": "Bureau",
   "Mostrar nomes": "Afficher les noms",
+  "Economia de energia": "Économie d'énergie",
+  "Escritório sempre a 10 quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e cenário em resolução menor. Menos CPU e bateria; quem anda fica um pouco aos saltos.": "Bureau toujours à 10 images par seconde (5 quand la fenêtre n'a pas le focus), même quand des personnages marchent, et décor en plus basse résolution. Moins de CPU et de batterie ; les personnages qui marchent sont un peu saccadés.",
   "Etiqueta com o nome acima de cada personagem.": "Étiquette avec le nom au-dessus de chaque personnage.",
   "Notificações do navegador": "Notifications du navigateur",
   "Avisa quando alguém precisa de você e a aba está em segundo plano.": "Prévient quand quelqu'un a besoin de vous et que l'onglet est en arrière-plan.",

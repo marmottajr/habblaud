@@ -19,6 +19,11 @@ export interface WorldOptions {
   daylight?: DaylightMode;
   /** Tema visual: automático (segue o calendário; ver seasonalThemeFor), nenhum, Natal ou Halloween. */
   theme?: OfficeTheme;
+  /**
+   * (Opcional, aditivo) Economia de energia: o cenário é desenhado em densidade 1 e ampliado; nomes e balões continuam
+   * na densidade da tela. Bem menos CPU em telas de densidade 2–3.
+   */
+  powerSave?: boolean;
 }
 
 /** Tema que o renderer desenha: o escritório original ('none') ou um dos sazonais. */
@@ -98,6 +103,11 @@ export interface WorldApi {
    * câmera; ao voltar, a simulação avança o tempo que passou (como com a aba em segundo plano).
    */
   setSuspended?(suspended: boolean): void;
+  /**
+   * (Opcional, aditivo) Limite de quadros por segundo do desenho (0 = sem limite). Com o terminal aberto em janela o
+   * escritório continua à vista, mas a 30 qps gasta cerca de metade da CPU.
+   */
+  setFrameCap?(fps: number): void;
   destroy(): void;
 }
 

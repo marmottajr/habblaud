@@ -205,6 +205,12 @@ export class SettingsPopover implements UiComponent {
         this.bubbles.row,
         this.liveliness.row,
         this.daylight.row,
+        sw(
+          'powerSave',
+          tr('Economia de energia'),
+          tr('Escritório sempre a 10 quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e cenário em resolução menor. Menos CPU e bateria; quem anda fica um pouco aos saltos.'),
+          flip('powerSave'),
+        ),
       ),
       h(
         'div',

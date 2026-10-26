@@ -10,6 +10,29 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Economia de energia** (Configurações › Escritório, desligada por padrão): desenha o escritório sempre a 10
+  quadros por segundo (5 com a janela sem foco), mesmo com gente andando, e o cenário em resolução menor e ampliado;
+  nomes e balões continuam na resolução da tela, nítidos, e com o zoom bem afastado (visão geral no celular) o cenário
+  ganha resolução para a pixel art não virar borrão. Mexer o mouse, a câmera ou o teclado volta ao ritmo do monitor
+  na hora. Medido com GPU, 1440×900 em densidade 2: 81% → 35% de CPU (15% sem foco).
+
+### Alterado
+
+- **Escritório mais leve:** sem ninguém andando na tela, o escritório desenha a 10 quadros por segundo (5 sem foco)
+  em vez de 30; volta a 30 (15 sem foco) assim que alguém anda, uma sala é montada ou cai confete. Arrastar, dar zoom
+  e a câmera seguindo alguém continuam no ritmo do monitor. Medido com GPU: 79% → 35% de CPU.
+
+### Corrigido
+
+- **Terminal mais leve, principalmente no celular.** O escritório continuava sendo desenhado atrás do terminal em tela
+  cheia e ocupava o aparelho inteiro: a digitação chegava com atraso. Agora, com o terminal aberto numa tela de até
+  600 px, o desenho do escritório para e volta quando o terminal fecha; nas telas maiores, onde o escritório segue à
+  vista, ele é desenhado a 30 quadros por segundo enquanto o terminal está aberto. A rolagem do histórico ficou
+  fluida: o terminal não usa mais `backdrop-filter` (com o fundo quase opaco o desfoque não aparecia e era refeito a
+  cada quadro) e, no celular, fica opaco e sem sombra.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

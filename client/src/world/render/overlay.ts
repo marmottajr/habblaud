@@ -267,10 +267,14 @@ export class Overlay {
     this.placed.push(x, y, w, h);
   }
 
-  draw(now: number, opts: WorldOptions, sel: { agent: string | null; room: string | null; hover: string | null }): void {
+  /**
+   * `outDpr`: densidade do canvas em que os textos são escritos. Na economia de energia o mundo é desenhado em 1×
+   * (camera.dpr = 1) e ampliado, mas nomes e balões continuam na densidade da tela.
+   */
+  draw(now: number, opts: WorldOptions, sel: { agent: string | null; room: string | null; hover: string | null }, outDpr = this.camera.dpr): void {
     const { ctx, camera } = this;
     const dpr = camera.dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(outDpr, 0, 0, outDpr, 0, 0);
     ctx.textBaseline = 'middle';
     this.placed.length = 0;
     const t = camera.transform();

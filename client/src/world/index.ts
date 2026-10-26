@@ -5,7 +5,7 @@ import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
 import { DEFAULT_WORLD_OPTIONS, seasonalThemeFor, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
-import { Camera, overviewFrame } from './camera';
+import { Camera, overviewFrame, renderDpr } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
 import { RECEPTION_ID } from './layout/core';
@@ -18,6 +18,7 @@ import { Renderer } from './render/renderer';
 import { Sim, type VisitLight } from './sim/sim';
 import { NO_INTENT, VISITOR_ID, visitorInfo, type VisitorIntent } from './sim/visitor';
 import { SoundCues } from './sound-cues';
+import { ACTIVE_GRACE_MS, frameCapFor, sleepsBetweenFrames } from './pacing';
 
 export * from './api';
 export type { WorldDebug } from './debug';
@@ -57,7 +58,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   // Simulação e desenho são recriados quando o timelapse entra, pula ou sai (rebuild).
   let sim = new Sim(art, () => options, undefined, { visit: visitMode });
   let renderer = new Renderer(canvas, art, sim, camera);
-  let overlay = new Overlay(renderer.ctx, sim, renderer, camera);
+  /** Canvas da tela: sempre na densidade real (textos nítidos). */
+  const view = renderer.ctx;
+  /** Economia de energia: o mundo é desenhado neste canvas em 1× e ampliado no da tela (null fora da economia). */
+  let scene: HTMLCanvasElement | null = null;
+  /** Densidade do canvas da tela (a real, de 1 a 3). */
+  let viewDpr = 1;
+  let overlay = new Overlay(view, sim, renderer, camera);
   let assets: WorldAssets | null = null;
   /** Timelapse ligado: relógio próprio do mundo (`worldNow`), acelerado pelo fator de animação. */
   let playback: WorldPlayback | null = null;
@@ -72,11 +79,19 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   let hover: string | null = null;
   let mouse: { x: number; y: number } | null = null;
   let raf = 0;
+  /** Próximo quadro agendado num setTimeout (ritmo abaixo de 30 qps); 0 = nenhum. */
+  let timer: ReturnType<typeof setTimeout> | 0 = 0;
   let lastTs = 0;
   let hiddenAt = 0;
   /** Escritório fora da tela (cidade aberta): sem laço de desenho nem teclado da câmera. */
   let suspended = false;
   let suspendedAt = 0;
+  /** Limite pedido pela interface (0 = nenhum); o laço ainda aplica o ritmo de escritório parado (pacing.ts). */
+  let frameCap = 0;
+  /** Última entrada do usuário no escritório (performance.now()): o laço segue a 60 qps por ACTIVE_GRACE_MS. */
+  let lastInputAt = 0;
+  /** A câmera se mexeu no último quadro desenhado (animação, seguir, arrastar, pinça). */
+  let cameraMoved = false;
   let userMoved = false;
   let framed = false;
   let lastCols = -1;
@@ -85,15 +100,27 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   // ------------------------------------------------------------------ tamanho/DPR
 
   const resize = () => {
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    viewDpr = renderDpr(window.devicePixelRatio, false);
+    const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
-    const pw = Math.floor(w * dpr);
-    const ph = Math.floor(h * dpr);
+    const pw = Math.floor(w * viewDpr);
+    const ph = Math.floor(h * viewDpr);
     if (canvas.width !== pw || canvas.height !== ph) {
       canvas.width = pw;
       canvas.height = ph;
     }
+    // economia: cenário num canvas à parte só quando a densidade dele fica abaixo da tela (senão desenha direto)
+    if (dpr < viewDpr) {
+      scene ??= document.createElement('canvas');
+      const sw = Math.floor(w * dpr);
+      const sh = Math.floor(h * dpr);
+      if (scene.width !== sw || scene.height !== sh) {
+        scene.width = sw;
+        scene.height = sh;
+      }
+    } else scene = null;
+    renderer.setTarget(scene ?? canvas);
     camera.setView(w, h, dpr);
     updateBounds();
   };
@@ -235,6 +262,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     interact: () => {
       userMoved = true;
+      lastInputAt = performance.now();
+      wake();
       camera.follow = null;
       camera.stop();
     },
@@ -243,6 +272,14 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     active: () => !suspended,
     keys: () => !visitMode,
   });
+
+  // Arrasto, pinça e hover não passam por interact() a cada movimento: o laço fica a 60 qps enquanto houver entrada.
+  const markInput = () => {
+    lastInputAt = performance.now();
+    wake();
+  };
+  canvas.addEventListener('pointermove', markInput, { signal: abort.signal, passive: true });
+  canvas.addEventListener('pointerdown', markInput, { signal: abort.signal, passive: true });
 
   // ------------------------------------------------------------------ dados
 
@@ -271,10 +308,37 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   // ------------------------------------------------------------------ laço
 
-  const loop = (ts: number) => {
+  /** Agenda o próximo quadro: abaixo de 30 qps dorme num timer e só então pede o rAF (alinhado à tela). */
+  const schedule = (cap: number) => {
+    if (sleepsBetweenFrames(cap)) {
+      timer = setTimeout(() => {
+        timer = 0;
+        raf = requestAnimationFrame(loop);
+      }, Math.max(0, 1000 / cap - 1000 / 60));
+    } else raf = requestAnimationFrame(loop);
+  };
+  /** Entrada do usuário com o laço dormindo no timer: desenha já, sem esperar até 200 ms. */
+  const wake = () => {
+    if (!timer || suspended) return;
+    clearTimeout(timer);
+    timer = 0;
     raf = requestAnimationFrame(loop);
+  };
+
+  const loop = (ts: number) => {
+    const cap = frameCapFor({
+      uiCap: frameCap,
+      active: cameraMoved || camera.animating || !!playback || performance.now() - lastInputAt < ACTIVE_GRACE_MS,
+      focused: document.hasFocus(),
+      powerSave: !!options.powerSave,
+      motion: renderer.motion,
+    });
+    schedule(cap);
+    // 2 ms de folga: com 30 qps num monitor de 60 Hz, o quadro de 33,3 ms não pode cair para o seguinte.
+    if (cap && !sleepsBetweenFrames(cap) && lastTs && ts - lastTs < 1000 / cap - 2) return;
     const real = Date.now();
-    const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
+    // até 0,25 s: a 5 qps (economia sem foco) o quadro dura 0,2 s e a simulação não pode andar mais devagar
+    const realDt = lastTs ? Math.min(0.25, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
     // Timelapse: simulação e desenho no relógio do mundo (acelerado ou parado); a câmera segue no tempo real.
     const k = playback ? Math.max(0, playback.scale()) : 1;
@@ -282,8 +346,9 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     if (playback) worldNow += dt * 1000;
     const now = playback ? worldNow : real;
     try {
-      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
+      const dpr = renderDpr(window.devicePixelRatio, !!options.powerSave, camera.zoom);
+      const devDpr = renderDpr(window.devicePixelRatio, false);
+      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr || devDpr !== viewDpr) resize();
       sim.update(dt, now);
       // partidas e apostas resolvidas: para o feed (as do timelapse são encenação do passado: ficam fora)
       const events = sim.social.events;
@@ -304,9 +369,20 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (visitMode && sim.visitor && (sim.visitorIntent.dx || sim.visitorIntent.dy) && camera.follow !== VISITOR_ID) followVisitor();
       const followCh = camera.follow ? sim.person(camera.follow) : undefined;
       if (camera.follow && !followCh) camera.follow = null;
+      const cx = camera.x;
+      const cy = camera.y;
+      const cz = camera.zoom;
       camera.update(real, followCh ? camera.centerFor(followCh.x, followCh.y - 12, camera.zoom) : null, realDt);
+      // seguir alguém andando ou a câmera deslizando: 30 qps aí viraria tranco
+      cameraMoved = Math.abs(camera.x - cx) + Math.abs(camera.y - cy) > 0.01 || Math.abs(camera.zoom - cz) > 1e-4;
       renderer.frame(now, dt, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
-      overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover });
+      if (scene) {
+        // economia: o mundo (1×) é ampliado sem suavizar; os textos vêm depois, na densidade da tela
+        view.setTransform(1, 0, 0, 1, 0, 0);
+        view.imageSmoothingEnabled = false;
+        view.drawImage(scene, 0, 0, canvas.width, canvas.height);
+      }
+      overlay.draw(now, options, { agent: selection?.type === 'agent' ? selection.id : null, room: selection?.type === 'room' ? selection.id : null, hover }, viewDpr);
       renderer.pruneHeads();
       // No timelapse o mundo fica mudo: o teclado e o elevador em alta velocidade só fariam barulho.
       if (soundCbs.size && !playback) cues.update(now, (c) => soundCbs.forEach((cb) => cb(c)));
@@ -372,13 +448,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     // As carteiras ao vivo gravam a cada 5 s: não perde o que mudou desde a última vez (no replay, não grava nada).
     sim.social.wallets.save(Date.now());
     sim = new Sim(art, () => options, playback ? null : undefined, { visit: visitMode });
-    renderer = new Renderer(canvas, art, sim, camera);
+    renderer = new Renderer(scene ?? canvas, art, sim, camera);
     if (assets) renderer.setAssets(assets);
     if (playback) {
       const p = playback;
       renderer.clock = () => p.clock();
     }
-    overlay = new Overlay(renderer.ctx, sim, renderer, camera);
+    overlay = new Overlay(view, sim, renderer, camera);
     debug = createDebug(sim, renderer, camera, markMoved);
     cues = new SoundCues(sim, camera);
     lastCols = -1;
@@ -413,8 +489,16 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     },
     getOptions: () => ({ ...options }),
     setOptions: (o) => {
+      const wasPowerSave = !!options.powerSave;
       options = { ...options, ...o };
       if (o.followSelected !== undefined) camera.follow = o.followSelected && selection?.type === 'agent' ? selection.id : null;
+      // nova densidade: o zoom atual pode não ser mais um nível nítido
+      if (!!options.powerSave !== wasPowerSave && framed) {
+        resize();
+        if (userMoved) camera.zoomAt(camera.snapZoom(camera.zoom), camera.viewW / 2, camera.viewH / 2, Date.now(), true);
+        else overview(true);
+      }
+      wake();
     },
     setViewInsets: (ins) => {
       const v = (n: number | undefined, cur: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, n) : cur);
@@ -453,6 +537,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       suspended = on;
       if (on) {
         cancelAnimationFrame(raf);
+        clearTimeout(timer);
+        timer = 0;
         suspendedAt = Date.now();
         setHover(null);
         mouse = null;
@@ -462,10 +548,19 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (suspendedAt && Date.now() - suspendedAt > 5000) sim.fastForward(playback ? worldNow : Date.now());
       suspendedAt = 0;
       hiddenAt = 0;
+      clearTimeout(timer);
+      timer = 0;
       raf = requestAnimationFrame(loop);
+    },
+    setFrameCap: (fps) => {
+      const next = Math.max(0, fps);
+      if (next === frameCap) return;
+      frameCap = next;
+      wake();
     },
     destroy: () => {
       cancelAnimationFrame(raf);
+      clearTimeout(timer);
       abort.abort();
       offSnapshot();
       detachInput();

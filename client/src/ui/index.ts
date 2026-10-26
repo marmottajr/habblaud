@@ -53,6 +53,8 @@ const CLOCK_MS = 5_000;
 /** Relógio do cronômetro dos shells ("12:31") e do prazo dos pedidos do Codex, ligado só enquanto há um dos dois. */
 const SHELL_CLOCK_MS = 1_000;
 const NARROW_QUERY = '(max-width: 900px)';
+/** Celular: o terminal ocupa a tela toda (styles.css), e o escritório atrás dele não precisa ser desenhado. */
+const PHONE_QUERY = '(max-width: 600px)';
 
 function isTypingTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -65,6 +67,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   let selection: Selection = world.getSelection();
   let skew = 0;
   const narrowMq = typeof matchMedia === 'function' ? matchMedia(NARROW_QUERY) : null;
+  const phoneMq = typeof matchMedia === 'function' ? matchMedia(PHONE_QUERY) : null;
   const panels: Record<PanelName, boolean> = {
     sidebar: narrowMq?.matches ? false : prefs.sidebarOpen,
     feed: narrowMq?.matches ? false : prefs.feedOpen,
@@ -315,6 +318,10 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
         console.error('[ui] falha ao renderizar', c.constructor.name, err);
       }
     }
+    // O laço do mundo desenhando por trás do terminal em tela cheia trava o celular (o teclado chega com atraso).
+    world.setSuspended?.(!!city?.open || (terminal.isOpen && !!phoneMq?.matches));
+    // Terminal em janela: o escritório segue à vista, mas a 30 qps (cerca de metade da CPU do desenho).
+    world.setFrameCap?.(terminal.isOpen ? 30 : 0);
   }
 
   function invalidate(): void {
@@ -367,6 +374,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     applyLayout();
     invalidate();
   });
+  phoneMq?.addEventListener('change', () => invalidate());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) invalidate();
   });
