@@ -22,6 +22,7 @@ import {
 } from './api';
 import { appearanceFromSeed as appearanceFromSeedPure, appearanceKey } from './character/appearance';
 import { CHAR_H, CHAR_W, POSE_DURATION, POSE_FRAMES, isSeated, renderCharacter } from './character/render';
+import { Cache } from './core/cache';
 import { shade } from './core/color';
 import { PixelBuf } from './core/pixbuf';
 import type { BufSprite } from './core/sprite';
@@ -51,21 +52,6 @@ function toCanvas(buf: PixelBuf): HTMLCanvasElement {
 
 function toSprite(s: BufSprite): Sprite {
   return { canvas: toCanvas(s.buf), ax: s.ax, ay: s.ay, rects: s.rects };
-}
-
-/** Cache com limite simples (descarta tudo ao estourar — evita crescer sem fim em sessões longas). */
-class Cache<T> {
-  private map = new Map<string, T>();
-  constructor(private readonly limit: number) {}
-  get(key: string, make: () => T): T {
-    let v = this.map.get(key);
-    if (v === undefined) {
-      if (this.map.size >= this.limit) this.map.clear();
-      v = make();
-      this.map.set(key, v);
-    }
-    return v;
-  }
 }
 
 const charCache = new Cache<Sprite>(30000);
