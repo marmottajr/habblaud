@@ -16,6 +16,7 @@ import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../si
 import type { Sim } from '../sim/sim';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
 import { daylightModeOf, parseHourParam } from './daylight';
+import { layerProps, overlaps, redrawSet, type DepthRect, type Rect } from './furn-layer';
 import { RoomFxRenderer } from './github-fx';
 import { Lighting } from './lighting';
 import { Particles } from './particles';
@@ -26,6 +27,8 @@ import { buildAreaVis, furnitureSprites, opaqueBounds, paintShell, toWallVis, WA
 
 const enum K {
   FurnBase,
+  /** Só as partes animadas do móvel (tela, fumaça); o sprite já está na camada. */
+  FurnAnim,
   FurnFront,
   Char,
   Prop,
@@ -38,6 +41,28 @@ interface Ent {
   ref: FurnVis | Character | ExteriorProp | Car | null;
   area: AreaVis | null;
   scale: number;
+}
+
+interface LayerItem extends DepthRect {
+  f: FurnVis;
+  vis: AreaVis;
+}
+
+/** Móveis-base de todas as áreas estáveis pintados uma vez, na ordem global de profundidade. */
+interface FurnLayer {
+  c: HTMLCanvasElement;
+  x: number;
+  y: number;
+  /** Retângulo da camada no mundo (para o teste de cruzamento sem alocar). */
+  rect: Rect;
+  /** Por `ay` crescente, com o retângulo do sprite no mundo. */
+  items: LayerItem[];
+  /** Áreas que estavam estáveis (sem montagem/desmontagem) quando a camada foi pintada. */
+  areas: AreaVis[];
+  set: Set<AreaVis>;
+  /** Móveis cujo sprite depende de `furnState`, e o estado com que a camada foi pintada. */
+  dyn: FurnVis[];
+  dynState: number[];
 }
 
 interface Car {
@@ -83,6 +108,17 @@ export class Renderer {
   shells: SlotShell[] = [];
   shellWindows: WallVis[] = [];
   private base: HTMLCanvasElement | null = null;
+  /** Props estáticos do lado de fora pintados uma vez: atrás do prédio (norte/laterais) e diante dele (fachada sul e além). */
+  private propsBack: HTMLCanvasElement | null = null;
+  private propsFront: HTMLCanvasElement | null = null;
+  /** Props que estão nas camadas acima (os demais seguem na lista de profundidade). */
+  private layered = new Set<ExteriorProp>();
+  private furnLayer: FurnLayer | null = null;
+  private stable: AreaVis[] = [];
+  /** Móveis a redesenhar depois de um personagem ou de uma frente de móvel (reaproveitado por quadro). */
+  private redrawn: LayerItem[] = [];
+  private hitRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private frontRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private baseX = 0;
   private baseY = 0;
   private baseCols = -1;
@@ -248,6 +284,45 @@ export class Renderer {
     }
     this.finishBase(ctx, cols);
     this.base = c;
+    this.buildPropLayers();
+  }
+
+  /** Props estáticos em duas camadas: antes do prédio (norte/laterais) e depois dele (fachada sul e além). Cada uma vira um `drawImage` recortado. */
+  private buildPropLayers(): void {
+    const b = this.exterior.bounds;
+    const split = (BUILDING_H + 1) * TILE;
+    const layered = (this.layered = layerProps(this.exterior.props, (p) => {
+      if (p.kind === 'paving') return { x: p.x, y: p.y, w: 2 * TILE, h: 2 * TILE };
+      const sp = propSprite(p);
+      return { x: p.x - sp.ax, y: p.y - sp.ay, w: sp.canvas.width, h: sp.canvas.height };
+    }));
+    const mk = (front: boolean): HTMLCanvasElement => {
+      const c = document.createElement('canvas');
+      c.width = b.w * TILE;
+      c.height = b.h * TILE;
+      const ctx = c.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.translate(-this.baseX, -this.baseY);
+      // a ordenação é estável, como a da lista de entidades
+      const list = this.exterior.props.filter((p) => layered.has(p) && p.y >= split === front);
+      list.sort((a, z) => a.y - z.y);
+      for (const p of list) {
+        const sp = propSprite(p);
+        ctx.drawImage(sp.canvas, Math.round(p.x - sp.ax), Math.round(p.y - sp.ay));
+      }
+      return c;
+    };
+    this.propsBack = mk(false);
+    this.propsFront = mk(true);
+  }
+
+  private blitLayer(layer: HTMLCanvasElement | null, vx0: number, vy0: number, vx1: number, vy1: number): void {
+    if (!layer) return;
+    const sx = Math.max(0, Math.floor(vx0 - this.baseX) - 1);
+    const sy = Math.max(0, Math.floor(vy0 - this.baseY) - 1);
+    const sw = Math.min(layer.width - sx, Math.ceil(vx1 - vx0) + 3);
+    const sh = Math.min(layer.height - sy, Math.ceil(vy1 - vy0) + 3);
+    if (sw > 0 && sh > 0) this.ctx.drawImage(layer, sx, sy, sw, sh, this.baseX + sx, this.baseY + sy, sw, sh);
   }
 
   /** Grama ~15% menos saturada: o gramado não compete com o escritório. */
@@ -357,6 +432,7 @@ export class Renderer {
       const sh = Math.min(this.base.height - sy, Math.ceil(vy1 - vy0) + 3);
       if (sw > 0 && sh > 0) ctx.drawImage(this.base, sx, sy, sw, sh, this.baseX + sx, this.baseY + sy, sw, sh);
     }
+    this.blitLayer(this.propsBack, vx0, vy0, vx1, vy1);
     // hora do ciclo dia/noite (preferência ou hora forçada; o relógio de parede acompanha a forçada)
     if (this.hourOverride !== null) {
       const min = Math.round(this.hourOverride * 60);
@@ -395,6 +471,7 @@ export class Renderer {
     const ents = this.ents;
     ents.length = 0;
     let used = 0;
+    const layer = this.furnLayerFor(now);
     const push = (k: K, y: number, ref: Ent['ref'], area: AreaVis | null, scale: number) => {
       let e = this.pool[used];
       if (!e) this.pool[used] = e = { k, y, ref, area, scale };
@@ -412,12 +489,16 @@ export class Renderer {
       const p = vis.px;
       if (!visible(p.x - TILE, p.y - 3 * TILE, p.w + 2 * TILE, p.h + 4 * TILE)) continue;
       const anim = vis.room ? buildAnim(vis.room.phase, vis.room.progress(now)) : NO_ANIM;
+      // sala montando/desmontando: caminho antigo (cada móvel escala por quadro)
+      const inLayer = layer !== null && layer.set.has(vis);
       for (const f of vis.furniture) {
         const s = anim.mode === 'none' ? 1 : furnitureScale(anim, f.order);
         if (s <= 0.01) continue;
         if (!visible(f.ax - 3 * TILE, f.ay - 4 * TILE, 6 * TILE, 4 * TILE + 4)) continue;
-        push(K.FurnBase, f.ay, f, vis, s);
-        const fs = furnitureSprites(this.art, f, this.furnState(f, now));
+        const state = this.furnState(f, now);
+        if (!inLayer) push(K.FurnBase, f.ay, f, vis, s);
+        else if (f.kind === 'desk' || f.kind === 'arcade' || (f.kind === 'coffee_machine' && state === 1)) push(K.FurnAnim, f.ay, f, vis, 1);
+        const fs = furnitureSprites(this.art, f, state);
         if (fs?.front) push(K.FurnFront, f.ay + 0.5, f, vis, s);
       }
     }
@@ -435,6 +516,7 @@ export class Renderer {
       push(K.Char, ch.depth(), ch, null, 1);
     }
     for (const prop of this.exterior.props) {
+      if (this.layered.has(prop)) continue;
       if (!visible(prop.x - 24, prop.y - 56, 48, 60)) continue;
       let alpha = 1;
       if (prop.whenRoom !== undefined) {
@@ -466,18 +548,54 @@ export class Renderer {
     for (const car of this.cars) if (visible(car.x - 24, car.y - 24, 48, 28)) push(K.Car, car.y, car, null, 1);
     ents.sort((a, b) => a.y - b.y || a.k - b.k);
 
+    if (layer) {
+      const l = layer;
+      const x0 = Math.max(l.x, Math.floor(vx0));
+      const y0 = Math.max(l.y, Math.floor(vy0));
+      const x1 = Math.min(l.x + l.c.width, Math.ceil(vx1));
+      const y1 = Math.min(l.y + l.c.height, Math.ceil(vy1));
+      if (x1 > x0 && y1 > y0) ctx.drawImage(l.c, x0 - l.x, y0 - l.y, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+    }
     this.iconCount = 0;
     for (const e of ents) {
       switch (e.k) {
         case K.FurnBase:
           this.drawFurniture(e.ref as FurnVis, e.area!, e.scale, false, now);
           break;
-        case K.FurnFront:
-          this.drawFurniture(e.ref as FurnVis, e.area!, e.scale, true, now);
+        case K.FurnAnim:
+          this.drawFurniture(e.ref as FurnVis, e.area!, 1, false, now, true);
           break;
-        case K.Char:
-          this.drawCharacter(e.ref as Character, now, sel);
+        case K.FurnFront: {
+          const f = e.ref as FurnVis;
+          this.drawFurniture(f, e.area!, e.scale, true, now);
+          if (e.scale === 1) {
+            const fr = furnitureSprites(this.art, f, this.furnState(f, now))?.front;
+            if (fr) {
+              const r = this.frontRect;
+              r.x = Math.round(f.ax - fr.ax);
+              r.y = Math.round(f.ay - fr.ay);
+              r.w = fr.canvas.width;
+              r.h = fr.canvas.height;
+              this.redrawInFront(r, e.y, now);
+            }
+          }
           break;
+        }
+        case K.Char: {
+          const ch = e.ref as Character;
+          this.drawCharacter(ch, now, sel);
+          // sprite + sombra e anéis nos pés (com `offX/offY`, que a posição do sprite já inclui)
+          const hd = this.headOf(ch);
+          const r = this.hitRect;
+          const rx0 = Math.min(hd.bx, hd.x - 20);
+          const ry0 = Math.min(hd.by, hd.feetY - 10);
+          r.x = rx0;
+          r.y = ry0;
+          r.w = Math.max(hd.bx + hd.bw, hd.x + 20) - rx0;
+          r.h = Math.max(hd.by + hd.bh, hd.feetY + 10) - ry0;
+          this.redrawInFront(r, e.y, now);
+          break;
+        }
         case K.Prop:
           this.drawProp(e.ref as ExteriorProp, e.scale);
           break;
@@ -486,6 +604,7 @@ export class Renderer {
           break;
       }
     }
+    this.blitLayer(this.propsFront, vx0, vy0, vx1, vy1);
     this.drawPingPong(now);
     // ---- espera de shell: teias de aranha, confete/pipoca/chuva (por cima das entidades)
     this.drawCobwebs(now);
@@ -758,7 +877,101 @@ export class Renderer {
     return 0;
   }
 
-  private drawFurniture(f: FurnVis, area: AreaVis, scale: number, front: boolean, now: number): void {
+  /**
+   * Camada única com os móveis-base de todas as áreas estáveis (sem montagem/desmontagem), na ordem global de
+   * profundidade. Refeita quando muda o conjunto de áreas ou o estado de um móvel; tema e arte novos recriam as
+   * `AreaVis` e, portanto, o conjunto. Null se não há nada a pintar.
+   */
+  private furnLayerFor(now: number): FurnLayer | null {
+    const stable = this.stable;
+    stable.length = 0;
+    for (const vis of this.areas.values()) {
+      const ph = vis.room?.phase;
+      if (ph !== 'building' && ph !== 'dismantling') stable.push(vis);
+    }
+    let l = this.furnLayer;
+    if (l && l.areas.length === stable.length) {
+      let same = true;
+      for (let i = 0; i < stable.length && same; i++) if (l.areas[i] !== stable[i]) same = false;
+      for (let i = 0; i < l.dyn.length && same; i++) if (l.dynState[i] !== this.furnState(l.dyn[i], now)) same = false;
+      if (same) return l;
+    }
+    const items: LayerItem[] = [];
+    const sprites: HTMLCanvasElement[] = [];
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    const dyn: FurnVis[] = [];
+    const dynState: number[] = [];
+    const all: { f: FurnVis; vis: AreaVis }[] = [];
+    for (const vis of stable) for (const f of vis.furniture) all.push({ f, vis });
+    // ordenação estável, como a da lista de entidades: empate de `ay` fica na ordem de áreas e de móveis
+    all.sort((a, z) => a.f.ay - z.f.ay);
+    for (const { f, vis } of all) {
+      const state = this.furnState(f, now);
+      // sprites que dependem de `furnState`: entram aqui, senão a camada congela o sprite velho
+      if (f.kind === 'coffee_machine' || f.kind === 'toilet_stall') {
+        dyn.push(f);
+        dynState.push(state);
+      }
+      const fs = furnitureSprites(this.art, f, state);
+      if (!fs) continue;
+      const sp = seasonalFurniture(this.theme, f.kind, vis.layout, f.seed) ?? fs.base;
+      if (!sp) continue;
+      const it: LayerItem = { f, vis, ay: f.ay, x: Math.round(f.ax - sp.ax), y: Math.round(f.ay - sp.ay), w: sp.canvas.width, h: sp.canvas.height };
+      items.push(it);
+      sprites.push(sp.canvas);
+      x0 = Math.min(x0, it.x);
+      y0 = Math.min(y0, it.y);
+      x1 = Math.max(x1, it.x + it.w);
+      y1 = Math.max(y1, it.y + it.h);
+    }
+    if (!items.length) return (this.furnLayer = null);
+    const c = document.createElement('canvas');
+    c.width = x1 - x0;
+    c.height = y1 - y0;
+    const cx = c.getContext('2d')!;
+    cx.imageSmoothingEnabled = false;
+    items.forEach((it, i) => cx.drawImage(sprites[i], it.x - x0, it.y - y0));
+    l = { c, x: x0, y: y0, rect: { x: x0, y: y0, w: c.width, h: c.height }, items, areas: stable.slice(), set: new Set(stable), dyn, dynState };
+    this.furnLayer = l;
+    return l;
+  }
+
+  /** Depois de desenhar algo em `hit` com profundidade `depth`: redesenha os móveis da camada que ficam na frente. */
+  private redrawInFront(hit: Rect, depth: number, now: number): void {
+    const l = this.furnLayer;
+    if (!l || !overlaps(hit, l.rect)) return;
+    for (const it of redrawSet(l.items, hit, depth, this.redrawn)) this.drawFurniture(it.f, it.vis, 1, false, now, false, true);
+  }
+
+  private opaqueCopies = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
+
+  /**
+   * Cópia do sprite só com os pixels opacos. O redesenho por cima da camada já pintada duplicaria a mistura dos
+   * pixels translúcidos (a sombra sob a mesa ficava mais escura); os opacos substituem exatamente o que está lá.
+   */
+  private opaqueOnly(src: HTMLCanvasElement): HTMLCanvasElement {
+    let c = this.opaqueCopies.get(src);
+    if (c) return c;
+    c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const cx = c.getContext('2d', { willReadFrequently: true })!;
+    cx.drawImage(src, 0, 0);
+    const img = cx.getImageData(0, 0, c.width, c.height);
+    for (let i = 3; i < img.data.length; i += 4) if (img.data[i] < 255) img.data[i] = 0;
+    cx.putImageData(img, 0, 0);
+    this.opaqueCopies.set(src, c);
+    return c;
+  }
+
+  /**
+   * `overlayOnly`: só as partes animadas (tela, fumaça), o sprite já está na camada. `hard`: redesenho sobre a
+   * camada, com os pixels opacos do sprite.
+   */
+  private drawFurniture(f: FurnVis, area: AreaVis, scale: number, front: boolean, now: number, overlayOnly = false, hard = false): void {
     const { ctx } = this;
     const state = this.furnState(f, now);
     const fs = furnitureSprites(this.art, f, state);
@@ -774,7 +987,7 @@ export class Renderer {
       ctx.scale(scale, scale);
       ctx.translate(-f.ax, -f.ay);
     }
-    ctx.drawImage(s.canvas, dx, dy);
+    if (!overlayOnly) ctx.drawImage(hard ? this.opaqueOnly(s.canvas) : s.canvas, dx, dy);
     if (!front) {
       if (f.kind === 'desk' && s.rects?.screen) {
         const r = s.rects.screen;
