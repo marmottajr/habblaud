@@ -10,6 +10,11 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Agentes Codex executados pelo Paperclip aparecem automaticamente no escritório.** O Habblaud agora também
+  descobre os `codex-home` das empresas em `~/.paperclip/instances`, sem precisar configurar cada pasta à mão.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
