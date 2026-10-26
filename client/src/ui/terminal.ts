@@ -21,6 +21,8 @@ import { TermTabs } from './termtabs';
 import { renderMarkdown } from './markdown';
 import { roleLabel, shellWaitIn } from './model';
 import { providerOf } from './provider';
+import { favorites } from './favorites';
+import { createFavStar, favoriteSessionOf, updateFavStar } from './favstar';
 import {
   clearHits,
   copyTextOf,
@@ -636,6 +638,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private roomEl: HTMLElement;
   private reconnEl: HTMLElement;
   private findBtn: HTMLButtonElement;
+  /** Estrela: favorita a sessão aberta (a do histórico ou a do agente), a mesma lista do Histórico. */
+  private favStar = createFavStar('ui-icon-btn--sm');
   private alertEl: HTMLElement;
   private alertText: HTMLElement;
   private searchBox: HTMLElement;
@@ -678,6 +682,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.findBtn = iconButton(ICONS.search, tr('Buscar na conversa ({0})', [findKey]), () => this.toggleSearch(), 'ui-icon-btn--sm ui-term__find');
     setAttr(this.findBtn, 'aria-expanded', 'false');
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
+    favorites.subscribe(() => this.render());
     const bar = h(
       'div',
       { class: 'ui-term__bar' },
@@ -686,6 +691,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       h('div', { class: 'ui-term__who' }, this.accEl, this.nameEl, this.provEl, this.roleEl, this.roomEl),
       this.reconnEl,
       this.findBtn,
+      this.favStar,
       ...(this.actions ? [this.actions.el] : []),
       maximizeButton(() => this.movable),
       close,
@@ -824,6 +830,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.renderState();
     // Mensagens só para a sessão ao vivo (no histórico, a caixa diz que a sessão foi encerrada).
     this.composer.render(this.session ? undefined : this.ctx.agent(this.id), this.id);
+    updateFavStar(this.favStar, this.session ?? (this.last ? favoriteSessionOf(this.ctx, this.last) : null));
   }
 
   /** Abre o painel numa conversa nova (agente ou sessão do histórico); a mesma conversa só recebe o foco. */

@@ -3273,4 +3273,8 @@ export const EN: Readonly<Record<string, string>> = {
   "Carimbo deixado na portaria: {0}": "Stamp left at the front desk: {0}",
   "Entre no prédio ou chegue mais perto da porta para carimbar.": "Go into the building or get closer to the door to stamp.",
   "O carimbo não foi deixado. Tente de novo.": "The stamp wasn't left. Try again.",
+  // client/src/ui/history.ts (favoritas)
+  "Favoritas": "Favorites",
+  "Favoritar sessão": "Favorite session",
+  "Tirar dos favoritos": "Remove from favorites",
 };

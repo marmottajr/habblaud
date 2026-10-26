@@ -8,9 +8,11 @@ import { access } from '../net/access';
 import type { RecentSession } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
+import { favorites, sessionKey, splitFavorites } from './favorites';
 import { calendarDayDiff, formatClock, formatDateTime, normalizeSearch, plural, shortPath } from './format';
 import { ICONS } from './icons';
 import { isCodex } from './provider';
+import { parseRecentSessions } from './recent-sessions';
 import { sessionProjectName, TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { createAccountChip, updateAccountChip } from './widgets';
 import { intlLocale, tr } from '../../../shared/i18n';
@@ -23,41 +25,6 @@ const weekdayDateFmt = new Intl.DateTimeFormat(intlLocale(), { weekday: 'short',
 
 // ---------------------------------------------------------------- modelo (puro)
 
-function str(v: unknown): string | undefined {
-  return typeof v === 'string' && v.trim() ? v : undefined;
-}
-
-function num(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-}
-
-/** Sessões válidas da resposta de /api/sessions/recent (o resto é ignorado), da mais recente para a mais antiga. */
-export function parseRecentSessions(raw: unknown): RecentSession[] {
-  const list = raw && typeof raw === 'object' ? (raw as { sessions?: unknown }).sessions : undefined;
-  if (!Array.isArray(list)) return [];
-  const out: RecentSession[] = [];
-  for (const item of list) {
-    if (!item || typeof item !== 'object') continue;
-    const o = item as Record<string, unknown>;
-    const account = str(o.account);
-    const sessionId = str(o.sessionId);
-    const lastAt = num(o.lastAt);
-    if (!account || !sessionId || lastAt === undefined) continue;
-    const s: RecentSession = { account, sessionId, projectDir: str(o.projectDir) ?? '', lastAt, size: num(o.size) ?? 0, open: o.open === true };
-    const project = str(o.project);
-    const title = str(o.title);
-    const firstAt = num(o.firstAt);
-    const agentId = str(o.agentId);
-    // Ausente = Claude Code (nunca grava 'claude').
-    if (o.provider === 'codex') s.provider = 'codex';
-    if (project) s.project = project;
-    if (title) s.title = title;
-    if (firstAt !== undefined) s.firstAt = firstAt;
-    if (s.open && agentId) s.agentId = agentId;
-    out.push(s);
-  }
-  return out.sort((a, b) => b.lastAt - a.lastAt);
-}
 
 /**
  * Busca no histórico: título, projeto (nome ou caminho), nome/letra da conta e a ferramenta ("codex"), sem diferenciar
@@ -138,6 +105,10 @@ export class HistoryPopover implements UiComponent {
     private ctx: UiContext,
     private terminal: Pick<TerminalControl, 'openSession'>,
   ) {
+    // Estrela marcada aqui, na gaveta ou em outra aba: refaz a lista se estiver aberta.
+    favorites.subscribe(() => {
+      if (this.isOpen) this.renderList();
+    });
     this.button = iconButton(ICONS.clock, tr('Histórico de sessões'), () => this.toggle(), 'ui-hist-btn');
     setAttr(this.button, 'aria-haspopup', 'dialog');
     setAttr(this.button, 'aria-expanded', 'false');
@@ -277,40 +248,62 @@ export class HistoryPopover implements UiComponent {
 
   private renderList(): void {
     const now = this.ctx.now();
-    const shown = filterSessions(this.sessions, this.query, (id) => this.accountLabel(id));
-    const days = groupSessionsByDay(shown, now);
+    const split = splitFavorites(favorites.all(), this.sessions);
+    if (this.state === 'ready' && JSON.stringify(split.updated) !== JSON.stringify(favorites.all())) favorites.replace(split.updated);
+    const accountLabel = (id: string) => this.accountLabel(id);
+    const shownFavs = filterSessions(split.favorites, this.query, accountLabel);
+    const shownRest = filterSessions(split.rest, this.query, accountLabel);
+    const total = split.favorites.length + split.rest.length;
+    const shownCount = shownFavs.length + shownRest.length;
+    const days = groupSessionsByDay(shownRest, now);
     const q = this.query.trim();
     const loading = this.state === 'loading' || this.state === 'idle';
     let stateText = '';
     if (this.state === 'error') stateText = this.error || tr('Não foi possível carregar o histórico.');
     else if (loading) stateText = tr('Carregando as sessões…');
-    else if (!this.sessions.length) stateText = tr('Nenhuma sessão nos últimos 7 dias.');
-    else if (!shown.length) stateText = tr('Nenhuma sessão encontrada para “{0}”.', [q]);
+    else if (!total) stateText = tr('Nenhuma sessão nos últimos 7 dias.');
+    else if (!shownCount) stateText = tr('Nenhuma sessão encontrada para “{0}”.', [q]);
     setText(this.stateText, stateText);
     setHidden(this.stateEl, !stateText);
     setHidden(this.retryBtn, this.state !== 'error');
-    setText(
-      this.footEl,
-      this.sessions.length ? (q ? `${shown.length} de ${plural(this.sessions.length, tr('sessão'), tr('sessões'))}` : plural(this.sessions.length, tr('sessão'), tr('sessões'))) : '',
-    );
-    setHidden(this.footEl, !this.sessions.length);
+    setText(this.footEl, total ? (q ? `${shownCount} de ${plural(total, tr('sessão'), tr('sessões'))}` : plural(total, tr('sessão'), tr('sessões'))) : '');
+    setHidden(this.footEl, !total);
 
     // Refaz o DOM só quando o conteúdo muda (a lista é pequena: no máximo ~150 sessões).
-    const sig = JSON.stringify([days.map((d) => [d.key, d.label]), shown.map((s) => [s.account, s.sessionId, s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
+    const sig = JSON.stringify([favorites.all().map(sessionKey), days.map((d) => [d.key, d.label]), [...shownFavs, ...shownRest].map((s) => [s.account, s.sessionId, s.title, s.lastAt, s.open, s.agentId && !!this.ctx.agent(s.agentId)])]);
     if (sig === this.drawn) return;
     const focusedKey = (document.activeElement as HTMLElement | null)?.dataset?.session;
     this.drawn = sig;
     const frag = document.createDocumentFragment();
+    if (shownFavs.length) {
+      const group = h('section', { class: 'ui-hist__day ui-hist__favs', attrs: { 'aria-label': tr('Favoritas') } }, h('h3', { class: 'ui-hist__day-label', text: tr('Favoritas') }));
+      for (const s of shownFavs) group.append(this.row(s, now, true));
+      frag.append(group);
+    }
     for (const day of days) {
       const group = h('section', { class: 'ui-hist__day', attrs: { 'aria-label': day.label } }, h('h3', { class: 'ui-hist__day-label', text: day.label }));
-      for (const s of day.sessions) group.append(this.item(s, now));
+      for (const s of day.sessions) group.append(this.row(s, now));
       frag.append(group);
     }
     this.listEl.replaceChildren(frag);
     if (focusedKey) this.items().find((b) => b.dataset.session === focusedKey)?.focus();
   }
 
-  private item(s: RecentSession, now: number): HTMLButtonElement {
+  /** A linha da sessão: o item e a estrela de favoritar. */
+  private row(s: RecentSession, now: number, fav = false): HTMLElement {
+    const btn = this.item(s, now, fav);
+    const key = sessionKey(s);
+    const pinned = favorites.has(key);
+    const star = iconButton(pinned ? ICONS.starFilled : ICONS.star, pinned ? tr('Tirar dos favoritos') : tr('Favoritar sessão'), () => {
+      favorites.toggle(s);
+      this.listEl.querySelector<HTMLElement>(`.ui-hist__fav[data-fav="${CSS.escape(key)}"]`)?.focus();
+    }, `ui-hist__fav${pinned ? ' is-on' : ''}`);
+    star.dataset.fav = key;
+    setAttr(star, 'aria-pressed', String(pinned));
+    return h('div', { class: 'ui-hist__row' }, btn, star);
+  }
+
+  private item(s: RecentSession, now: number, fav = false): HTMLButtonElement {
     const account = this.ctx.account(s.account);
     const chip = createAccountChip('sm');
     updateAccountChip(chip, account, s.account, s.provider);
@@ -323,7 +316,7 @@ export class HistoryPopover implements UiComponent {
       { class: 'ui-hist__meta' },
       codex ? h('span', { class: 'ui-prov ui-prov--xs', text: 'Codex' }) : null,
       h('span', { class: 'ui-hist__project', text: project }),
-      h('span', { class: 'ui-hist__time', text: formatClock(s.lastAt, false) }),
+      h('span', { class: 'ui-hist__time', text: fav && calendarDayDiff(s.lastAt, now) !== 0 ? `${dayLabel(s.lastAt, now)}, ${formatClock(s.lastAt, false)}` : formatClock(s.lastAt, false) }),
     );
     if (live) meta.append(h('span', { class: 'ui-hist__live', text: tr('aberta') }));
     const btn = h('button', { class: `ui-hist__item${live ? ' is-live' : ''}`, type: 'button' }, chip, h('span', { class: 'ui-hist__text' }, h('span', { class: 'ui-hist__title', text: title }), meta));

@@ -2384,6 +2384,45 @@
   margin: 0 -6px;
 }
 
+/* Linha do agente na sala com a estrela de favoritar ao lado (a linha é um botão: a estrela não cabe dentro). */
+.ui-agent-slot {
+  display: flex;
+  align-items: center;
+}
+
+.ui-agent-slot > .ui-agent {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* Estrela de favorita: discreta até passar o mouse/foco; marcada fica sempre visível, em destaque. */
+.ui-agent-slot__star {
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.ui-agent-slot:hover .ui-agent-slot__star,
+.ui-agent-slot__star:focus-visible,
+.ui-fav-star.is-on {
+  opacity: 1;
+}
+
+.ui-fav-star.is-on {
+  color: var(--ui-accent);
+}
+
+@media (hover: none) {
+  .ui-agent-slot__star {
+    opacity: 0.55;
+  }
+
+  .ui-agent-slot__star.is-on {
+    opacity: 1;
+  }
+}
+
 .ui-timeline {
   display: flex;
   flex-direction: column;
@@ -5750,6 +5789,45 @@ button.ui-term__think:hover,
 .ui-hist__item:hover,
 .ui-hist__item:focus-visible {
   background: var(--ui-bg-hover);
+}
+
+/* Linha da sessão no histórico: o item e a estrela de favoritar ao lado. */
+.ui-hist__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ui-hist__row > .ui-hist__item {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* Estrela de favorita: discreta até passar o mouse/foco na linha; marcada fica sempre visível, em destaque. */
+.ui-hist__fav {
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.ui-hist__row:hover .ui-hist__fav,
+.ui-hist__fav:focus-visible,
+.ui-hist__fav.is-on {
+  opacity: 1;
+}
+
+.ui-hist__fav.is-on {
+  color: var(--ui-accent);
+}
+
+@media (hover: none) {
+  .ui-hist__fav {
+    opacity: 0.55;
+  }
+  .ui-hist__fav.is-on {
+    opacity: 1;
+  }
 }
 
 .ui-hist__text {
