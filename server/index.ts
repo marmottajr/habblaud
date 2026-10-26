@@ -438,6 +438,7 @@ if (config.remote) {
     config: remote,
     sessions: new RemoteSessions(loadSecret(join(config.dataDir, 'remote-secret')), remote, Date.now, join(config.dataDir, 'remote-revoked.json')),
     secure: !!remote.tls,
+    trustProxy: remote.trustProxy,
     caFile: remote.tls?.caFile,
   });
   remoteListener = startRemoteListener(
@@ -462,6 +463,8 @@ if (config.remote) {
     const where = config.inDocker ? tr('publicada pelo HABBLAUD_REMOTE_BIND') : remote.host;
     const scheme = remote.tls ? 'HTTPS' : tr('HTTP SEM criptografia (HABBLAUD_REMOTE_INSECURE_HTTP)');
     log.info(tr('   Acesso remoto: ligado na porta {0} ({1}), {2}, com login; libera: {3}.', [remote.port, where, scheme, allow]));
+    if (remote.trustProxy.size) log.info(tr('   Acesso remoto: confia em {0} como proxy (X-Forwarded-For e X-Forwarded-Proto).', [[...remote.trustProxy].join(', ')]));
+    for (const bad of remote.trustProxyInvalid) log.warn(tr('   Acesso remoto: HABBLAUD_REMOTE_TRUST_PROXY ignorou "{0}" (não é um endereço IP).', [bad]));
     if (remote.allow.has('spawn') && !spawn) log.warn(tr('   Acesso remoto: "spawn" liberado, mas o Novo agente está desligado (ligue com HABBLAUD_PTY=1).'));
   });
 } else if (config.remoteWarning) {

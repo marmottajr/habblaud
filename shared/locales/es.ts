@@ -2431,6 +2431,8 @@ export const ES: Readonly<Record<string, string>> = {
   "faça login: abra o Habblaud por esta porta no navegador e entre com usuário e senha": "inicia sesión: abre Habblaud por este puerto en el navegador y entra con usuario y contraseña",
   "Acesso remoto: não deu para escutar na porta {0} ({1}).": "Acceso remoto: no se pudo escuchar en el puerto {0} ({1}).",
   "   Acesso remoto: certificado recarregado.": "   Acceso remoto: certificado recargado.",
+  "   Acesso remoto: confia em {0} como proxy (X-Forwarded-For e X-Forwarded-Proto).": "   Acceso remoto: confiando en {0} como proxy (X-Forwarded-For y X-Forwarded-Proto).",
+  "   Acesso remoto: HABBLAUD_REMOTE_TRUST_PROXY ignorou \"{0}\" (não é um endereço IP).": "   Acceso remoto: HABBLAUD_REMOTE_TRUST_PROXY ignoró \"{0}\" (no es una dirección IP).",
   "   Acesso remoto: certificado novo ilegível, mantendo o anterior ({0}).": "   Acceso remoto: el certificado nuevo es ilegible, se mantiene el anterior ({0}).",
   "Use https://": "Usa https://",
 

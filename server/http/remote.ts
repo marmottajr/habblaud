@@ -15,8 +15,9 @@
 //                           sobe, a menos que HABBLAUD_REMOTE_INSECURE_HTTP=1 (HTTP puro: senha e cookie à vista na rede).
 //   HABBLAUD_REMOTE_PORT / HABBLAUD_REMOTE_HOST  só no Node (padrão 0.0.0.0:4748); no Docker o container escuta sempre
 //                           em 0.0.0.0:4748 e quem decide a exposição é a porta publicada (HABBLAUD_REMOTE_BIND).
+//   HABBLAUD_REMOTE_TRUST_PROXY  IPs de proxies (ex.: o Traefik) em que o X-Forwarded-For/-Proto valem; sem ela ignora os dois
 //
-// Sessão: cookie HttpOnly + SameSite=Strict (+ Secure com HTTPS) assinado com HMAC; chave = segredo aleatório em
+// Sessão: cookie HttpOnly + SameSite=Strict (+ Secure com HTTPS, direto ou por proxy confiável) assinado com HMAC; chave = segredo aleatório em
 // <dataDir>/remote-secret misturado com usuário e hash da senha: trocar a senha derruba todas as sessões.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unwatchFile, watchFile, writeFileSync } from 'node:fs';
@@ -48,6 +49,10 @@ export interface RemoteConfig {
   /** Texto do hash como veio do ambiente (entra na chave das sessões). */
   passwordHashText: string;
   allow: ReadonlySet<RemoteFeature>;
+  /** Proxies (IPs exatos) em que o X-Forwarded-For e o X-Forwarded-Proto valem; vazio = nenhum (HABBLAUD_REMOTE_TRUST_PROXY). */
+  trustProxy: ReadonlySet<string>;
+  /** Entradas de HABBLAUD_REMOTE_TRUST_PROXY que não são IP (o servidor avisa no log). */
+  trustProxyInvalid: readonly string[];
   /** Ausente = HTTP puro (só com HABBLAUD_REMOTE_INSECURE_HTTP=1). */
   tls?: RemoteTls;
 }
@@ -89,8 +94,19 @@ export function parseRemoteConfig(
   const rawPort = Number.parseInt(env.HABBLAUD_REMOTE_PORT ?? '', 10);
   const port = inDocker ? DEFAULT_REMOTE_PORT : Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536 ? rawPort : DEFAULT_REMOTE_PORT;
   const host = inDocker ? '0.0.0.0' : env.HABBLAUD_REMOTE_HOST?.trim() || '0.0.0.0';
+  const trust = parseTrustProxy(env.HABBLAUD_REMOTE_TRUST_PROXY);
   return {
-    config: { port, host, user, passwordHash, passwordHashText: hashText, allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW), tls: hasTls ? tls : undefined },
+    config: {
+      port,
+      host,
+      user,
+      passwordHash,
+      passwordHashText: hashText,
+      allow: parseAllow(env.HABBLAUD_REMOTE_ALLOW),
+      trustProxy: trust.ips,
+      trustProxyInvalid: trust.invalid,
+      tls: hasTls ? tls : undefined,
+    },
   };
 }
 
@@ -215,45 +231,178 @@ export function readCookie(header: string | undefined, name: string): string | u
   return undefined;
 }
 
+/** IP sem zona e sem o prefixo ::ffff: (soquete dual-stack); undefined se não for um IP. */
+export function normalizeIp(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let a = raw.trim().toLowerCase();
+  const zone = a.indexOf('%');
+  if (zone >= 0) a = a.slice(0, zone);
+  if (a.startsWith('::ffff:') && net.isIPv4(a.slice(7))) a = a.slice(7);
+  return net.isIP(a) ? a : undefined;
+}
+
+/** Chave do freio: o IPv4 inteiro; do IPv6, só o /64 (quem tem uma sub-rede tem 2^64 endereços). */
+function sourceKey(ip: string): string {
+  if (!net.isIPv6(ip)) return ip;
+  // shortcut: IPv6 com IPv4 embutido depois do "::" (exótico) pode errar o /64, só pior para o atacante, não para o dono.
+  const [head, tail = ''] = ip.split('::');
+  const h = head ? head.split(':') : [];
+  const t = tail ? tail.split(':') : [];
+  const full = ip.includes('::') ? [...h, ...Array<string>(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t] : h;
+  return `${full.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
 /**
- * Freio contra tentativa e erro: depois de 5 falhas seguidas, cada nova tentativa espera 2^(n-5) s (até 5 min).
- * Global, não por IP: no Docker todo cliente da rede chega com o endereço do gateway. Uma conferência de senha por vez
- * (begin/end), contada como falha desde o começo: tentativas em paralelo não passam pelo freio enquanto o scrypt roda.
+ * Lista de proxies confiáveis (HABBLAUD_REMOTE_TRUST_PROXY): IPs exatos separados por vírgula. `invalid` traz o que não
+ * é IP (o servidor avisa no log e ignora).
+ */
+export function parseTrustProxy(raw: string | undefined): { ips: Set<string>; invalid: string[] } {
+  const ips = new Set<string>();
+  const invalid: string[] = [];
+  for (const part of (raw ?? '').split(',')) {
+    const p = part.trim();
+    if (!p) continue;
+    const ip = normalizeIp(p);
+    if (ip) ips.add(ip);
+    else invalid.push(p);
+  }
+  return { ips, invalid };
+}
+
+/**
+ * Quem está do outro lado: o par TCP, ou, se ele é um proxy confiável, o primeiro endereço NÃO confiável do
+ * X-Forwarded-For lendo da direita (o que o proxy acrescentou vale; o que o cliente forjou fica à esquerda). Sem proxy
+ * confiável o cabeçalho é ignorado: qualquer cliente o escreve como quiser.
+ */
+export function clientSource(peer: string | undefined, xff: string | string[] | undefined, trusted: ReadonlySet<string>): string {
+  const p = normalizeIp(peer);
+  if (!p) return 'desconhecida';
+  if (!trusted.has(p)) return sourceKey(p);
+  const header = Array.isArray(xff) ? xff.join(',') : xff;
+  if (!header) return sourceKey(p);
+  const hops = header.split(',');
+  for (let i = hops.length - 1; i >= 0; i--) {
+    const ip = normalizeIp(hops[i]);
+    if (!ip) return sourceKey(p); // lixo no cabeçalho: não adivinha, cai no endereço do proxy
+    if (!trusted.has(ip)) return sourceKey(ip);
+  }
+  return sourceKey(p);
+}
+
+/** A requisição veio por um proxy confiável que falou HTTPS com o navegador (o último X-Forwarded-Proto é o do proxy mais próximo). */
+function viaHttps(req: IncomingMessage, trusted: ReadonlySet<string>): boolean {
+  const p = normalizeIp(req.socket.remoteAddress);
+  if (!p || !trusted.has(p)) return false;
+  const raw = req.headers['x-forwarded-proto'];
+  const last = (Array.isArray(raw) ? raw.join(',') : raw ?? '').split(',').pop()?.trim().toLowerCase();
+  return last === 'https';
+}
+
+const FREE_FAILURES = 5;
+const MAX_WAIT_S = 300;
+/** Origem sem falha nova há tanto tempo é esquecida. */
+const SOURCE_STALE_MS = 30 * 60_000;
+const MAX_SOURCES = 1024;
+/** Teto global: tentativas erradas de todas as origens somadas, por janela fixa. */
+const GLOBAL_WINDOW_MS = 5 * 60_000;
+const GLOBAL_MAX_FAILURES = 60;
+/** Conferências de senha (scrypt) ao mesmo tempo, no total. */
+const MAX_PARALLEL = 4;
+
+interface SourceState {
+  failures: number;
+  blockedUntil: number;
+  lastAt: number;
+  busy: boolean;
+}
+
+/**
+ * Freio contra tentativa e erro, por origem (ver clientSource): depois de 5 falhas seguidas daquela origem, cada nova
+ * tentativa dela espera 2^(n-5) s (até 5 min). Falha de uma origem nunca atrasa a senha certa de outra. Por cima, um
+ * teto global (60 erros por 5 min, somados) segura chute distribuído, e no máximo 4 conferências rodam juntas (o scrypt
+ * é caro em memória). Uma conferência por origem (begin/end), contada como falha desde o começo: tentativas em paralelo
+ * não passam pelo freio enquanto o scrypt roda. O mapa de origens é limitado (MAX_SOURCES).
  */
 export class LoginThrottle {
-  private failures = 0;
-  private blockedUntil = 0;
-  private busy = false;
+  private readonly sources = new Map<string, SourceState>(); // ordem de inserção = da menos para a mais recente
+  private active = 0;
+  private windowEnd = 0;
+  private windowCount = 0;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly maxSources: number = MAX_SOURCES,
+  ) {}
 
-  /** Segundos até poder tentar de novo (0 = pode; 1 enquanto outra tentativa está em andamento). */
-  retryAfter(): number {
-    return Math.max(this.busy ? 1 : 0, Math.ceil((this.blockedUntil - this.now()) / 1000));
+  /** Quantas origens estão guardadas (limitado por maxSources). */
+  get size(): number {
+    return this.sources.size;
   }
 
-  /** Começa uma tentativa (já contada como falha); false se o freio ou outra tentativa não deixam. */
-  begin(): boolean {
-    if (this.retryAfter() > 0) return false;
-    this.busy = true;
-    this.fail();
+  /** Segundos até `source` poder tentar de novo (0 = pode; 1 se ela já está conferindo ou as 4 vagas estão ocupadas). */
+  retryAfter(source: string): number {
+    const t = this.now();
+    const s = this.live(source, t);
+    const globalWait = this.windowCount >= GLOBAL_MAX_FAILURES && t < this.windowEnd ? this.windowEnd - t : 0;
+    const wait = Math.max(s?.blockedUntil ? s.blockedUntil - t : 0, globalWait);
+    return Math.max(s?.busy || this.active >= MAX_PARALLEL ? 1 : 0, Math.ceil(wait / 1000));
+  }
+
+  /** Começa uma tentativa de `source` (já contada como falha); false se o freio dela, o teto global ou as vagas não deixam. */
+  begin(source: string): boolean {
+    if (this.retryAfter(source) > 0) return false;
+    const t = this.now();
+    const s = this.live(source, t) ?? this.add(source, t);
+    this.sources.delete(source); // reinsere: passa a ser a mais recente
+    this.sources.set(source, s);
+    s.busy = true;
+    s.lastAt = t;
+    s.failures++;
+    if (s.failures >= FREE_FAILURES) s.blockedUntil = t + Math.min(MAX_WAIT_S, 2 ** (s.failures - FREE_FAILURES)) * 1000;
+    this.active++;
+    if (t >= this.windowEnd) {
+      this.windowEnd = t + GLOBAL_WINDOW_MS;
+      this.windowCount = 0;
+    }
+    this.windowCount++;
     return true;
   }
 
-  /** Fim da tentativa começada em begin(): acertou zera o freio; errou fica a falha já contada. */
-  end(ok: boolean): void {
-    this.busy = false;
-    if (ok) this.succeed();
+  /** Fim da tentativa começada em begin(): acertou, zera a origem e devolve a falha ao teto global; errou, a falha fica. */
+  end(source: string, ok: boolean): void {
+    this.active = Math.max(0, this.active - 1);
+    const s = this.sources.get(source);
+    if (s) s.busy = false;
+    if (!ok) return;
+    this.sources.delete(source);
+    this.windowCount = Math.max(0, this.windowCount - 1);
   }
 
-  fail(): void {
-    this.failures++;
-    if (this.failures >= 5) this.blockedUntil = this.now() + Math.min(300, 2 ** (this.failures - 5)) * 1000;
+  /** O estado da origem, ou undefined (e esquecida) se está parada há mais de SOURCE_STALE_MS. */
+  private live(source: string, t: number): SourceState | undefined {
+    const s = this.sources.get(source);
+    if (s && !s.busy && t - s.lastAt > SOURCE_STALE_MS) {
+      this.sources.delete(source);
+      return undefined;
+    }
+    return s;
   }
 
-  succeed(): void {
-    this.failures = 0;
-    this.blockedUntil = 0;
+  private add(source: string, t: number): SourceState {
+    if (this.sources.size >= this.maxSources) {
+      // Sai a mais antiga que não está conferindo nem bloqueada (o bloqueio é o que vale guardar); senão, a mais antiga.
+      let victim: string | undefined;
+      for (const [k, v] of this.sources) {
+        if (v.busy) continue;
+        victim ??= k;
+        if (v.blockedUntil <= t) {
+          victim = k;
+          break;
+        }
+      }
+      this.sources.delete(victim ?? this.sources.keys().next().value!);
+    }
+    return { failures: 0, blockedUntil: 0, lastAt: t, busy: false };
   }
 }
 
@@ -389,11 +538,13 @@ function cookieHeader(value: string, maxAgeS: number, secure: boolean): string {
 export interface RemoteGateDeps {
   config: Pick<RemoteConfig, 'user' | 'passwordHash'>;
   sessions: RemoteSessions;
-  /** Cookie com Secure (a porta fala HTTPS). */
+  /** Cookie sempre com Secure (a porta fala HTTPS). Atrás de proxy confiável com X-Forwarded-Proto: https também vale. */
   secure: boolean;
   /** Arquivo da CA pública servido em /remote/ca.crt (ausente = sem download). */
   caFile?: string;
   throttle?: LoginThrottle;
+  /** Proxies confiáveis (IPs exatos): só deles se lê X-Forwarded-For (origem do freio) e X-Forwarded-Proto (cookie Secure). */
+  trustProxy?: ReadonlySet<string>;
   /** Conferência da senha (injetável nos testes; padrão: scrypt). */
   verify?: (password: string, hash: PasswordHash) => Promise<boolean>;
 }
@@ -405,6 +556,7 @@ export interface RemoteGateDeps {
 export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, res: ServerResponse, url: URL) => boolean {
   const throttle = deps.throttle ?? new LoginThrottle();
   const verify = deps.verify ?? verifyPassword;
+  const trusted = deps.trustProxy ?? new Set<string>();
   const caAvailable = () => !!deps.caFile && existsSync(deps.caFile);
   return (req, res, url) => {
     const path = url.pathname;
@@ -416,11 +568,13 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
         sendJson(res, 405, { error: tr('método não permitido') }, { Allow: 'POST' });
         return true;
       }
+      const source = clientSource(req.socket.remoteAddress, req.headers['x-forwarded-for'], trusted);
+      const secure = deps.secure || viaHttps(req, trusted);
       const tooMany = () => {
-        const wait = Math.max(1, throttle.retryAfter());
+        const wait = Math.max(1, throttle.retryAfter(source));
         sendJson(res, 429, { error: tr('Muitas tentativas. Tente de novo em {0} s.', [wait]) }, { 'Retry-After': String(wait) });
       };
-      if (throttle.retryAfter() > 0) {
+      if (throttle.retryAfter(source) > 0) {
         req.resume();
         tooMany();
         return true;
@@ -431,7 +585,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       let ok = false;
       readBody(req)
         .then(async (raw) => {
-          if (!throttle.begin()) return tooMany();
+          if (!throttle.begin(source)) return tooMany();
           begun = true;
           let body: { user?: unknown; password?: unknown } = {};
           try {
@@ -447,13 +601,13 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
           if (!(okUser && okPassword)) return sendJson(res, 401, { error: tr('Usuário ou senha incorretos.') });
           ok = true;
           const { token, maxAgeS } = deps.sessions.issue();
-          sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, deps.secure) });
+          sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader(token, maxAgeS, secure) });
         })
         .catch(() => {
           if (!res.headersSent) sendJson(res, 400, { error: tr('requisição inválida') });
         })
         .finally(() => {
-          if (begun) throttle.end(ok);
+          if (begun) throttle.end(source, ok);
         });
       return true;
     }
@@ -463,7 +617,7 @@ export function createRemoteGate(deps: RemoteGateDeps): (req: IncomingMessage, r
       if (method !== 'POST') sendJson(res, 405, { error: tr('método não permitido') }, { Allow: 'POST' });
       else {
         deps.sessions.revoke(readCookie(req.headers.cookie, COOKIE));
-        sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader('', 0, deps.secure) });
+        sendJson(res, 200, { ok: true }, { 'Set-Cookie': cookieHeader('', 0, deps.secure || viaHttps(req, trusted)) });
       }
       return true;
     }

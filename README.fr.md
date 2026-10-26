@@ -301,8 +301,8 @@ en vérifiant l'empreinte que le setup a affichée.
   avec un certificat valide sur `https://<computador>.<tailnet>.ts.net` ; ajoutez ce nom à `HABBLAUD_ALLOWED_HOSTS`.
   Pointez toujours vers le port distant, jamais vers le 4747 (qui ne demande pas de connexion).
 - **Session :** 30 jours ; changer le mot de passe (relancer le setup) les ferme toutes, et **Réglages › Accès
-  depuis le téléphone › Se déconnecter** ferme celle de cet appareil. Après 5 mauvais mots de passe d'affilée, chaque nouvelle tentative attend
-  de 1 s à 5 min.
+  depuis le téléphone › Se déconnecter** ferme celle de cet appareil. Après 5 mauvais mots de passe d'affilée depuis la même adresse, chaque nouvelle tentative de cette adresse attend
+  de 1 s à 5 min ; les mauvais mots de passe d'une adresse ne retardent jamais une autre, et environ 60 mauvais mots de passe en 5 min toutes adresses confondues suspendent toute connexion jusqu'à la fin de la fenêtre.
 - **L'IP a changé ?** `docker:up` réémet le certificat du serveur quand la nouvelle IP n'y figure pas ou quand il
   expire dans moins de 30 jours, avec la même CA (le téléphone continue de lui faire confiance) ; le serveur remplace le
   certificat sans redémarrer.
@@ -311,6 +311,8 @@ en vérifiant l'empreinte que le setup a affichée.
 Sans HTTPS, le port distant ne démarre pas ; `HABBLAUD_REMOTE_INSECURE_HTTP=1` force le HTTP simple (mot de passe et
 cookie en clair sur le réseau). En mode Node : `HABBLAUD_REMOTE_PORT` et `HABBLAUD_REMOTE_HOST` (par défaut
 `0.0.0.0:4748`) et `HABBLAUD_REMOTE_TLS_DIR` (par défaut `~/.habblaud/remote-tls/server`).
+
+Derrière un proxy inverse (p. ex. Traefik terminant le HTTPS), `HABBLAUD_REMOTE_TRUST_PROXY=<ip>[,<ip>...]` (les IP exactes du proxy **telles que Habblaud les voit** ; sans masque) fait utiliser au frein de connexion l'adresse réelle du client (`X-Forwarded-For`) et fait porter `Secure` au cookie quand le proxy parle HTTPS (`X-Forwarded-Proto: https`). Sans la variable, les deux en-têtes sont ignorés, car n'importe quel client les écrit, et tous les clients derrière le proxy partagent le même frein.
 
 ### Mettre à jour
 
@@ -762,6 +764,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_PTY` | désactivé | `1` active le terminal interactif (ouvrir, reprendre et fermer des sessions Claude Code depuis le bureau ; uniquement en accès local et hors Docker) et **Nouvel agent** (aussi dans Docker, via `npm run codex:bridge`). Lisez l'avertissement dans [Confidentialité et sécurité](#confidentialité-et-sécurité). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` du PATH | L'exécutable de Claude Code que lancent le terminal interactif et Nouvel agent. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
+| `HABBLAUD_REMOTE_TRUST_PROXY` | — | IP (séparées par des virgules) du proxy inverse devant le port distant, pour que le frein de connexion utilise `X-Forwarded-For` et que le cookie porte `Secure` avec `X-Forwarded-Proto: https`. Sans elle, les deux en-têtes sont ignorés. |
 | `HABBLAUD_MENSAGENS` | activé (avec le terminal) | `0` désactive seulement les messages depuis le bureau (la zone dans le terminal et dans les détails de l'agent). |
 | `HABBLAUD_CODEX` | activé | `0` désactive Codex dans le bureau. |
 | `HABBLAUD_CODEX_DIRS` | détection automatique | Dossiers de Codex, séparés par des virgules (à la place de `~/.codex*` et `CODEX_HOME`). |

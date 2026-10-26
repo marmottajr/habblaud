@@ -296,8 +296,8 @@ comprobando la huella digital que mostró el setup.
   certificado válido en `https://<computador>.<tailnet>.ts.net`; agrega ese nombre a `HABBLAUD_ALLOWED_HOSTS`. Apunta
   siempre al puerto remoto, nunca al 4747 (que no pide iniciar sesión).
 - **Sesión:** 30 días; cambiar la contraseña (ejecutar el setup de nuevo) las cierra todas, y **Configuración ›
-  Acceso desde el celular › Salir** cierra la de ese dispositivo. Después de 5 contraseñas incorrectas seguidas, cada nuevo intento espera de
-  1 s a 5 min.
+  Acceso desde el celular › Salir** cierra la de ese dispositivo. Después de 5 contraseñas incorrectas seguidas desde la misma dirección, cada nuevo intento de esa dirección espera de
+  1 s a 5 min; las contraseñas incorrectas de una dirección nunca retrasan a otra, y unas 60 contraseñas incorrectas en 5 min sumando todas las direcciones pausan todo inicio de sesión hasta que termine la ventana.
 - **¿Cambió la IP?** `docker:up` vuelve a emitir el certificado del servidor cuando falta la IP nueva o cuando faltan
   30 días para que venza, con la misma CA (el celular sigue confiando en ella); el servidor cambia el certificado sin
   reiniciarse.
@@ -306,6 +306,8 @@ comprobando la huella digital que mostró el setup.
 Sin HTTPS, el puerto remoto no se inicia; `HABBLAUD_REMOTE_INSECURE_HTTP=1` fuerza HTTP plano (contraseña y cookie a
 la vista en la red). En modo Node: `HABBLAUD_REMOTE_PORT` y `HABBLAUD_REMOTE_HOST` (por defecto `0.0.0.0:4748`) y
 `HABBLAUD_REMOTE_TLS_DIR` (por defecto `~/.habblaud/remote-tls/server`).
+
+Detrás de un proxy inverso (p. ej. Traefik terminando el HTTPS), `HABBLAUD_REMOTE_TRUST_PROXY=<ip>[,<ip>...]` (las IPs exactas del proxy **tal como las ve Habblaud**; sin máscara) hace que el freno del inicio de sesión use la dirección real del cliente (`X-Forwarded-For`) y que la cookie lleve `Secure` cuando el proxy habla HTTPS (`X-Forwarded-Proto: https`). Sin la variable ambos encabezados se ignoran, porque cualquier cliente los escribe, y todos los clientes detrás del proxy comparten el mismo freno.
 
 ### Actualizar
 
@@ -759,6 +761,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_PTY` | desactivada | `1` activa la terminal interactiva (abrir, tomar el control y cerrar sesiones de Claude Code desde la oficina; solo con acceso local y fuera de Docker) y **Nuevo agente** (también en Docker, a través de `npm run codex:bridge`). Lee el aviso en [Privacidad y seguridad](#privacidad-y-seguridad). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` del PATH | El ejecutable de Claude Code que ejecutan la terminal interactiva y Nuevo agente. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Lo que puede hacer el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes): `permissions`, `messages`, `terminal`, `spawn` (separados por comas) o `none`. Las demás `HABBLAUD_REMOTE_*` las escribe `npm run remote:setup`. |
+| `HABBLAUD_REMOTE_TRUST_PROXY` | — | IPs (separadas por comas) del proxy inverso delante del puerto remoto, para que el freno del inicio de sesión use `X-Forwarded-For` y la cookie lleve `Secure` con `X-Forwarded-Proto: https`. Sin ella ambos encabezados se ignoran. |
 | `HABBLAUD_MENSAGENS` | activados (con la terminal) | `0` desactiva solo los mensajes desde la oficina (el cuadro en la terminal y en los detalles del agente). |
 | `HABBLAUD_CODEX` | activado | `0` desactiva Codex en la oficina. |
 | `HABBLAUD_CODEX_DIRS` | detección automática | Carpetas de Codex, separadas por comas (en lugar de `~/.codex*` y `CODEX_HOME`). |

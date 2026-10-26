@@ -11,13 +11,16 @@ import { tempDir } from '../test/fixtures';
 import { createApiHandler, sendJson } from './app';
 import { createRequestGuard, isLoopbackHost } from './guard';
 import {
+  clientSource,
   COOKIE,
   createRemoteGate,
   isRemoteRequest,
   loadSecret,
   LoginThrottle,
+  normalizeIp,
   parseAllow,
   parseRemoteConfig,
+  parseTrustProxy,
   readCookie,
   RemoteSessions,
   SESSION_MS,
@@ -118,37 +121,154 @@ describe('RemoteSessions', () => {
 });
 
 describe('LoginThrottle', () => {
+  const fail = (t: LoginThrottle, src: string) => {
+    expect(t.begin(src)).toBe(true);
+    t.end(src, false);
+  };
+
   it('libera 4 falhas, depois espera 1 s, 2 s... e zera ao acertar', () => {
     let now = 0;
     const t = new LoginThrottle(() => now);
-    for (let i = 0; i < 4; i++) t.fail();
-    expect(t.retryAfter()).toBe(0);
-    t.fail();
-    expect(t.retryAfter()).toBe(1);
+    for (let i = 0; i < 4; i++) fail(t, 'a');
+    expect(t.retryAfter('a')).toBe(0);
+    fail(t, 'a');
+    expect(t.retryAfter('a')).toBe(1);
     now += 1000;
-    t.fail();
-    expect(t.retryAfter()).toBe(2);
-    t.succeed();
-    expect(t.retryAfter()).toBe(0);
+    fail(t, 'a');
+    expect(t.retryAfter('a')).toBe(2);
+    now += 2000;
+    expect(t.begin('a')).toBe(true);
+    t.end('a', true);
+    expect(t.retryAfter('a')).toBe(0);
   });
 
-  it('uma tentativa por vez, contada como falha antes de conferir a senha', () => {
+  it('isola as origens: o bloqueio de uma não atrasa a outra, e o acerto de uma não limpa o da outra', () => {
+    const t = new LoginThrottle(() => 0);
+    for (let i = 0; i < 5; i++) fail(t, 'a');
+    expect(t.retryAfter('a')).toBeGreaterThan(0);
+    expect(t.retryAfter('b')).toBe(0);
+    expect(t.begin('b')).toBe(true);
+    t.end('b', true);
+    expect(t.retryAfter('a')).toBeGreaterThan(0);
+  });
+
+  it('uma tentativa por vez por origem, contada como falha antes de conferir a senha', () => {
     let now = 0;
     const t = new LoginThrottle(() => now);
     for (let i = 0; i < 4; i++) {
-      expect(t.begin()).toBe(true);
-      expect(t.begin()).toBe(false);
-      t.end(false);
+      expect(t.begin('a')).toBe(true);
+      expect(t.begin('a')).toBe(false);
+      expect(t.begin('b')).toBe(true);
+      t.end('b', true);
+      t.end('a', false);
     }
     // 5ª tentativa: já conta antes do fim, então a 6ª espera mesmo com a 5ª ainda conferindo.
-    expect(t.begin()).toBe(true);
-    expect(t.retryAfter()).toBe(1);
-    t.end(false);
-    expect(t.begin()).toBe(false);
+    expect(t.begin('a')).toBe(true);
+    expect(t.retryAfter('a')).toBe(1);
+    t.end('a', false);
+    expect(t.begin('a')).toBe(false);
     now += 1000;
-    expect(t.begin()).toBe(true);
-    t.end(true);
-    expect(t.retryAfter()).toBe(0);
+    expect(t.begin('a')).toBe(true);
+    t.end('a', true);
+    expect(t.retryAfter('a')).toBe(0);
+  });
+
+  it('esquece a origem parada há mais de 30 min', () => {
+    let now = 0;
+    const t = new LoginThrottle(() => now);
+    for (let i = 0; i < 5; i++) fail(t, 'a');
+    expect(t.size).toBe(1);
+    now += 31 * 60_000;
+    expect(t.retryAfter('a')).toBe(0);
+    expect(t.size).toBe(0);
+  });
+
+  it('mapa limitado: nunca passa do teto e o bloqueio ativo sobrevive a origens novas', () => {
+    let now = 0;
+    const t = new LoginThrottle(() => now, 3);
+    for (let i = 0; i < 5; i++) fail(t, 'a');
+    for (let i = 1; i <= 10; i++) {
+      now += 10;
+      fail(t, `x${i}`);
+      expect(t.size).toBeLessThanOrEqual(3);
+    }
+    expect(t.retryAfter('a')).toBeGreaterThan(0);
+  });
+
+  it('teto global: 60 erros de origens diferentes seguram todo mundo até a janela virar', () => {
+    let now = 0;
+    const t = new LoginThrottle(() => now);
+    for (let i = 0; i < 60; i++) fail(t, `o${i}`);
+    expect(t.begin('limpa')).toBe(false);
+    const wait = t.retryAfter('limpa');
+    expect(wait).toBeGreaterThan(0);
+    expect(wait).toBeLessThanOrEqual(300);
+    now += 300_000;
+    expect(t.begin('limpa')).toBe(true);
+    t.end('limpa', false);
+  });
+
+  it('teto global: a 60ª tentativa que acerta devolve a contagem', () => {
+    const t = new LoginThrottle(() => 0);
+    for (let i = 0; i < 59; i++) fail(t, `o${i}`);
+    expect(t.begin('dono')).toBe(true);
+    t.end('dono', true);
+    expect(t.begin('outra')).toBe(true);
+    t.end('outra', false);
+  });
+
+  it('no máximo 4 conferências ao mesmo tempo', () => {
+    const t = new LoginThrottle(() => 0);
+    for (const s of ['a', 'b', 'c', 'd']) expect(t.begin(s)).toBe(true);
+    expect(t.begin('e')).toBe(false);
+    expect(t.retryAfter('e')).toBe(1);
+    t.end('a', false);
+    expect(t.begin('e')).toBe(true);
+  });
+});
+
+describe('clientSource e parseTrustProxy', () => {
+  const trusted = new Set(['10.0.0.1', '10.0.0.2']);
+
+  it('par não confiável: o X-Forwarded-For é ignorado', () => {
+    expect(clientSource('203.0.113.5', '1.1.1.1', new Set())).toBe('203.0.113.5');
+    expect(clientSource('203.0.113.5', '1.1.1.1', trusted)).toBe('203.0.113.5');
+  });
+
+  it('par confiável: o primeiro não confiável da direita; forjado à esquerda e proxy intermediário não valem', () => {
+    expect(clientSource('10.0.0.1', '6.6.6.6, 198.51.100.7', trusted)).toBe('198.51.100.7');
+    expect(clientSource('10.0.0.1', '198.51.100.7, 10.0.0.2', trusted)).toBe('198.51.100.7');
+    expect(clientSource('10.0.0.1', ['6.6.6.6', '198.51.100.7'], trusted)).toBe('198.51.100.7');
+  });
+
+  it('cabeçalho ausente, lixo ou cadeia toda confiável: cai no par TCP', () => {
+    expect(clientSource('10.0.0.1', undefined, trusted)).toBe('10.0.0.1');
+    expect(clientSource('10.0.0.1', 'unknown', trusted)).toBe('10.0.0.1');
+    expect(clientSource('10.0.0.1', '1.2.3.4, lixo', trusted)).toBe('10.0.0.1');
+    expect(clientSource('10.0.0.1', '10.0.0.2', trusted)).toBe('10.0.0.1');
+  });
+
+  it('normaliza ::ffff: e agrupa IPv6 por /64', () => {
+    expect(clientSource('::ffff:203.0.113.5', undefined, new Set())).toBe('203.0.113.5');
+    expect(normalizeIp('fe80::1%eth0')).toBe('fe80::1');
+    expect(clientSource('2001:db8::1', undefined, new Set())).toBe(clientSource('2001:db8:0:0:ffff::9', undefined, new Set()));
+    expect(clientSource('2001:db8::1', undefined, new Set())).not.toBe(clientSource('2001:db9::1', undefined, new Set()));
+    expect(clientSource('2001:db8:0:1::1', undefined, new Set())).not.toBe(clientSource('2001:db8::1', undefined, new Set()));
+  });
+
+  it('parseTrustProxy aceita IPs (inclusive ::ffff:), separa o lixo e vazio dá nada', () => {
+    const r = parseTrustProxy('10.0.0.1, ::ffff:10.0.0.2, lixo, ');
+    expect([...r.ips].sort()).toEqual(['10.0.0.1', '10.0.0.2']);
+    expect(r.invalid).toEqual(['lixo']);
+    expect(parseTrustProxy(undefined)).toEqual({ ips: new Set(), invalid: [] });
+  });
+
+  it('parseRemoteConfig preenche trustProxy só com a variável', () => {
+    const base = { HABBLAUD_REMOTE_USER: 'ana', HABBLAUD_REMOTE_PASSWORD_HASH: HASH_TEXT };
+    const on = parseRemoteConfig({ ...base, HABBLAUD_REMOTE_TRUST_PROXY: '10.0.0.1,lixo' }, false, TLS_FILES).config;
+    expect([...on!.trustProxy]).toEqual(['10.0.0.1']);
+    expect(on!.trustProxyInvalid).toEqual(['lixo']);
+    expect(parseRemoteConfig(base, false, TLS_FILES).config!.trustProxy.size).toBe(0);
   });
 });
 
@@ -176,7 +296,7 @@ afterEach(async () => {
 });
 
 /** Uma porta local (sem login) e uma remota (com login), sobre a MESMA API, como no server/index.ts. */
-async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness> {
+async function start(allow: RemoteFeature[] = ['permissions'], opts: { trustProxy?: string[]; throttle?: LoginThrottle } = {}): Promise<Harness> {
   const tmp = tempDir();
   const dir = join(tmp.dir, '.claude');
   mkdirSync(join(dir, 'sessions'), { recursive: true });
@@ -232,7 +352,13 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     },
   });
   const guard = createRequestGuard();
-  const gate = createRemoteGate({ config: CFG, sessions: new RemoteSessions(SECRET, CFG), secure: false });
+  const gate = createRemoteGate({
+    config: CFG,
+    sessions: new RemoteSessions(SECRET, CFG),
+    secure: false,
+    trustProxy: new Set(opts.trustProxy ?? []),
+    throttle: opts.throttle,
+  });
   const page = (_req: http.IncomingMessage, res: http.ServerResponse) => {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end('<!doctype html><title>Habblaud</title>');
@@ -625,5 +751,41 @@ describe('cookie Secure e download da CA', () => {
     expect(ca.status).toBe(200);
     expect(ca.headers['content-type']).toBe('application/x-x509-ca-cert');
     expect((await request(base, '/login')).body).toContain('/remote/ca.crt');
+  });
+});
+
+describe('freio por origem na porta remota (HTTP)', () => {
+  const wrong = { user: 'ana', password: 'errada' };
+  const tryLogin = (base: string, headers: Record<string, string>, body: unknown = wrong) =>
+    request(base, '/api/remote/login', { method: 'POST', headers, body });
+
+  it('atrás de proxy confiável, o atacante não tranca o dono (cada origem tem o seu freio)', async () => {
+    const throttle = new LoginThrottle(() => 0);
+    const s = await start([], { trustProxy: ['127.0.0.1'], throttle });
+    for (let i = 0; i < 5; i++) expect((await tryLogin(s.remoteBase, { 'X-Forwarded-For': '203.0.113.9' })).status).toBe(401);
+    const blocked = await tryLogin(s.remoteBase, { 'X-Forwarded-For': '203.0.113.9' });
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+    const owner = await tryLogin(s.remoteBase, { 'X-Forwarded-For': '198.51.100.7' }, CREDS);
+    expect(owner.status).toBe(200);
+    expect(owner.headers['set-cookie']?.[0]).toMatch(/habblaud_remote=/);
+  });
+
+  it('sem proxy confiável, trocar o X-Forwarded-For não escapa do freio', async () => {
+    const s = await start([], { throttle: new LoginThrottle(() => 0) });
+    for (let i = 0; i < 5; i++) expect((await tryLogin(s.remoteBase, { 'X-Forwarded-For': `203.0.113.${i + 1}` })).status).toBe(401);
+    expect((await tryLogin(s.remoteBase, { 'X-Forwarded-For': '198.51.100.99' })).status).toBe(429);
+  });
+
+  it('Secure só com proxy confiável falando X-Forwarded-Proto: https (login e logout)', async () => {
+    const trusted = await start([], { trustProxy: ['127.0.0.1'] });
+    const cookieOf = async (base: string, path: string, headers: Record<string, string>) =>
+      (await request(base, path, { method: 'POST', headers, body: path.endsWith('login') ? CREDS : {} })).headers['set-cookie']?.[0] ?? '';
+    expect(await cookieOf(trusted.remoteBase, '/api/remote/login', { 'X-Forwarded-Proto': 'https' })).toMatch(/; Secure$/);
+    expect(await cookieOf(trusted.remoteBase, '/api/remote/logout', { 'X-Forwarded-Proto': 'https' })).toMatch(/Max-Age=0; Secure$/);
+    expect(await cookieOf(trusted.remoteBase, '/api/remote/login', {})).not.toMatch(/Secure/);
+    expect(await cookieOf(trusted.remoteBase, '/api/remote/login', { 'X-Forwarded-Proto': 'http' })).not.toMatch(/Secure/);
+    const plain = await start();
+    expect(await cookieOf(plain.remoteBase, '/api/remote/login', { 'X-Forwarded-Proto': 'https' })).not.toMatch(/Secure/);
   });
 });
