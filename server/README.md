@@ -91,6 +91,7 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
+| `GET /api/files` / `GET /api/files/list?path=` / `GET /api/files/raw?path=[&download=1]` | raízes (pastas das salas e `~/projetos`), conteúdo de uma pasta e um arquivo, em stream (`files/browse.ts`, `http/files.ts`); só leitura, mesma trava do terminal; desligado no Docker |
 
 O snapshot (SSE e `GET /api/snapshot`) leva só as últimas 8 atividades de cada agente em `recent`; o histórico
 de até 200 (inclusive o começo de transcripts longos, lido em segundo plano) vem de `GET /api/agents/:id`.

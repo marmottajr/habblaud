@@ -339,6 +339,17 @@ const ticker = setInterval(() => {
 }, 250);
 
 const api = createApiHandler({
+  // Arquivos das pastas de trabalho: as salas reais e ~/projetos. No Docker os caminhos das salas são do host e não
+  // existem aqui; desligado.
+  browse:
+    config.terminal && !config.inDocker
+      ? {
+          roots: () => [
+            ...hub.current().rooms.filter((r) => !isDemoId(r.id)).map((r) => ({ path: r.path, label: r.name, roomId: r.id })),
+            { path: join(config.home, 'projetos'), label: 'projetos' },
+          ],
+        }
+      : undefined,
   renameRoom: (id, name) => {
     const path = office.roomPath(id);
     if (!path) return undefined;

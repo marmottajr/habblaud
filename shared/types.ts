@@ -396,6 +396,41 @@ export interface AccessInfo {
    * com Host local. Ausente em servidores antigos.
    */
   world?: boolean;
+  /** Pode ver e baixar arquivos das pastas das salas e de ~/projetos (/api/files*). Ausente em servidores antigos. */
+  files?: boolean;
+}
+
+/** Pasta de onde o navegador de arquivos começa (GET /api/files): a de uma sala ou ~/projetos. */
+export interface FileRoot {
+  /** Caminho real (sem links), absoluto. */
+  path: string;
+  /** Nome da sala, ou "projetos". */
+  label: string;
+  /** Sala dona da raiz (ausente para ~/projetos). */
+  roomId?: string;
+}
+
+export interface FileEntry {
+  name: string;
+  type: 'dir' | 'file';
+  /** Bytes (0 para pasta). */
+  size: number;
+  /** ms desde 1970. */
+  mtime: number;
+  /** Tipo de visualização (o mesmo das entregas); ausente = só baixar. Nunca em pasta. */
+  kind?: DeliveryAttachmentKind;
+}
+
+/** GET /api/files/list. */
+export interface FileListing {
+  /** Caminho real da pasta listada. */
+  path: string;
+  /** Raiz que contém a pasta (FileRoot.path). */
+  root: string;
+  /** Pastas primeiro, depois arquivos; cada grupo em ordem alfabética (localeCompare, sensitivity 'base'). */
+  entries: FileEntry[];
+  /** A pasta tinha mais que FILE_LIST_MAX itens visíveis; só os primeiros vieram. */
+  truncated: boolean;
 }
 
 export interface FeedItem {

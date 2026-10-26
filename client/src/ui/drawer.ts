@@ -74,6 +74,18 @@ function section(title: string, ...children: (Node | null)[]): { el: HTMLElement
   return { el, title: t, extra };
 }
 
+/** O botão Arquivos só vale com o servidor liberando /api/files* e fora do mock e do replay. */
+function filesAvailable(ctx: UiContext): boolean {
+  return access().files === true && !ctx.store.mock && !ctx.store.replaying && !!ctx.openFiles;
+}
+
+function filesButton(title: string, open: () => void): HTMLButtonElement {
+  const b = h('button', { class: 'ui-btn', type: 'button', title, on: { click: open } });
+  b.innerHTML = ICONS.cabinet;
+  b.append(h('span', { text: tr('Arquivos') }));
+  return b;
+}
+
 function copyButton(getText: () => string, label: string): HTMLButtonElement {
   const b = iconButton(ICONS.copy, label, async () => {
     const ok = await copyText(getText());
@@ -214,6 +226,7 @@ class AgentView {
   private statusText: HTMLElement;
   private statusSince: HTMLElement;
   private followBtn: HTMLButtonElement;
+  private filesBtn: HTMLButtonElement;
   private termBtn: HTMLButtonElement;
   private termLabel: HTMLElement;
   /** Por que o terminal não abre: no celular não há hover para ler o title, então o toque mostra o motivo aqui. */
@@ -299,11 +312,12 @@ class AgentView {
     const centerBtn = h('button', { class: 'ui-btn', type: 'button', title: tr('Levar a câmera até o agente'), on: { click: () => ctx.focusSelection() } });
     centerBtn.innerHTML = ICONS.center;
     centerBtn.append(h('span', { text: tr('Centralizar') }));
+    this.filesBtn = filesButton(tr('Ver e baixar os arquivos da pasta da sala deste agente'), () => this.last && this.ctx.openFiles?.(this.last.roomId));
     const statusRow = h(
       'div',
       { class: 'ui-status' },
       h('span', { class: 'ui-status__label' }, this.dot, this.statusText, this.statusSince),
-      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn),
+      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn, this.filesBtn),
     );
 
     // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
@@ -536,6 +550,7 @@ class AgentView {
     setStyleVar(this.avatar, '--acc', account?.color ?? '#8b98b3');
     setText(this.name, a.name);
     this.character.render(a, !!live);
+    setHidden(this.filesBtn, !filesAvailable(this.ctx) || !live);
     setText(this.role, roleLabel(a));
     setVariant(this.role, 'ui-role--', a.kind);
     setText(this.title, a.title ?? '');
@@ -814,6 +829,7 @@ class RoomView {
   private feed: KeyedList<FeedItem>;
   private feedSec: ReturnType<typeof section>;
   private newBtn: HTMLButtonElement;
+  private filesBtn: HTMLButtonElement;
   private newMsg: HTMLElement;
 
   constructor(
@@ -821,6 +837,7 @@ class RoomView {
     private pty: PtyControl,
   ) {
     this.newBtn = h('button', { class: 'ui-btn', type: 'button', text: tr('Nova sessão'), title: tr('Abre um Claude Code novo nesta pasta, num terminal interativo'), on: { click: () => this.newSession() } });
+    this.filesBtn = filesButton(tr('Ver e baixar os arquivos da pasta desta sala'), () => this.last && this.ctx.openFiles?.(this.last.id));
     this.newMsg = h('p', { class: 'ui-actions__msg is-error', role: 'status', hidden: true });
     this.swatch = h('span', { class: 'ui-room-hero__swatch', attrs: { 'aria-hidden': 'true' } });
     this.name = h('h2', { class: 'ui-hero__name' });
@@ -881,7 +898,7 @@ class RoomView {
         h('div', { class: 'ui-hero__text' }, h('div', { class: 'ui-room-hero__title' }, this.name, this.renameBtn), h('span', { class: 'ui-copy-row' }, this.path, copyButton(() => this.last?.path ?? '', tr('Copiar caminho')))),
       ),
       this.gone,
-      h('div', { class: 'ui-status' }, accsEl, h('span', { class: 'ui-status__actions' }, this.newBtn, centerBtn)),
+      h('div', { class: 'ui-status' }, accsEl, h('span', { class: 'ui-status__actions' }, this.filesBtn, this.newBtn, centerBtn)),
       this.newMsg,
       this.agentsSec.el,
       this.tasksSec.el,
@@ -931,6 +948,7 @@ class RoomView {
     setHidden(this.gone, !!live);
     setHidden(this.renameBtn, !live || !canRenameRoom(this.ctx, r.id));
     setHidden(this.newBtn, !this.pty.enabled);
+    setHidden(this.filesBtn, !filesAvailable(this.ctx) || !live);
 
     const snap = this.ctx.store.snapshot;
     const agents = (snap?.agents ?? []).filter((a) => a.roomId === r.id);

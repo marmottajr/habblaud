@@ -21,6 +21,7 @@ import type { SpawnFolder } from '../spawn/folders';
 import { AUDIO_BODY_MAX, type DictationService } from '../dictation/dictation';
 import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
+import { handleFilesRoute, type BrowseDeps } from './files';
 import { HOST_WAIT_MS } from '../host-wait';
 
 export interface ApiDeps {
@@ -73,6 +74,8 @@ export interface ApiDeps {
   dictation?: DictationService;
   /** Entregas (GET /api/deliveries e os anexos em /api/deliveries/file/:id; deliveries/deliveries.ts). */
   deliveries?: DeliveryIndex;
+  /** Arquivos das pastas de trabalho (/api/files*, http/files.ts): só leitura; mesma trava do terminal. Ausente = desligado (sem terminal ou no Docker). */
+  browse?: BrowseDeps;
   /** Quem lê os arquivos das entregas (e, para o auxiliar do host, /api/host/files/*; deliveries/fetcher.ts). */
   files?: FileFetcher;
   /** Renomeia a sala (POST /api/rooms/rename {id, name}; vazio volta ao padrão). Devolve o nome em uso, ou undefined se a sala não existe. */
@@ -164,21 +167,26 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
   res.end(data);
 }
 
-/**
- * Anexo de entrega. Páginas e SVG vêm numa sandbox sem scripts (CSP), para não rodarem com o login do escritório;
- * PDF e imagens podem abrir dentro do modal (mesma origem).
- */
-function sendFile(res: ServerResponse, data: Buffer, type: string, name: string): void {
+/** Cabeçalhos de um arquivo para ver na página (anexos das entregas, /api/files/raw). HTML e SVG em sandbox sem scripts. */
+export function viewHeaders(type: string, name: string, length: number): Record<string, string | number> {
   const active = /^text\/html|^image\/svg/.test(type);
-  res.writeHead(200, {
+  return {
     'Content-Type': type,
-    'Content-Length': data.length,
+    'Content-Length': length,
     'Cache-Control': 'private, max-age=300',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
     'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(name)}`,
     ...(active ? { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data: blob: 'self'; style-src 'unsafe-inline'; media-src 'self'" } : {}),
-  });
+  };
+}
+
+/**
+ * Anexo de entrega. Páginas e SVG vêm numa sandbox sem scripts (CSP), para não rodarem com o login do escritório;
+ * PDF e imagens podem abrir dentro do modal (mesma origem).
+ */
+function sendFile(res: ServerResponse, data: Buffer, type: string, name: string): void {
+  res.writeHead(200, viewHeaders(type, name, data.length));
   res.end(data);
 }
 
@@ -399,6 +407,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           terminal: !!terminals && trusted(req, 'terminal'),
           spawn: !!deps.spawn && trusted(req, 'spawn'),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
+          files: !!deps.browse && trusted(req, 'terminal'),
         };
         sendJson(res, 200, access);
       }
@@ -550,6 +559,21 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         if (info) sendJson(res, 200, info);
         else sendJson(res, 404, { error: tr('ditado desconhecido') });
       } else methodNotAllowed(res, path === '/api/dictation' ? 'GET, POST' : 'GET');
+      return true;
+    }
+    if (path === '/api/files' || path.startsWith('/api/files/')) {
+      // Arquivos da pasta de trabalho: a mesma trava do terminal.
+      const browse = deps.browse;
+      if (!browse) sendJson(res, 403, { error: tr('arquivos desligados (precisam do terminal: acesso local, fora do Docker)') });
+      else if (!isRead) methodNotAllowed(res, 'GET');
+      else if (!trusted(req, 'terminal')) sendJson(res, 403, { error: denied(req, tr('os arquivos só abrem pelo próprio computador (http://localhost)')) });
+      else {
+        try {
+          handleFilesRoute(req, res, url, browse);
+        } catch (err) {
+          fail(res, err);
+        }
+      }
       return true;
     }
     if (path === '/api/deliveries' || path.startsWith('/api/deliveries/')) {

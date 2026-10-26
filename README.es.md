@@ -936,6 +936,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `/api/messages…` y `/api/mod/inbox…` | Enviar mensajes: la página deja el mensaje en la cola y sigue la entrega; el plugin `habblaud-mensagens` lo recoge, lo entrega a la sesión y lo confirma. Solo con acceso local. |
 | `POST /api/codex/events` | Eventos de los hooks de Codex (sesión abierta, herramienta, aprobación, fin del turno). Solo con acceso local. |
 | `/api/codex/bridge/poll` y `/ack` | `npm run codex:bridge` recoge los mensajes para Codex y confirma la entrega. Solo con acceso local. |
+| `/api/files…` | Archivos de la carpeta de trabajo: navegar por las carpetas de cada sala y de `~/projetos`, ver y descargar archivos (solo lectura). Solo con acceso local (desde el celular, con `terminal` en `HABBLAUD_REMOTE_ALLOW`); desactivado en Docker. |
 
 Más detalles del servidor en [`server/README.md`](server/README.md).
 

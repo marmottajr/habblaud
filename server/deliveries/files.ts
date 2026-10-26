@@ -38,6 +38,11 @@ const TYPES: Readonly<Record<string, { kind: DeliveryAttachmentKind; type: strin
 const SECRET_DIRS = /(^|\/)(\.ssh|\.gnupg|\.aws|\.azure|\.kube|\.docker|\.password-store|\.config\/gh|\.config\/gcloud|Keychains|\.habblaud\/remote-tls)(\/|$)/i;
 const SECRET_NAMES = /(^|\/)(\.env[^/]*|id_[a-z0-9]+|[^/]*\.(pem|key|p12|pfx|keystore|jks|kdbx)|[^/]*(secret|credential|password|senha|token)[^/]*)$/i;
 
+/** O caminho tem pasta ou nome com cara de segredo (.ssh, .env, chaves, credenciais...). */
+export function isSecretPath(path: string): boolean {
+  return SECRET_DIRS.test(path) || SECRET_NAMES.test(path);
+}
+
 export function extensionOf(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? '';
   const dot = base.lastIndexOf('.');
@@ -53,7 +58,7 @@ export function fileType(path: string): { kind: DeliveryAttachmentKind; type: st
 export function pathProblem(path: string): string | undefined {
   if (!path || path.includes('\0') || !path.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(path)) return tr('caminho inválido');
   if (!fileType(path)) return tr('tipo de arquivo que não se mostra aqui');
-  if (SECRET_DIRS.test(path) || SECRET_NAMES.test(path)) return tr('arquivo protegido');
+  if (isSecretPath(path)) return tr('arquivo protegido');
   return undefined;
 }
 

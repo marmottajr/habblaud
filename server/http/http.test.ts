@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModSummary, OfficeSnapshot, PermissionRequestInfo, UpdateStatus } from '../../shared/types';
@@ -8,6 +8,7 @@ import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office, type OfficeDeps } from '../model/office';
+import { DELIVERY_FILE_MAX_BYTES } from '../deliveries/files';
 import { tempDir } from '../test/fixtures';
 import { createApiHandler, type ApiDeps } from './app';
 import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllowed, parseAllowedHosts } from './guard';
@@ -436,5 +437,111 @@ describe('guarda de Host/Origin', () => {
     expect(originAllowed('http://1.2.3.4', 'localhost:4747', allowed)).toBe(false);
     expect(originAllowed('null', 'localhost:4747', allowed)).toBe(false);
     expect(originAllowed('file://', 'localhost:4747', allowed)).toBe(false);
+  });
+});
+
+describe('arquivos (/api/files)', () => {
+  let env: Env & { cleanup: () => void };
+  let files: { dir: string; cleanup: () => void };
+  let proj: string;
+
+  beforeEach(async () => {
+    files = tempDir();
+    proj = join(realpathSync(files.dir), 'proj');
+    mkdirSync(join(proj, 'sub'), { recursive: true });
+    writeFileSync(join(proj, 'a.txt'), 'olá arquivo');
+    writeFileSync(join(proj, 'b.bin'), Buffer.from([0, 1, 2, 3]));
+    writeFileSync(join(proj, 'pagina.html'), '<h1>oi</h1>');
+    writeFileSync(join(proj, '.env'), 'SEGREDO=1');
+    writeFileSync(join(proj, 'sub', 'c.png'), 'png');
+    env = await start({ browse: { roots: () => [{ path: proj, label: 'proj' }] } });
+  });
+  afterEach(async () => {
+    await env.close();
+    env.cleanup();
+    files.cleanup();
+  });
+
+  const q = (route: string, path: string, extra = '') => `${env.base}/api/files/${route}?path=${encodeURIComponent(path)}${extra}`;
+
+  it('GET /api/files lista as raízes', async () => {
+    const r = await fetch(`${env.base}/api/files`);
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { roots: { label: string }[] }).roots).toMatchObject([{ label: 'proj', path: proj }]);
+  });
+
+  it('GET /api/files/list lista a pasta sem ocultos', async () => {
+    const r = await fetch(q('list', proj));
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { entries: { name: string; kind?: string }[] };
+    expect(body.entries.map((e) => e.name)).toEqual(['sub', 'a.txt', 'b.bin', 'pagina.html']);
+    expect(body.entries.find((e) => e.name === 'a.txt')!.kind).toBe('text');
+    expect(body.entries.find((e) => e.name === 'b.bin')!.kind).toBeUndefined();
+  });
+
+  it('GET /api/files/raw serve texto inline', async () => {
+    const r = await fetch(q('raw', join(proj, 'a.txt')));
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(r.headers.get('content-disposition')).toMatch(/^inline/);
+    expect(await r.text()).toBe('olá arquivo');
+  });
+
+  it('GET /api/files/raw de página vem em sandbox', async () => {
+    const r = await fetch(q('raw', join(proj, 'pagina.html')));
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-security-policy')).toContain('sandbox');
+  });
+
+  it('tipo que não abre: 415 para ver, 200 attachment para baixar', async () => {
+    expect((await fetch(q('raw', join(proj, 'b.bin')))).status).toBe(415);
+    const r = await fetch(q('raw', join(proj, 'b.bin'), '&download=1'));
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('application/octet-stream');
+    expect(r.headers.get('content-disposition')).toMatch(/^attachment/);
+    expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([0, 1, 2, 3]);
+  });
+
+  it('oculto e pasta fora da raiz: 404', async () => {
+    expect((await fetch(q('raw', join(proj, '.env'), '&download=1'))).status).toBe(404);
+    expect((await fetch(q('list', realpathSync(files.dir)))).status).toBe(404);
+  });
+
+  it('arquivo grande: ver dá 413, baixar dá 200 com o tamanho inteiro', async () => {
+    const big = join(proj, 'grande.txt');
+    writeFileSync(big, '');
+    truncateSync(big, DELIVERY_FILE_MAX_BYTES + 1);
+    expect((await fetch(q('raw', big))).status).toBe(413);
+    const u = new URL(q('raw', big, '&download=1'));
+    const head = await new Promise<{ status: number; length: string | undefined }>((ok, fail) => {
+      const req = http.get(u, (res) => {
+        ok({ status: res.statusCode ?? 0, length: res.headers['content-length'] });
+        res.destroy();
+      });
+      req.on('error', fail);
+    });
+    expect(head).toEqual({ status: 200, length: String(DELIVERY_FILE_MAX_BYTES + 1) });
+  });
+
+  it('POST /api/files/list: 405', async () => {
+    const r = await fetch(q('list', proj), { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    expect(r.status).toBe(405);
+    expect(r.headers.get('allow')).toBe('GET');
+  });
+
+  it('Host que não é local: 403', async () => {
+    const port = new URL(env.base).port;
+    expect((await raw(env.base, '/api/files', { headers: { Host: `habblaud.lan:${port}` } })).status).toBe(403);
+  });
+
+  it('sem browse: 403 e access.files false', async () => {
+    const off = await start();
+    try {
+      expect((await fetch(`${off.base}/api/files`)).status).toBe(403);
+      expect(((await (await fetch(`${off.base}/api/access`)).json()) as { files: boolean }).files).toBe(false);
+    } finally {
+      await off.close();
+      off.cleanup();
+    }
   });
 });

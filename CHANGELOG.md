@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Arquivos da pasta de trabalho:** na gaveta da sala e na do agente, o botão Arquivos abre as pastas e os arquivos da
+  sala (e de ~/projetos, quando existir). Dá para ver imagem, PDF, vídeo, texto e página e baixar qualquer arquivo; nada
+  com "." no nome nem com cara de segredo aparece. Só leitura, com a mesma trava do terminal (pelo celular, com terminal
+  em HABBLAUD_REMOTE_ALLOW). Desligado no Docker.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

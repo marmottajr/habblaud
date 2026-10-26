@@ -71,6 +71,8 @@ export interface UiContext {
   toggleWorld(): void;
   /** Abre o campo de renomear a sala perto do ponto (px da janela); botão direito na sala (ui/roomrename.ts). */
   renameRoom?(roomId: string, at: { x: number; y: number }): void;
+  /** (Opcional) Abre a janela Arquivos na pasta da sala (botão da gaveta; ui/files.ts). Só existe com a janela montada. */
+  openFiles?(roomId: string): void;
   /**
    * (Opcional) "Ver como os outros veem": abre a cidade do Habblaud World e entra no próprio prédio (a cena Visita). Só
    * existe com a cena Mundo montada (app.ts).
