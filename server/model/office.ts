@@ -28,6 +28,7 @@ import { nameKey, type AppearanceParts } from '../../shared/appearance';
 import { DemoSimulator } from '../../shared/demo/simulator';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
+import { nameFromType, uniqueName } from '../../shared/names';
 import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
@@ -114,6 +115,8 @@ export interface SubInput {
   parentId: string;
   sessionId: string;
   role: string;
+  /** Tipo do subagente ("code-reviewer"), quando a chamada indicou um: vira o nome do personagem. */
+  subagentType?: string;
   title?: string;
   background: boolean;
   startedAt: number;
@@ -589,7 +592,11 @@ export class Office {
       this.reactivateSub(p.id);
       return true;
     }
-    const person = this.deps.names.assign(p.id, this.takenNames());
+    const taken = this.takenNames();
+    // Com tipo, o personagem chama-se pelo tipo ("code-reviewer" → "Code Reviewer"), e dois do mesmo
+    // tipo ao mesmo tempo ficam "Code Reviewer" e "Code Reviewer 2". Sem tipo, continua o sorteio.
+    const typed = p.subagentType ? nameFromType(p.subagentType) : null;
+    const person = typed ? { name: uniqueName(typed.name, taken), look: typed.look } : this.deps.names.assign(p.id, taken);
     const info: AgentInfo = {
       id: p.id,
       kind: 'sub',

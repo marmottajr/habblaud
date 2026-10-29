@@ -1,3 +1,4 @@
+import { nameKey, parseCharacterName } from './appearance';
 import { hash32 } from './hash';
 
 export interface PersonName {
@@ -41,8 +42,33 @@ export function pickName(id: string, used: ReadonlySet<string>): PersonName {
     if (!used.has(cand.name)) return cand;
   }
   const base = NAME_POOL[start];
-  for (let k = 2; ; k++) {
-    const name = `${base.name} ${k}`;
-    if (!used.has(name)) return { name, look: base.look };
+  return { name: uniqueName(base.name, used), look: base.look };
+}
+
+/** `base` como está, ou com sufixo numérico ("Revisor 2") enquanto o nome estiver em uso. */
+export function uniqueName(base: string, used: ReadonlySet<string>): string {
+  for (let k = 1; ; k++) {
+    const name = k === 1 ? base : `${base} ${k}`;
+    if (!used.has(name)) return name;
   }
+}
+
+function capitalize(word: string): string {
+  const letters = [...word];
+  return letters[0].toLocaleUpperCase('pt-BR') + letters.slice(1).join('');
+}
+
+/**
+ * Nome do personagem a partir do tipo do subagente: "code-reviewer" → "Code Reviewer", "revisor" → "Revisor".
+ * null quando o tipo não serve como nome (vazio, só pontuação, ou maior que NAME_MAX), e aí vale o sorteio.
+ * A dica visual vem do pool quando o nome é um dos de lá, senão do hash do nome: estável entre reinícios.
+ */
+export function nameFromType(type: string): PersonName | null {
+  const words = type.normalize('NFC').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (!words.length) return null;
+  const name = words.map(capitalize).join(' ');
+  if (parseCharacterName(name) !== name) return null;
+  const key = nameKey(name);
+  const pooled = NAME_POOL.find((p) => nameKey(p.name) === key);
+  return { name, look: pooled?.look ?? NAME_POOL[hash32(key) % NAME_POOL.length].look };
 }
