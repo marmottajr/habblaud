@@ -108,6 +108,10 @@ type Item = Bubble | Label;
 const CODEX_CHIP_BG = '#161b26';
 /** Selo "CODEX" das etiquetas: discreto (vidro claro), sem a cor de ninguém. */
 const CODEX_BADGE = 'CODEX';
+/** Selo da ferramenta na etiqueta: "CODEX" ou "OPENCODE" (Claude Code, nenhum). */
+function toolBadge(provider: string | undefined): string | undefined {
+  return provider === 'codex' ? CODEX_BADGE : provider === 'opencode' ? 'OPENCODE' : undefined;
+}
 
 /** Octógono "em degrau" (um quadrado de cantos cortados, como um pixel arredondado). */
 function steppedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number): void {
@@ -876,7 +880,8 @@ export class Overlay {
     const chipW = acc ? 13 : 0;
     const visitor = ch === this.sim.visitor;
     const badgeW = visitor ? this.measure(BADGE_FONT, visitorBadge()) + 7 : ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
-    const codexW = ch.info.provider === 'codex' && !l.compact ? this.measure(BADGE_FONT, CODEX_BADGE) + 7 : 0;
+    const tool = toolBadge(ch.info.provider);
+    const codexW = tool && !l.compact ? this.measure(BADGE_FONT, tool) + 7 : 0;
     return { nameW, chipW, badgeW, codexW };
   }
 
@@ -907,7 +912,8 @@ export class Overlay {
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
     const sub = ch.info.kind === 'sub';
-    const codex = ch.info.provider === 'codex' || acc?.provider === 'codex';
+    // Codex e OpenCode: o mesmo chip vazado ("outra ferramenta").
+    const codex = !!toolBadge(ch.info.provider) || !!toolBadge(acc?.provider);
     const { nameW, chipW, badgeW, codexW } = this.labelWidth(l);
     const { x, y, w, h } = l;
     const selected = sel.agent === ch.id;
@@ -970,7 +976,7 @@ export class Overlay {
       ctx.fill();
       ctx.font = BADGE_FONT;
       ctx.fillStyle = '#e8ecf5';
-      ctx.fillText(CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText(toolBadge(ch.info.provider) ?? CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
     }
   }
 }

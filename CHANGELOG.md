@@ -10,6 +10,16 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **OpenCode no escritório.** As sessões do OpenCode (a TUI `opencode` e o `opencode serve`) entram no escritório:
+  cada projeto é uma sala e cada sessão, um personagem com o selo **OPENCODE**, trabalhando, ocioso ou esperando a
+  resposta de uma pergunta. O Habblaud lê o `opencode.db` (`~/.local/share/opencode`, `XDG_DATA_HOME` ou
+  `HABBLAUD_OPENCODE_DIR`) só para leitura, sem instalar nada; `HABBLAUD_OPENCODE=0` desliga. Precisa do Node 22.13
+  ou mais novo. Limites: os pedidos de permissão do OpenCode não ficam no banco (o agente aparece trabalhando), o
+  terminal e as mensagens do escritório ainda não falam com ele, e os agentes do OpenCode não sobem para o Habblaud
+  World.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
