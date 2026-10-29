@@ -4,7 +4,7 @@ import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '..
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
-import { accountChipLabel, accountProvider, fallbackShort, showsProviderTag } from './provider';
+import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 import { tr } from '../../../shared/i18n';
 
 /**
@@ -20,7 +20,7 @@ export function updateAccountChip(chip: HTMLElement, account: AccountInfo | unde
   const p = accountProvider(account, fallbackId, provider);
   setText(chip, account?.short ?? fallbackShort(fallbackId, p));
   setStyleVar(chip, '--acc', account?.color ?? '#8b98b3');
-  setAttr(chip, 'data-provider', p === 'codex' ? 'codex' : null);
+  setAttr(chip, 'data-provider', p === 'claude' ? null : 'codex');
   const label = accountChipLabel(account, fallbackId, p);
   setTitle(chip, label);
   setAttr(chip, 'aria-label', label);
@@ -31,9 +31,15 @@ export function createProviderTag(extra = ''): HTMLElement {
   return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: 'Codex', hidden: true, title: tr('Agente do Codex (OpenAI)') });
 }
 
+const PROVIDER_TAG_TITLE: Partial<Record<Provider, string>> = { codex: tr('Agente do Codex (OpenAI)'), opencode: tr('Agente do OpenCode') };
+
 /** Mostra o selo só para o Codex (e não repete quando o nome da conta já diz "Codex"). */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
   setHidden(tag, !showsProviderTag(provider, accountName));
+  if (provider !== 'claude') {
+    setText(tag, PROVIDER_NAME[provider]);
+    setTitle(tag, PROVIDER_TAG_TITLE[provider] ?? PROVIDER_NAME[provider]);
+  }
 }
 
 /** Quadradinho de status (pixel), com pulso quando precisa de você. */

@@ -140,6 +140,8 @@ export function projectWithReport(input: ProjectionInput, ids: WorldIdSource, no
   for (const a of input.agents) {
     if (isDemoId(a.id) || isDemoId(a.roomId) || !roomIds.has(a.roomId)) continue;
     if ((a.kind !== 'main' && a.kind !== 'sub') || !isWorldStatus(a.status)) continue;
+    // O protocolo do mundo só conhece Claude Code e Codex: um agente do OpenCode não sobe (em vez de subir como outro).
+    if (a.provider === 'opencode') continue;
     const list = byRoom.get(a.roomId);
     if (list) list.push(a);
     else byRoom.set(a.roomId, [a]);
