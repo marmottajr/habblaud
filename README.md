@@ -542,6 +542,35 @@ terminal** leaves the question there. The answer reaches the agent as if you had
 - In demo mode, the made-up agents also ask for permission and ask questions (pretend ones), so you can
   try it out.
 
+### External requests
+
+A service of your own running on the same computer (a decision dashboard, a deploy script) can also ask for a choice
+through the office, with no Claude session. Set a token in `HABBLAUD_PEDIDOS_TOKEN` (in `.env`, with Docker) and the
+service registers the request with a title, text, options and the recommended option:
+
+```sh
+curl -s http://127.0.0.1:4747/api/requests \
+  -H "Authorization: Bearer $HABBLAUD_PEDIDOS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"source": "dashboard", "externalId": "dec-42", "title": "Which database for the shop?",
+       "text": "The project needs a database for orders.",
+       "options": [{"id": "pg", "label": "Postgres"}, {"id": "sqlite", "label": "SQLite"}],
+       "recommended": "pg"}'
+```
+
+The **Request from dashboard** card shows up in the corner of the office, with the recommended option marked ★; with
+several, `‹ ›` moves between them. The service waits for the choice on `GET /api/requests/<id>/wait` (long-poll of up
+to 60 s; call again while it returns `pending`) or checks `GET /api/requests/<id>`, and gets
+`{"status": "decided", "option": "pg"}`.
+
+- Registering the same `source` + `externalId` again returns the same request (retrying is safe); once expired or
+  withdrawn, it opens a new one. A decided request takes no other choice (409). `POST /api/requests/<id>/withdraw`
+  withdraws a request settled elsewhere.
+- A request expires with no choice after 24 h (`"ttl"` in seconds, from 60 s to 7 days). Everything stays in memory:
+  after Habblaud restarts, the service registers again.
+- Without the token, the feature is off. The service routes require the token and only work from this computer (never
+  through the phone port); choosing follows the same lock as [Answering from the office](#answering-from-the-office).
+  No route enables CORS: a page open in the browser can't register or read requests.
+
 ### Sending messages
 
 With the messages plugin installed (`npm run mod:install`, which installs it along with the mod; it requires Claude Code
@@ -726,6 +755,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_CLAUDE_BIN` | `claude` from PATH | The Claude Code executable that the interactive terminal and New agent run. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | What the [phone with login](#phone-with-login-and-https-approving-requests) can do: `permissions`, `messages`, `terminal`, `spawn` (comma-separated) or `none`. The other `HABBLAUD_REMOTE_*` are written by `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | on (with the terminal) | `0` turns off only messages from the office (the box in the terminal and in the agent's details). |
+| `HABBLAUD_PEDIDOS_TOKEN` | off | Token for [external requests](#external-requests): with it, a local service can ask for choices through the office (`Authorization: Bearer <token>`). |
 | `HABBLAUD_CODEX` | on | `0` turns off Codex in the office. |
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` from PATH (on Windows, `codex.exe`) | The Codex binary that delivers the messages (`codex queue`), in Node mode or in `npm run codex:bridge`. |
@@ -899,6 +929,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renames the room (empty goes back to the folder name); the name is stored in `rooms.json`, in the data folder. Local access only. |
 | `GET /api/mod/summary` | For the Claude Code mod: version, how many agents, how many are working and who needs you (without the demo and, with `?account=&session=`, without its own session). |
 | `/api/permissions…` | Answering from the office: the permission hook registers the request (permission or question) and waits; the page fetches the details and decides or answers. Local access only. |
+| `/api/requests…` | [External requests](#external-requests): a local service registers the request and waits for the choice (with `HABBLAUD_PEDIDOS_TOKEN`); the page chooses. Local access only. |
 | `/api/messages…` and `/api/mod/inbox…` | Sending messages: the page puts the message in the queue and follows its delivery; the `habblaud-mensagens` plugin fetches it, delivers it to the session and confirms. Local access only. |
 | `POST /api/codex/events` | Events from the Codex hooks (session opened, tool, approval, end of turn). Local access only. |
 | `/api/codex/bridge/poll` and `/ack` | `npm run codex:bridge` fetches the messages for Codex and confirms delivery. Local access only. |
@@ -973,6 +1004,9 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   can also answer; on computers shared with other users, don't install the hook
   (`npm run mod:install -- --sem-permissoes`).
   Exception: the [phone with login](#phone-with-login-and-https-approving-requests) answers too (that is its default) and sees the same command or diff.
+- **External requests, opt-in:** they only exist when you set `HABBLAUD_PEDIDOS_TOKEN`. The service routes require
+  the token and only work from this computer (never through the phone port), and no route enables CORS. The request's
+  title, text and options go into the snapshot, to every open office page: don't put secrets in them.
 - **Sending messages, local only — and with a warning:** the message goes into the session as if you had typed it, so
   whatever the agent can do with a request of yours applies. It follows the same safeguard (local bind, local `Host`, JSON and local origin,
   so a site open in the browser can't send one), but **any program on this machine** that talks to

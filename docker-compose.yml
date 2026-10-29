@@ -34,6 +34,8 @@ services:
       HABBLAUD_TERMINAL: ${HABBLAUD_TERMINAL:-}
       # 0 desliga as mensagens pelo escritório (mandar mensagens aos agentes pela página e pelo terminal).
       HABBLAUD_MENSAGENS: ${HABBLAUD_MENSAGENS:-}
+      # Pedidos externos (POST /api/requests): sem token, desligados.
+      HABBLAUD_PEDIDOS_TOKEN: ${HABBLAUD_PEDIDOS_TOKEN:-}
       # 0 desliga a verificação de versão nova (consulta às releases no GitHub a cada 6 h).
       HABBLAUD_UPDATE_CHECK: ${HABBLAUD_UPDATE_CHECK:-}
       HABBLAUD_LANG: ${HABBLAUD_LANG:-}

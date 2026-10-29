@@ -336,6 +336,11 @@ export interface OfficeSnapshot {
   agents: AgentInfo[];
   /** Terminais interativos abertos pelo Habblaud (Claude Code rodando dentro do navegador). */
   ptys?: PtyInfo[];
+  /**
+   * Pedidos externos esperando uma escolha (server/requests/), do mais antigo para o mais recente. Ausente = recurso
+   * desligado (sem HABBLAUD_PEDIDOS_TOKEN ou sem a trava do terminal).
+   */
+  requests?: ExternalRequestInfo[];
   /** Contas do Claude detectadas (com uso de 5h/semanal quando disponível). */
   accounts: AccountInfo[];
   meta: {
@@ -617,6 +622,34 @@ export interface PermissionSuggestionInfo {
   rules: string[];
   /** Onde a regra fica guardada: 'session', 'localSettings', 'projectSettings' ou 'userSettings'. */
   destination: string;
+}
+
+/** Uma opção de um pedido externo. */
+export interface ExternalRequestOption {
+  /** Identificador da opção no serviço que pediu (volta na escolha). */
+  id: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * Pedido externo (server/requests/): um serviço local (um painel de decisões, um script) registra uma pergunta com
+ * opções em POST /api/requests e espera a escolha. O escritório mostra o cartão sem precisar de uma sessão do Claude.
+ */
+export interface ExternalRequestInfo {
+  id: string;
+  /** Quem pediu (ex.: "sonar"), escolhido pelo serviço. */
+  source: string;
+  /** Identificador do pedido no serviço (registrar de novo com o mesmo par source + externalId devolve este pedido). */
+  externalId: string;
+  title: string;
+  text?: string;
+  options: ExternalRequestOption[];
+  /** ExternalRequestOption.id da opção recomendada. */
+  recommended?: string;
+  createdAt: number;
+  /** Depois disso o pedido expira sem escolha. */
+  expiresAt: number;
 }
 
 /**

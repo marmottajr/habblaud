@@ -41,6 +41,11 @@ export interface ServerConfig {
    * trava do terminal e HABBLAUD_MENSAGENS sem desligar (ver messagesOffReason).
    */
   messages: boolean;
+  /**
+   * Token dos pedidos externos (HABBLAUD_PEDIDOS_TOKEN, server/requests/). Ausente = recurso desligado; com ele, o recurso
+   * ainda segue a trava do terminal.
+   */
+  requestsToken?: string;
   /** Grava a linha do tempo do escritório para o timelapse (<dataDir>/timeline); HABBLAUD_TIMELINE=0 desliga. */
   timeline: boolean;
   /** Raiz do projeto (onde fica o package.json); serve dist/client a partir daqui. */
@@ -243,6 +248,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,
+    requestsToken: env.HABBLAUD_PEDIDOS_TOKEN?.trim() || undefined,
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     rootDir,
     version: pkg.version,

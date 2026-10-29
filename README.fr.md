@@ -570,6 +570,35 @@ vous l'aviez choisie dans le terminal.
 - En mode démonstration, les agents fictifs demandent aussi des permissions et posent des questions (pour de faux),
   pour que vous puissiez essayer.
 
+### Demandes externes
+
+Un service à vous sur le même ordinateur (un tableau de décisions, un script de déploiement) peut aussi demander un
+choix depuis le bureau, sans session Claude. Définissez un jeton dans `HABBLAUD_PEDIDOS_TOKEN` (dans le `.env`, avec
+Docker) et le service enregistre la demande avec un titre, un texte, des options et l'option recommandée :
+
+```sh
+curl -s http://127.0.0.1:4747/api/requests \
+  -H "Authorization: Bearer $HABBLAUD_PEDIDOS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"source": "tableau", "externalId": "dec-42", "title": "Quelle base de données pour la boutique ?",
+       "text": "Le projet a besoin d’une base pour les commandes.",
+       "options": [{"id": "pg", "label": "Postgres"}, {"id": "sqlite", "label": "SQLite"}],
+       "recommended": "pg"}'
+```
+
+La carte **Demande de tableau** apparaît dans le coin du bureau, avec l'option recommandée marquée ★ ; s'il y en a
+plusieurs, `‹ ›` passe de l'une à l'autre. Le service attend le choix sur `GET /api/requests/<id>/wait` (long-poll
+jusqu'à 60 s ; rappelez tant qu'il renvoie `pending`) ou consulte `GET /api/requests/<id>`, et reçoit
+`{"status": "decided", "option": "pg"}`.
+
+- Enregistrer à nouveau le même `source` + `externalId` renvoie la même demande (réessayer est sans risque) ; expirée
+  ou retirée, elle en ouvre une nouvelle. Une demande choisie n'accepte pas d'autre choix (409). `POST
+  /api/requests/<id>/withdraw` retire une demande réglée ailleurs.
+- La demande expire sans choix au bout de 24 h (`"ttl"` en secondes, de 60 s à 7 jours). Tout reste en mémoire : après
+  un redémarrage de Habblaud, le service l'enregistre à nouveau.
+- Sans le jeton, la fonction est désactivée. Les routes du service exigent le jeton et ne fonctionnent que depuis cet
+  ordinateur (jamais par le port du téléphone) ; choisir suit le même verrou que répondre depuis le bureau. Aucune
+  route n'active CORS : une page ouverte dans le navigateur ne peut ni enregistrer ni lire de demandes.
+
 ### Envoyer des messages
 
 Avec le plugin de messages installé (`npm run mod:install`, qui l'installe en même temps que le mod ; nécessite Claude
@@ -763,6 +792,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_CLAUDE_BIN` | `claude` du PATH | L'exécutable de Claude Code que lancent le terminal interactif et Nouvel agent. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activé (avec le terminal) | `0` désactive seulement les messages depuis le bureau (la zone dans le terminal et dans les détails de l'agent). |
+| `HABBLAUD_PEDIDOS_TOKEN` | désactivé | Jeton des [demandes externes](#demandes-externes) : avec lui, un service local peut demander des choix depuis le bureau (`Authorization: Bearer <jeton>`). |
 | `HABBLAUD_CODEX` | activé | `0` désactive Codex dans le bureau. |
 | `HABBLAUD_CODEX_DIRS` | détection automatique | Dossiers de Codex, séparés par des virgules (à la place de `~/.codex*` et `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` du PATH (sous Windows, `codex.exe`) | Le binaire de Codex qui remet les messages (`codex queue`), en mode Node ou dans `npm run codex:bridge`. |
@@ -941,6 +971,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renomme la salle (vide = retour au nom du dossier) ; le nom est enregistré dans `rooms.json`, dans le dossier de données. En accès local uniquement. |
 | `GET /api/mod/summary` | Pour le mod de Claude Code : version, nombre d'agents, combien travaillent et qui a besoin de vous (sans la démo et, avec `?account=&session=`, sans la session elle-même). |
 | `/api/permissions…` | Répondre depuis le bureau : le hook de permission enregistre la demande (permission ou question) et attend ; la page récupère le détail et décide ou répond. En accès local uniquement. |
+| `/api/requests…` | [Demandes externes](#demandes-externes) : un service local enregistre la demande et attend le choix (avec `HABBLAUD_PEDIDOS_TOKEN`) ; la page choisit. En accès local uniquement. |
 | `/api/messages…` et `/api/mod/inbox…` | Envoyer des messages : la page met le message en file et suit sa remise ; le plugin `habblaud-mensagens` le récupère, le remet à la session et confirme. En accès local uniquement. |
 | `POST /api/codex/events` | Événements des hooks de Codex (session ouverte, outil, validation, fin du tour). En accès local uniquement. |
 | `/api/codex/bridge/poll` et `/ack` | `npm run codex:bridge` récupère les messages pour Codex et confirme leur remise. En accès local uniquement. |
@@ -1021,6 +1052,10 @@ avec `no-new-privileges`. Les métadonnées des comptes (lettre, e-mail, organis
   aussi répondre ; sur des ordinateurs partagés avec d'autres utilisateurs, n'installez pas le hook
   (`npm run mod:install -- --sem-permissoes`).
   Exception : le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) répond aussi (c'est son réglage par défaut) et voit la même commande ou le même diff.
+- **Demandes externes, sur activation :** elles n'existent qu'avec `HABBLAUD_PEDIDOS_TOKEN` défini par vous. Les
+  routes du service exigent le jeton et ne fonctionnent que depuis cet ordinateur (jamais par le port du téléphone), et
+  aucune route n'active CORS. Le titre, le texte et les options de la demande vont dans le snapshot, vers toutes les
+  pages ouvertes du bureau : n'y mettez pas de secrets.
 - **Envoyer des messages, en local uniquement — avec un avertissement :** le message entre dans la session comme si vous
   l'aviez tapé, donc tout ce que l'agent peut faire à votre demande s'applique. Cela suit le même verrou (bind local,
   `Host` local, JSON et origine locale, si bien qu'un site ouvert dans le navigateur ne peut pas en envoyer), mais

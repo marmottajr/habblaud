@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Pedidos externos.** Um serviço seu no mesmo computador (um painel de decisões, um script) pode pedir uma escolha
+  pelo escritório, sem sessão do Claude: com `HABBLAUD_PEDIDOS_TOKEN` definido, ele registra o pedido em
+  `POST /api/requests` (título, texto, opções e a recomendada) e espera a escolha. O cartão aparece no canto do
+  escritório, com a opção recomendada marcada com ★. Sem o token, nada muda.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

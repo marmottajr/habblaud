@@ -540,6 +540,34 @@ terminal** deixa a pergunta lá. A resposta chega ao agente como se você tivess
 - No modo demonstração, os agentes fictícios também pedem permissão e fazem perguntas (de mentira), para
   experimentar.
 
+### Pedidos externos
+
+Um serviço seu, rodando no mesmo computador (um painel de decisões, um script de deploy), também pode pedir uma escolha
+pelo escritório, sem sessão do Claude. Defina um token em `HABBLAUD_PEDIDOS_TOKEN` (no `.env`, no Docker) e o serviço
+registra o pedido com título, texto, opções e a opção recomendada:
+
+```sh
+curl -s http://127.0.0.1:4747/api/requests \
+  -H "Authorization: Bearer $HABBLAUD_PEDIDOS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"source": "painel", "externalId": "dec-42", "title": "Qual banco usar na loja?",
+       "text": "O projeto precisa de um banco para os pedidos.",
+       "options": [{"id": "pg", "label": "Postgres"}, {"id": "sqlite", "label": "SQLite"}],
+       "recommended": "pg"}'
+```
+
+O cartão **Pedido de painel** aparece no canto do escritório, com a recomendada marcada com ★; havendo vários, `‹ ›`
+passa de um para outro. O serviço espera a escolha em `GET /api/requests/<id>/wait` (long-poll de até 60 s; chame de
+novo enquanto vier `pending`) ou consulta `GET /api/requests/<id>`, e recebe `{"status": "decided", "option": "pg"}`.
+
+- Registrar de novo o mesmo `source` + `externalId` devolve o mesmo pedido (repetir é seguro); expirado ou retirado,
+  abre um novo. Um pedido escolhido não aceita outra escolha (409). `POST /api/requests/<id>/withdraw` retira um
+  pedido resolvido em outro lugar.
+- O pedido expira sem escolha em 24 h (`"ttl"` em segundos, de 60 s a 7 dias). Tudo fica na memória: depois de
+  reiniciar o Habblaud, o serviço registra de novo.
+- Sem o token, o recurso fica desligado. As rotas do serviço exigem o token e só valem pelo próprio computador (nunca
+  pela porta do celular); escolher segue a mesma trava de [Responder pelo escritório](#responder-pelo-escritório).
+  Nenhuma rota libera CORS: uma página aberta no navegador não consegue registrar nem ler pedidos.
+
 ### Mandar mensagens
 
 Com o plugin de mensagens instalado (`npm run mod:install`, que o instala junto com o mod; precisa do Claude Code
@@ -724,6 +752,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_CLAUDE_BIN` | `claude` do PATH | O executável do Claude Code que o terminal interativo e o Novo agente rodam. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | O que o [celular com login](#celular-com-login-e-https-aprovando-pedidos) pode fazer: `permissions`, `messages`, `terminal`, `spawn` (separados por vírgula) ou `none`. Os outros `HABBLAUD_REMOTE_*` são escritos pelo `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0` desliga só as mensagens pelo escritório (a caixa no terminal e nos detalhes do agente). |
+| `HABBLAUD_PEDIDOS_TOKEN` | desligado | Token dos [pedidos externos](#pedidos-externos): com ele, um serviço local pode pedir escolhas pelo escritório (`Authorization: Bearer <token>`). |
 | `HABBLAUD_CODEX` | ligado | `0` desliga o Codex no escritório. |
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
@@ -895,6 +924,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renomeia a sala (vazio volta ao nome da pasta); o nome fica em `rooms.json`, na pasta de dados. Só com acesso local. |
 | `GET /api/mod/summary` | Para o mod do Claude Code: versão, quantos agentes, quantos trabalham e quem precisa de você (sem o demo e, com `?account=&session=`, sem a própria sessão). |
 | `/api/permissions…` | Responder pelo escritório: o hook de permissão registra o pedido (permissão ou pergunta) e espera; a página busca o detalhe e decide ou responde. Só com acesso local. |
+| `/api/requests…` | [Pedidos externos](#pedidos-externos): um serviço local registra o pedido e espera a escolha (com `HABBLAUD_PEDIDOS_TOKEN`); a página escolhe. Só com acesso local. |
 | `/api/messages…` e `/api/mod/inbox…` | Mandar mensagens: a página deixa a mensagem na fila e acompanha a entrega; o plugin `habblaud-mensagens` a busca, entrega à sessão e confirma. Só com acesso local. |
 | `POST /api/codex/events` | Eventos dos hooks do Codex (sessão aberta, ferramenta, aprovação, fim do turno). Só com acesso local. |
 | `/api/codex/bridge/poll` e `/ack` | O `npm run codex:bridge` busca as mensagens para o Codex e confirma a entrega. Só com acesso local. |
@@ -968,6 +998,9 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   também consegue responder; em computadores compartilhados com outros usuários, não instale o hook
   (`npm run mod:install -- --sem-permissoes`).
   Exceção: o [celular com login](#celular-com-login-e-https-aprovando-pedidos) também responde (é o padrão dele) e vê o mesmo comando ou diff.
+- **Pedidos externos, opt-in:** só existem com `HABBLAUD_PEDIDOS_TOKEN` definido por você. As rotas do serviço exigem
+  o token e só valem pelo próprio computador (nunca pela porta do celular), e nenhuma rota libera CORS. O título, o
+  texto e as opções do pedido vão no snapshot, para todas as páginas abertas do escritório: não mande segredos neles.
 - **Mandar mensagens, só local — e com um aviso:** a mensagem entra na sessão como se você a tivesse digitado, então
   vale o que o agente pode fazer com um pedido seu. Segue a mesma trava (bind local, `Host` local, JSON e origem local,
   então um site aberto no navegador não consegue mandar), mas **qualquer programa desta máquina** que fale com

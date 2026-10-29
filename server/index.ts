@@ -28,6 +28,8 @@ import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { createPermissionRoutes } from './permissions/http';
 import { PermissionRegistry } from './permissions/registry';
+import { createRequestRoutes } from './requests/http';
+import { RequestRegistry } from './requests/registry';
 import { codexAccountOf } from './codex/http';
 import { createCodexQueueRunner, findCodexBin } from './messages/codex';
 import { createMessageRoutes } from './messages/http';
@@ -79,7 +81,7 @@ const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
-const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
+const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; requests?: RequestRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
 // Versão nova: consulta a release mais recente no GitHub a cada 6 h (HABBLAUD_UPDATE_CHECK=0 desliga).
 const updates = new UpdateChecker({
   current: config.version,
@@ -125,6 +127,7 @@ const office = new Office({
   accountName: (id) => accounts.find(id)?.detected.name,
   terminal: config.terminal,
   permissions: () => late.permissions?.snapshot() ?? new Map(),
+  requests: config.terminal && config.requestsToken ? () => late.requests?.pending() ?? [] : undefined,
   messages: config.messages ? () => late.messages?.reachable() ?? new Set() : undefined,
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('desligado') }, list: [] }),
   updates: () => updates.status(),
@@ -243,6 +246,10 @@ const permissions = config.terminal
     })
   : undefined;
 late.permissions = permissions;
+// Pedidos externos (server/requests/): um serviço local pergunta e o escritório escolhe. Só com o token e a trava do
+// terminal (a escolha age em nome de quem está no computador).
+const requests = config.terminal && config.requestsToken ? new RequestRegistry({ onChange: () => office.markDirty() }) : undefined;
+late.requests = requests;
 // Mensagens pelo escritório (plugin habblaud-mensagens): entram na sessão como se você as tivesse digitado, então
 // seguem a mesma trava (e HABBLAUD_MENSAGENS=0 desliga só elas). Ao Codex vão por `codex queue` (messages/codex.ts):
 // fora do Docker o próprio servidor roda o comando (HABBLAUD_CODEX_BIN ou `codex` do PATH); no Docker, o auxiliar do
@@ -326,6 +333,7 @@ if (timeline) {
   timeline.ingest(hub.current());
 }
 permissions?.start();
+requests?.start();
 messages?.start();
 stats.start();
 updates.start();
@@ -357,6 +365,7 @@ const api = createApiHandler({
   sessions: history,
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
+  requests: requests && config.requestsToken ? createRequestRoutes(requests, config.requestsToken) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
@@ -507,6 +516,11 @@ server.listen(config.port, config.host, () => {
   log.info(timeline ? tr('   Linha do tempo (timelapse): gravando em {0}.', [timelineDir]) : tr('   Linha do tempo (timelapse): gravação desligada (HABBLAUD_TIMELINE).'));
   log.info(tr('   Responder pelo escritório: {0}.', [config.terminal ? tr('ligado (precisa do mod: npm run mod:install; ou do hook antigo: npm run hooks:install)') : tr('desligado (mesma trava do terminal)')]));
   log.info(
+    tr('   Pedidos externos: {0}.', [
+      requests ? tr('ligados (POST /api/requests com HABBLAUD_PEDIDOS_TOKEN)') : config.requestsToken ? tr('desligados (mesma trava do terminal)') : tr('desligados (defina HABBLAUD_PEDIDOS_TOKEN)'),
+    ]),
+  );
+  log.info(
     config.messages
       ? tr('   Mensagens pelo escritório: ligadas (precisa do plugin habblaud-mensagens: npm run mod:install).')
       : tr('   Mensagens pelo escritório: desligadas ({0}).', [messagesOffReason(process.env, config.host, config.inDocker)]),
@@ -552,6 +566,7 @@ function shutdown(signal: string): void {
   terminals?.stop();
   timeline?.stop();
   permissions?.stop();
+  requests?.stop();
   messages?.stop();
   ptys?.stopAll();
   updates.stop();

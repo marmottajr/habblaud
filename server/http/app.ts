@@ -22,6 +22,7 @@ import { AUDIO_BODY_MAX, type DictationService } from '../dictation/dictation';
 import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
 import { HOST_WAIT_MS } from '../host-wait';
+import { isRequestServicePath } from '../requests/http';
 
 export interface ApiDeps {
   office: Office;
@@ -46,6 +47,11 @@ export interface ApiDeps {
    * local (ServerConfig.terminal); a trava do Host local é conferida aqui antes de chamá-las.
    */
   permissions?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
+  /**
+   * Rotas de /api/requests (pedidos externos, server/requests/http.ts). Só existem com HABBLAUD_PEDIDOS_TOKEN e a trava
+   * do terminal; a trava do Host local (e, fora do Docker, da conexão pelo loopback) é conferida aqui.
+   */
+  requests?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
    * Rotas das mensagens pelo escritório (/api/messages, a caixa de entrada do plugin em /api/mod/inbox e a do auxiliar
    * do Codex em /api/codex/bridge/*, server/messages/http.ts). Só existem com ServerConfig.messages (a trava do
@@ -124,6 +130,7 @@ function isLocalOnlyPath(path: string): boolean {
     /^\/api\/permissions\/[^/]+\/wait$/.test(path) ||
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
+    isRequestServicePath(path) ||
     path.startsWith('/api/codex/') ||
     path.startsWith('/api/host/')
   );
@@ -375,6 +382,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           // O terminal interativo (pty) nunca vale pela porta remota.
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
+          requests: !!deps.requests,
           codexEvents: !!deps.codexLive,
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
@@ -448,6 +456,20 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         sendJson(res, 403, { error: denied(req, tr('pedidos de permissão só são respondidos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else {
         deps.permissions(req, res, path);
+      }
+      return true;
+    }
+    if (path === '/api/requests' || path.startsWith('/api/requests/')) {
+      // Pedidos externos: o serviço registra e espera só pelo próprio computador (como os eventos do Codex: fora do
+      // Docker, conexão pelo loopback); a página escolhe com a mesma trava da decisão das permissões.
+      if (!deps.requests) {
+        req.resume();
+        sendJson(res, 403, { error: tr('pedidos externos desligados: defina HABBLAUD_PEDIDOS_TOKEN (e mantenha o Habblaud acessível só pelo próprio computador)') });
+      } else if (isRequestServicePath(path) ? !trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress)) : !trusted(req, 'permissions')) {
+        req.resume();
+        sendJson(res, 403, { error: denied(req, tr('pedidos externos só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else {
+        deps.requests(req, res, path);
       }
       return true;
     }

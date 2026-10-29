@@ -77,7 +77,7 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/stats/days?tz=<IANA>` | `StatsDaysResponse`: dias com dados reais (e do demo, se ligado), mais recente primeiro |
 | `GET /api/timeline/days` | `{recording, days:[{day, bytes, from, to}]}`: dias gravados para o timelapse, do mais recente ao mais antigo |
 | `GET /api/timeline/:dia` | o arquivo do dia (`AAAA-MM-DD`) em JSONL (`application/x-ndjson`, gzip se aceito); 400 para dia inválido, 404 sem gravação |
-| `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, updates:{state, latest, available}, sources, accounts:[{id, usageStatus}]}` |
+| `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, requests, updates:{state, latest, available}, sources, accounts:[{id, usageStatus}]}` |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` para o mod do Claude Code: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, sem o demo e sem a sessão de quem pergunta (ver abaixo) |
 | `GET /api/updates` | `{version, ...UpdateStatus}`: versão em uso e o resultado da verificação de versão nova (ver abaixo) |
@@ -87,6 +87,11 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/permissions/:id/wait` | (hook) long-poll de até 25 s (`?timeout=` em segundos): `{status: 'pending' \| 'decided' \| 'released', ...}` |
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
+| `POST /api/requests` | (serviço, `Authorization: Bearer <HABBLAUD_PEDIDOS_TOKEN>`) registra um pedido externo `{source, externalId, title, text?, options: [{id, label, description?}], recommended?, ttl?}`: `201` (ou `200` se o par `source` + `externalId` já existia) `{id, source, externalId, status, option?, expiresAt}` |
+| `GET /api/requests/:id/wait` | (serviço) long-poll de até 60 s (`?timeout=` em segundos): o resultado quando sair de `pending` |
+| `GET /api/requests/:id` | (serviço) o resultado: `{status: 'pending' \| 'decided' \| 'expired' \| 'withdrawn', option?, decidedAt?}` |
+| `POST /api/requests/:id/withdraw` | (serviço) retira o pedido pendente: `200`, `404` ou `409` (já escolhido) |
+| `POST /api/requests/:id/decision` | (página) `{option}`: `200`, `400` (opção desconhecida), `404` (expirado, retirado ou desconhecido) ou `409` (já escolhido) |
 | `POST /api/messages` | (página) `{agentId, text}`: manda uma mensagem a um agente principal; `201 OutboxMessage`; só com bind local (ver abaixo) |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
@@ -256,6 +261,21 @@ nenhuma válida) não é desviada (`unsupported-tool`).
 As rotas (`permissions/http.ts`) seguem a trava do terminal: sem `ServerConfig.terminal` → 403 em
 todas; `Host` que não é local → 403. O guard já exige JSON e `Origin` local nos `POST`. Erros: 400 (corpo, sugestão
 ou resposta inválidos), 404 (pedido desconhecido, já entregue ou expirado), 405, 409 (já respondido).
+
+## Pedidos externos
+
+Um serviço local (um painel de decisões, um script) pergunta com opções e o escritório escolhe, sem sessão do Claude.
+`requests/registry.ts` (`RequestRegistry`) guarda os pedidos na memória: repetir o par `source` + `externalId` devolve
+o mesmo pedido enquanto pendente ou escolhido (expirado ou retirado, abre um novo); os pendentes vão em
+`OfficeSnapshot.requests` (o cartão de `client/src/ui/requests.ts`); uma escolha só (a segunda dá 409) e só entre as
+opções; sem escolha, o pedido expira no `ttl` (padrão 24 h, de 60 s a 7 dias); os encerrados respondem à consulta por
+mais 1 h. Máx. 100 pendentes (429).
+
+Só existe com `HABBLAUD_PEDIDOS_TOKEN` e a trava do terminal (`ServerConfig.terminal`); sem isso, 403 em todas as
+rotas e nada no snapshot. As rotas do serviço (`requests/http.ts`) exigem o token (comparação em tempo constante;
+401), `Host` local e, fora do Docker, conexão pelo loopback (como `POST /api/codex/events`), e nunca valem pela porta
+remota. A decisão é da página: a mesma trava de `POST /api/permissions/:id/decision`. Nenhuma rota manda cabeçalhos de
+CORS; o guard exige JSON e `Origin` local nos `POST`. A projeção do Habblaud World e a linha do tempo não leem o campo.
 
 ## Mensagens pelo escritório
 
@@ -546,6 +566,7 @@ O repositório é também um marketplace de plugins do Claude Code (`.claude-plu
 - `http/` — proteções de borda (`guard.ts`), rotas (`app.ts`), SSE (`sse.ts`), terminal (`terminal.ts`) e o histórico dele (`sessions.ts`), timelapse (`timeline.ts`), Meu dia (`stats.ts`), estáticos (`static.ts`).
 - `history/` — gravador da linha do tempo do timelapse (`timeline.ts`) e as estatísticas do Meu dia: amostragem, persistência e retenção (`daystats.ts`; o acumulador puro fica em `shared/daystats.ts`).
 - `permissions/` — responder pelo escritório (permissões e perguntas): registro dos pedidos (`registry.ts`), rotas (`http.ts`) e a busca da chamada no transcript (`transcript.ts`).
+- `requests/` — pedidos externos de um serviço local: registro (`registry.ts`) e rotas (`http.ts`).
 - `messages/` — mensagens pelo escritório: fila, presença das sessões e prazos (`registry.ts`) e rotas (`http.ts`).
 - `updates/` — verificação de versão nova nas releases do GitHub (`checker.ts`).
 - `world/` — Habblaud World: sessão em `world.json` (`settings.ts`), cliente do servidor do mundo (`client.ts`), ALTCHA (`altcha.ts`), a conta (`service.ts`), as rotas `/api/world/*` (`http.ts`) e o prédio no mundo (`uplink.ts`, com `ids.ts`, `tokens.ts`, `theme.ts` e `signals.ts`).

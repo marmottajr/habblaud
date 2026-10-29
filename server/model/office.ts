@@ -8,6 +8,7 @@ import type {
   AgentInfo,
   AgentStats,
   AgentStatus,
+  ExternalRequestInfo,
   FeedItem,
   Notice,
   NoticeLevel,
@@ -69,6 +70,8 @@ export interface OfficeDeps {
   terminal?: boolean;
   /** Pedidos de permissão pendentes por agente (PermissionRegistry.snapshot), postos no snapshot. */
   permissions?: () => ReadonlyMap<string, PermissionRequestInfo>;
+  /** Pedidos externos pendentes (RequestRegistry.pending). Ausente = recurso desligado (sem OfficeSnapshot.requests). */
+  requests?: () => ExternalRequestInfo[];
   /**
    * Agentes cuja sessão o registro de mensagens vê conectada (MessageRegistry.reachable): viram AgentInfo.canMessage.
    * Ausente = mensagens pelo escritório desligadas (OfficeSnapshot.meta.messages).
@@ -993,6 +996,7 @@ export class Office {
       agents: [...real, ...demoAgents].map(trim),
       accounts: [...this.deps.accounts(sessions), ...(this.demoSnap?.accounts ?? [])],
       ...(ptys ? { ptys: ptys.list } : {}),
+      ...(this.deps.requests ? { requests: this.deps.requests() } : {}),
       meta: {
         demo: this.isDemo(),
         sources: this.deps.sources(),

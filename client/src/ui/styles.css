@@ -6399,6 +6399,75 @@ html.is-replay #world {
   color: #ffb3aa;
 }
 
+/* Pedido externo (ui/requests.ts): o cartão das permissões, solto no canto superior direito da área livre. */
+.ui-ext {
+  position: fixed;
+  z-index: 49;
+  top: calc(var(--free-top, 56px) + var(--gap, 12px));
+  right: max(var(--gap, 12px), var(--free-right, 0px));
+  width: min(344px, calc(100vw - 32px));
+  max-height: calc(100vh - var(--free-top, 56px) - var(--free-bottom, 0px) - 2 * var(--gap, 12px));
+  overflow-y: auto;
+  margin-top: 0;
+  background: rgba(38, 28, 14, 0.94);
+  transition: right 0.34s var(--ease);
+}
+
+.has-popover .ui-ext,
+.ui-root.is-city .ui-ext {
+  display: none;
+}
+
+.ui-ext__pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(255, 226, 181, 0.72);
+}
+
+.ui-ext__nav {
+  min-width: 24px;
+  padding: 0 6px;
+}
+
+.ui-ext__title {
+  margin: 8px 0 4px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ui-ext__text {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.ui-ext__options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-ext__opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  height: auto;
+  padding: 6px 10px;
+}
+
+.ui-ext__desc {
+  font-size: 11.5px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
 /* Perguntas do AskUserQuestion no cartão: rádios (escolha única) ou caixas (várias), com a descrição, e o
    "Outro" com o campo de texto. Cabeçalho, pergunta, dica e descrição reaproveitam as classes ui-ask__* do
    alerta "Precisa de você". */

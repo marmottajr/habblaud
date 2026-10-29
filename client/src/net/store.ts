@@ -270,6 +270,26 @@ export class OfficeStore {
   }
 
   /**
+   * Escolhe uma opção de um pedido externo (POST /api/requests/:id/decision). Devolve undefined se deu certo, ou a
+   * mensagem de erro (já respondido, expirado, acesso que não é local...).
+   */
+  async decideRequest(id: string, option: string): Promise<string | undefined> {
+    const res = await fetch(`/api/requests/${encodeURIComponent(id)}/decision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ option }),
+    });
+    if (res.ok) return undefined;
+    try {
+      const body = (await res.json()) as { error?: unknown };
+      if (typeof body.error === 'string') return body.error;
+    } catch {
+      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+    }
+    return tr('Não foi possível responder (erro {0}).', [res.status]);
+  }
+
+  /**
    * Grava o personagem do projeto (PUT /api/agents/:id/character). Devolve undefined se deu certo, ou a mensagem de
    * erro (nome em uso, acesso que não é local...).
    */

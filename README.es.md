@@ -569,6 +569,35 @@ terminal.
 - En el modo demostración, los agentes ficticios también piden permiso y hacen preguntas (de mentira), para que lo
   pruebes.
 
+### Pedidos externos
+
+Un servicio tuyo en el mismo ordenador (un panel de decisiones, un script de despliegue) también puede pedir una
+elección desde la oficina, sin sesión de Claude. Define un token en `HABBLAUD_PEDIDOS_TOKEN` (en el `.env`, con Docker)
+y el servicio registra el pedido con título, texto, opciones y la opción recomendada:
+
+```sh
+curl -s http://127.0.0.1:4747/api/requests \
+  -H "Authorization: Bearer $HABBLAUD_PEDIDOS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"source": "panel", "externalId": "dec-42", "title": "¿Qué base de datos usar en la tienda?",
+       "text": "El proyecto necesita una base de datos para los pedidos.",
+       "options": [{"id": "pg", "label": "Postgres"}, {"id": "sqlite", "label": "SQLite"}],
+       "recommended": "pg"}'
+```
+
+La tarjeta **Pedido de panel** aparece en la esquina de la oficina, con la recomendada marcada con ★; si hay varios,
+`‹ ›` pasa de uno a otro. El servicio espera la elección en `GET /api/requests/<id>/wait` (long-poll de hasta 60 s;
+vuelve a llamar mientras devuelva `pending`) o consulta `GET /api/requests/<id>`, y recibe
+`{"status": "decided", "option": "pg"}`.
+
+- Registrar de nuevo el mismo `source` + `externalId` devuelve el mismo pedido (repetir es seguro); si expiró o fue
+  retirado, abre uno nuevo. Un pedido elegido no acepta otra elección (409). `POST /api/requests/<id>/withdraw` retira
+  un pedido resuelto en otro lugar.
+- El pedido expira sin elección en 24 h (`"ttl"` en segundos, de 60 s a 7 días). Todo queda en memoria: después de
+  reiniciar Habblaud, el servicio vuelve a registrarlo.
+- Sin el token, la función queda desactivada. Las rutas del servicio exigen el token y solo valen desde este ordenador
+  (nunca por el puerto del móvil); elegir sigue el mismo bloqueo que responder desde la oficina. Ninguna ruta habilita
+  CORS: una página abierta en el navegador no puede registrar ni leer pedidos.
+
 ### Enviar mensajes
 
 Con el plugin de mensajes instalado (`npm run mod:install`, que lo instala junto con el mod; requiere Claude Code
@@ -760,6 +789,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_CLAUDE_BIN` | `claude` del PATH | El ejecutable de Claude Code que ejecutan la terminal interactiva y Nuevo agente. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Lo que puede hacer el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes): `permissions`, `messages`, `terminal`, `spawn` (separados por comas) o `none`. Las demás `HABBLAUD_REMOTE_*` las escribe `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activados (con la terminal) | `0` desactiva solo los mensajes desde la oficina (el cuadro en la terminal y en los detalles del agente). |
+| `HABBLAUD_PEDIDOS_TOKEN` | desactivado | Token de los [pedidos externos](#pedidos-externos): con él, un servicio local puede pedir elecciones desde la oficina (`Authorization: Bearer <token>`). |
 | `HABBLAUD_CODEX` | activado | `0` desactiva Codex en la oficina. |
 | `HABBLAUD_CODEX_DIRS` | detección automática | Carpetas de Codex, separadas por comas (en lugar de `~/.codex*` y `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` del PATH (en Windows, `codex.exe`) | El binario de Codex que entrega los mensajes (`codex queue`), en modo Node o en `npm run codex:bridge`. |
@@ -933,6 +963,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` cambia el nombre de la sala (vacío vuelve al nombre de la carpeta); el nombre queda en `rooms.json`, en la carpeta de datos. Solo con acceso local. |
 | `GET /api/mod/summary` | Para el mod de Claude Code: versión, cuántos agentes hay, cuántos trabajan y quién te necesita (sin la demo y, con `?account=&session=`, sin la propia sesión). |
 | `/api/permissions…` | Responder desde la oficina: el hook de permisos registra la solicitud (permiso o pregunta) y espera; la página busca el detalle y decide o responde. Solo con acceso local. |
+| `/api/requests…` | [Pedidos externos](#pedidos-externos): un servicio local registra el pedido y espera la elección (con `HABBLAUD_PEDIDOS_TOKEN`); la página elige. Solo con acceso local. |
 | `/api/messages…` y `/api/mod/inbox…` | Enviar mensajes: la página deja el mensaje en la cola y sigue la entrega; el plugin `habblaud-mensagens` lo recoge, lo entrega a la sesión y lo confirma. Solo con acceso local. |
 | `POST /api/codex/events` | Eventos de los hooks de Codex (sesión abierta, herramienta, aprobación, fin del turno). Solo con acceso local. |
 | `/api/codex/bridge/poll` y `/ack` | `npm run codex:bridge` recoge los mensajes para Codex y confirma la entrega. Solo con acceso local. |
@@ -1010,6 +1041,10 @@ los pasa al contenedor.
   `http://localhost:4747` en esta máquina también puede responder; en computadoras compartidas con otros usuarios, no
   instales el hook (`npm run mod:install -- --sem-permissoes`).
   Excepción: el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes) también responde (es lo predeterminado) y ve el mismo comando o diff.
+- **Pedidos externos, opt-in:** solo existen con `HABBLAUD_PEDIDOS_TOKEN` definido por ti. Las rutas del servicio
+  exigen el token y solo valen desde este ordenador (nunca por el puerto del móvil), y ninguna ruta habilita CORS. El
+  título, el texto y las opciones del pedido van en el snapshot, a todas las páginas abiertas de la oficina: no pongas
+  secretos en ellos.
 - **Enviar mensajes, solo local, y con una advertencia:** el mensaje entra en la sesión como si lo hubieras escrito
   tú, así que vale lo que el agente puede hacer con una solicitud tuya. Sigue el mismo bloqueo (bind local, `Host`
   local, JSON y origen local, así que un sitio abierto en el navegador no puede enviarlo), pero **cualquier programa de
