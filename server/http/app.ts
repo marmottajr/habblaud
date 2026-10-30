@@ -94,6 +94,13 @@ export interface ApiDeps {
    * local com Host local: pela porta do celular, nem com login (403 `local_only`).
    */
   world?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  /**
+   * Rotas das notificações push (/api/push/*, server/push/routes.ts). Ausente = HABBLAUD_PUSH=0 ou sem chave VAPID:
+   * 404 em todas, e a página não mostra a seção. `allowed` leva a trava desta porta já conferida aqui (nenhum arquivo
+   * de server/push/ lê o cabeçalho Host): na porta local, Host loopback; na remota, o login que o gate conferiu —
+   * receber avisos é o que a página remota já faz pelo SSE, então não há recurso novo em HABBLAUD_REMOTE_ALLOW.
+   */
+  push?: (req: IncomingMessage, res: ServerResponse, url: URL, allowed: boolean) => boolean;
 }
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
@@ -349,6 +356,14 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         sendJson(res, 403, { error: { code: 'local_only', message: tr('o Habblaud World só é usado pelo próprio computador (http://localhost)') } });
       } else deps.world(req, res, url);
       return true;
+    }
+    if (path === '/api/push' || path.startsWith('/api/push/')) {
+      if (!deps.push) {
+        req.resume();
+        sendJson(res, 404, { error: tr('rota desconhecida') });
+        return true;
+      }
+      return deps.push(req, res, url, isRemote(req) || isLoopbackHost(req.headers.host));
     }
     if (path === '/api/stream') {
       if (method !== 'GET') methodNotAllowed(res, 'GET');

@@ -2,7 +2,7 @@
 // Eventos nomeados: snapshot | feed | notice (o `data` é o JSON do protocolo em shared/types.ts).
 // Snapshots saem com throttle (~200 ms); feed e avisos vão em lote logo depois do snapshot.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { OfficeSnapshot } from '../../shared/types';
+import type { Notice, OfficeSnapshot } from '../../shared/types';
 import type { Office } from '../model/office';
 import { isLoopbackHost } from './guard';
 
@@ -18,6 +18,7 @@ export class Hub {
   private lastFlush = 0;
   private unsubscribe: (() => void) | null = null;
   private snapshotCbs = new Set<(snap: OfficeSnapshot) => void>();
+  private noticeCbs = new Set<(notice: Notice) => void>();
   private readonly throttleMs: number;
   private readonly pingMs: number;
   /** Quem pode responder pelo escritório; padrão: Host local. A porta remota (http/remote.ts) troca a regra. */
@@ -57,6 +58,16 @@ export class Hub {
   onSnapshot(cb: (snap: OfficeSnapshot) => void): () => void {
     this.snapshotCbs.add(cb);
     return () => void this.snapshotCbs.delete(cb);
+  }
+
+  /**
+   * Avisado a cada aviso transmitido (ex.: as notificações push). Chamado depois de o aviso já ter saído para os
+   * clientes: quem escuta não muda a ordem nem o conteúdo do que o SSE envia, e uma exceção aqui não derruba a
+   * transmissão.
+   */
+  onNotice(cb: (notice: Notice) => void): () => void {
+    this.noticeCbs.add(cb);
+    return () => void this.noticeCbs.delete(cb);
   }
 
   /** Páginas conectadas por um Host local (localhost/127.x): quem pode responder pelo escritório. */
@@ -105,7 +116,16 @@ export class Hub {
       }
     }
     if (r.feed.length) this.writeAll(frame('feed', r.feed));
-    for (const n of r.notices) this.writeAll(frame('notice', n));
+    for (const n of r.notices) {
+      this.writeAll(frame('notice', n));
+      for (const cb of this.noticeCbs) {
+        try {
+          cb(n);
+        } catch {
+          // quem escuta não atrapalha a transmissão
+        }
+      }
+    }
     return r.snapshot;
   }
 
