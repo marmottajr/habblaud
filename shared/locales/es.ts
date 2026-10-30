@@ -228,6 +228,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Centralizar": "Centrar",
   "Abrir terminal": "Abrir terminal",
   "Com o plugin habblaud-permissoes (npm run mod:install), dá para responder as perguntas por aqui.": "Con el plugin habblaud-permissoes (npm run mod:install), puedes responder las preguntas desde aquí.",
+  "Esta pergunta só se responde no terminal: são {0} perguntas e o escritório mostra {1}.": "Esta pregunta solo se responde en el terminal: son {0} preguntas y la oficina muestra {1}.",
   "Precisa de você": "Te necesita",
   "Shells rodando": "Shells en ejecución",
   "Detalhes": "Detalles",

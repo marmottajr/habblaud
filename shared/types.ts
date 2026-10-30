@@ -89,6 +89,11 @@ export interface Activity {
   error?: boolean;
   /** Perguntas completas de um AskUserQuestion (kind 'ask'), para o escritório mostrar as opções. */
   questions?: AskQuestion[];
+  /**
+   * Quantas perguntas do AskUserQuestion o escritório NÃO mostra (acima de MAX_QUESTIONS). Acima de zero, responder
+   * por aqui não dá e a página diz isso: o hook precisa de resposta para todas, e o escritório não as tem todas.
+   */
+  questionsHidden?: number;
 }
 
 /**

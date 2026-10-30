@@ -9,10 +9,29 @@ export interface ActivityDescription {
   text: string;
   detail?: string;
   questions?: AskQuestion[];
+  /** Perguntas que não couberam em `questions` (ver Activity.questionsHidden). */
+  questionsHidden?: number;
 }
 
-const MAX_QUESTIONS = 4;
+/**
+ * Perguntas que o escritório mostra de cada AskUserQuestion. Acima disto a pergunta só se responde no terminal, e a
+ * página passa a dizê-lo: o hook só responde quando TODAS têm resposta (server/permissions/registry.ts).
+ */
+export const MAX_QUESTIONS = 4;
 const MAX_OPTIONS = 6;
+
+/**
+ * Quantas perguntas de verdade (com texto) o original traz. É a contagem que o registry compara com o que o
+ * escritório conseguiu mostrar: estava escrita duas vezes, aqui e lá, e duas contagens da mesma coisa é como se
+ * desalinham em silêncio.
+ */
+export function askRealCount(raw: unknown): number {
+  if (!Array.isArray(raw)) return 0;
+  return raw.filter((q) => {
+    const text = (q as Record<string, unknown> | null)?.question;
+    return typeof text === 'string' && !!text.trim();
+  }).length;
+}
 
 /** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas e cortadas, como o resto). */
 function askQuestions(raw: unknown): AskQuestion[] {
@@ -735,7 +754,14 @@ export function describeTool(name: string, rawInput: unknown): ActivityDescripti
     case 'AskUserQuestion': {
       const qs = Array.isArray(input.questions) ? (input.questions as Array<Record<string, unknown>>) : [];
       const questions = askQuestions(qs);
-      return { ...make('ask', '❓', tr('Fazendo uma pergunta a você'), qs[0] ? str(qs[0].question) : undefined), ...(questions.length ? { questions } : {}) };
+      // O que ficou de fora conta: sem isto, uma pergunta com cinco partes não aparecia inteira e o escritório
+      // recusava responder sem dizer por quê.
+      const hidden = Math.max(0, askRealCount(qs) - questions.length);
+      return {
+        ...make('ask', '❓', tr('Fazendo uma pergunta a você'), qs[0] ? str(qs[0].question) : undefined),
+        ...(questions.length ? { questions } : {}),
+        ...(hidden ? { questionsHidden: hidden } : {}),
+      };
     }
     case 'Skill':
       return make('skill', '🧩', tr('Usando a skill {0}', [str(input.skill) || str(input.command)]));
