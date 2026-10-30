@@ -584,7 +584,20 @@ class AgentView {
     // não responde perguntas pelo escritório.
     const answerable =
       !codex && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
-    setHidden(this.alertAnswerHint, !answerable);
+    // Perguntas de mais para o escritório mostrar: responder por aqui não dá, e a página di-lo em vez de sugerir um
+    // plugin que já está instalado. O hook só responde quando TODAS as perguntas têm resposta.
+    //
+    // A frase só sai com perguntas à vista: com zero mostradas não há nada em que se encaixe, e dizia «são 1
+    // perguntas e o escritório mostra 0». O modo simulado não tem terminal, logo também não a mostra.
+    const shown = asking?.questions?.length ?? 0;
+    const hidden = shown > 0 && !this.ctx.store.mock ? (asking?.questionsHidden ?? 0) : 0;
+    setText(
+      this.alertAnswerHint,
+      hidden > 0
+        ? tr('Esta pergunta só se responde no terminal: são {0} perguntas e o escritório mostra {1}.', [hidden + shown, shown])
+        : tr('Com o plugin habblaud-permissoes (npm run mod:install), dá para responder as perguntas por aqui.'),
+    );
+    setHidden(this.alertAnswerHint, !answerable && !(hidden > 0 && !this.perm.visible));
 
     // Esperando o shell.
     setHidden(this.shellBox, !wait);

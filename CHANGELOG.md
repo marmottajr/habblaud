@@ -10,6 +10,16 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Com o Habblaud fechado, uma pergunta do agente deixava de poder ser respondida pela página, para sempre.** O
+  pedido do hook era recusado quando nenhuma página estava aberta, e o hook saía na hora: abrir a página depois já
+  não servia de nada, porque não havia pedido nenhum. Agora, quando o acesso remoto tem `permissions` liberado (a
+  resposta pode chegar depois, pelo celular), o pedido é registado e espera. O que o larga continua a ser o prazo que
+  o hook pediu (`HABBLAUD_PERMISSION_TIMEOUT`, 5 min por omissão) ou o hook ter morrido.
+- **Uma pergunta com mais partes do que o escritório mostra dizia a coisa errada.** Sugeria instalar um plugin que já
+  estava instalado; agora diz «esta pergunta só se responde no terminal», com as contas das duas.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

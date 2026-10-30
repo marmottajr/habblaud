@@ -8,7 +8,7 @@ import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { appendLines, L, tempDir, writeLines } from '../test/fixtures';
-import { EXPIRY_GRACE_MS, parseDecision, pickSuggestions, PermissionRegistry, UNWATCHED_MS, type WaitResult } from './registry';
+import { DEFAULT_TIMEOUT_MS, EXPIRY_GRACE_MS, parseDecision, pickSuggestions, PermissionRegistry, UNWATCHED_MS, type WaitResult } from './registry';
 import { callSignature, scanToolCall } from './transcript';
 
 setQuiet(true);
@@ -516,5 +516,98 @@ describe('peças puras', () => {
     } finally {
       tmp.cleanup();
     }
+  });
+});
+
+/**
+ * `answerLater`: a porta do telemóvel com `permissions` liberado. Ninguém a ver deixa de ser motivo para recusar o
+ * registo — era o defeito que fazia uma pergunta do AskUserQuestion não ter resposta possível pelo escritório quando
+ * a app estava fechada, nem depois de alguém abrir a página (o hook já tinha saído).
+ */
+describe('PermissionRegistry: registro com ninguém a ver e resposta que pode chegar depois', () => {
+  it('sem ninguém a ver, mas com answerLater, o pedido é registado', () => {
+    const { registry } = setup({ viewers: 0, answerLater: true });
+    const id = registered(registry.register(hookInput()));
+    expect(registry.size).toBe(1);
+    expect(registry.snapshot().size).toBe(1);
+    expect(id).toMatch(/^p-/);
+  });
+
+  it('o mesmo vale para uma pergunta do AskUserQuestion', () => {
+    const { registry } = setup({ viewers: 0, answerLater: true });
+    const id = registered(registry.register(askInput()));
+    expect(registry.detail(id)?.questions?.length).toBeGreaterThan(0);
+  });
+
+  it('sem answerLater, continua a recusar como antes', () => {
+    const { registry } = setup({ viewers: 0 });
+    expect(registry.register(hookInput())).toEqual({ skip: 'no-viewers' });
+    expect(registry.register(askInput())).toEqual({ skip: 'no-viewers' });
+  });
+
+  it('o pedido sobrevive a ninguém abrir a página, e responde-se quando alguém abre', async () => {
+    // `orphanMs` largo: o hook de verdade volta a perguntar a cada 25 s e nunca deixa o pedido sem quem espere; o
+    // teste não tem esse laço, e sem isto o que o largava era o caminho do órfão, não o que se quer medir.
+    const { registry, clock, setViewers } = setup({ viewers: 0, answerLater: true, orphanMs: 60 * 60_000 });
+    // Prazo longo, que é o que esta situação precisa: com o padrão de 300 s do hook, o pedido morre de prazo antes
+    // de você abrir o app (ver o teste do prazo, abaixo).
+    const id = registered(registry.register(askInput({ timeout_ms: 6 * 60 * 60_000 })));
+    const w = registry.wait(id, 25_000)!;
+    // Muito mais do que a janela do `unwatched`, sem ninguém ligado: o pedido continua de pé.
+    for (let i = 0; i < 4; i++) {
+      clock.advance(UNWATCHED_MS / 2);
+      registry.tick();
+    }
+    expect(registry.size).toBe(1);
+    // Agora você abre o app e responde.
+    setViewers(1);
+    expect(registry.decide(id, { behavior: 'answer', answers: [{ question: 0, options: [0] }, { question: 2, options: [0, 2] }] })).toBe('ok');
+    await expect(w.result).resolves.toMatchObject({ status: 'decided', behavior: 'answer' });
+  });
+
+  it('a espera do hook não se resolve sozinha enquanto ninguém responde', async () => {
+    const { registry, clock } = setup({ viewers: 0, answerLater: true, orphanMs: 60 * 60_000 });
+    const id = registered(registry.register(hookInput({ timeout_ms: 6 * 60 * 60_000 })));
+    const w = registry.wait(id, 25_000)!;
+    clock.advance(UNWATCHED_MS * 3);
+    registry.tick();
+    // `pending` é o que o hook recebe para voltar a perguntar; nada de `released`, que o faria sair.
+    const r = await Promise.race([w.result, Promise.resolve('ainda-a-esperar' as const)]);
+    expect(r).toBe('ainda-a-esperar');
+    expect(registry.size).toBe(1);
+  });
+
+  it('o que larga o pedido é o prazo que o hook pediu, não a falta de público', async () => {
+    const { registry, clock } = setup({ viewers: 0, answerLater: true, orphanMs: 60 * 60_000 });
+    // Prazo curto, como o padrão do hook (300 s) mas menor, para o teste não ter de avançar tanto.
+    const id = registered(registry.register(hookInput({ timeout_ms: 60_000 })));
+    const w = registry.wait(id, 25_000)!;
+    clock.advance(60_000 + EXPIRY_GRACE_MS + 1);
+    registry.tick();
+    await expect(w.result).resolves.toMatchObject({ status: 'released', reason: 'expired' });
+    expect(registry.size).toBe(0);
+  });
+
+  it('o padrão do hook são 300 s: sem HABBLAUD_PERMISSION_TIMEOUT, é esse o tempo que você tem', async () => {
+    const { registry, clock } = setup({ viewers: 0, answerLater: true, orphanMs: 60 * 60_000 });
+    // Sem `timeout_ms` no corpo, o servidor usa DEFAULT_TIMEOUT_MS, que é o mesmo padrão do hook (o `hookInput`
+    // desta bateria manda 60 s de propósito, para os outros testes não terem de avançar tanto).
+    const id = registered(registry.register(hookInput({ timeout_ms: undefined })));
+    const w = registry.wait(id, 25_000)!;
+    clock.advance(DEFAULT_TIMEOUT_MS - 1_000);
+    registry.tick();
+    expect(registry.size).toBe(1);
+    clock.advance(1_000 + EXPIRY_GRACE_MS + 1);
+    registry.tick();
+    await expect(w.result).resolves.toMatchObject({ status: 'released', reason: 'expired' });
+  });
+
+  it('se o hook morrer, o pedido vai-se embora mesmo com answerLater', () => {
+    const { registry, clock } = setup({ viewers: 0, answerLater: true, orphanMs: 1_000 });
+    registered(registry.register(hookInput()));
+    // Ninguém à espera (o hook saiu): ao fim do prazo de órfão, o pedido não fica de pé à espera de nada.
+    clock.advance(1_500);
+    registry.tick();
+    expect(registry.size).toBe(0);
   });
 });

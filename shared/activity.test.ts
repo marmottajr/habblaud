@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  askRealCount,
   describeCommand,
   describePrompt,
   describeShellJob,
@@ -7,6 +8,7 @@ import {
   describeWaitingFor,
   looksPortuguese,
   maskSecrets,
+  MAX_QUESTIONS,
   shellWords,
   SPECIAL,
   splitShell,
@@ -231,5 +233,47 @@ describe('AskUserQuestion no escritório', () => {
 
   it('sem perguntas válidas, não cria o campo', () => {
     expect(describeTool('AskUserQuestion', {}).questions).toBeUndefined();
+  });
+});
+
+describe('AskUserQuestion: perguntas que o escritório não mostra', () => {
+  const q = (i: number) => ({ question: `Pergunta ${i}?`, options: [{ label: 'Sim' }, { label: 'Não' }] });
+
+  it('até MAX_QUESTIONS não esconde nada', () => {
+    for (let n = 1; n <= MAX_QUESTIONS; n++) {
+      const d = describeTool('AskUserQuestion', { questions: Array.from({ length: n }, (_, i) => q(i)) });
+      expect(d.questions).toHaveLength(n);
+      expect(d.questionsHidden).toBeUndefined();
+    }
+  });
+
+  it('acima disso diz quantas ficaram de fora, em vez de calar', () => {
+    const d = describeTool('AskUserQuestion', { questions: Array.from({ length: 6 }, (_, i) => q(i)) });
+    expect(d.questions).toHaveLength(MAX_QUESTIONS);
+    expect(d.questionsHidden).toBe(2);
+  });
+
+  it('entradas sem texto não contam como escondidas (o escritório e o registry contam igual)', () => {
+    const d = describeTool('AskUserQuestion', { questions: [q(0), 'lixo', { question: '   ' }, q(1)] });
+    expect(d.questions).toHaveLength(2);
+    expect(d.questionsHidden).toBeUndefined();
+  });
+
+  it('askRealCount conta o que tem texto, e é a contagem que o registry compara', () => {
+    expect(askRealCount([q(0), 'lixo', { question: '' }, q(1)])).toBe(2);
+    expect(askRealCount([])).toBe(0);
+    expect(askRealCount(undefined)).toBe(0);
+    expect(askRealCount(Array.from({ length: 9 }, (_, i) => q(i)))).toBe(9);
+  });
+});
+
+describe('AskUserQuestion: o caso em que nada é mostrado', () => {
+  it('quatro entradas inválidas antes da única pergunta de verdade: nada mostrado, uma escondida', () => {
+    // O corte do `askQuestions` é no original (as posições contam), logo os quatro primeiros levam o lugar todo.
+    const d = describeTool('AskUserQuestion', { questions: ['a', 'b', 'c', 'd', { question: 'Qual?', options: [{ label: 'Sim' }] }] });
+    expect(d.questions).toBeUndefined();
+    expect(d.questionsHidden).toBe(1);
+    // A página não mostra a frase neste estado: sem perguntas à vista, «são 1 perguntas e o escritório mostra 0» era
+    // falso de forma e inútil de conteúdo. A condição vive em ui/drawer.ts.
   });
 });

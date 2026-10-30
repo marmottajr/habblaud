@@ -16,7 +16,7 @@
 // sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
 // terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
 import { randomBytes } from 'node:crypto';
-import { describeTool, maskSecrets, truncate } from '../../shared/activity';
+import { askRealCount, describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
 import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
@@ -191,15 +191,6 @@ function askFormat(raw: unknown): Array<AskFormat | undefined> {
     const r = rec(q);
     return r ? { multiSelect: r.multiSelect === true, options: Array.isArray(r.options) ? r.options.length : 0 } : undefined;
   });
-}
-
-/** Perguntas de verdade (com texto) no original: todas precisam aparecer no escritório para dar para responder por lá. */
-function askCount(raw: unknown): number {
-  if (!Array.isArray(raw)) return 0;
-  return raw.filter((q) => {
-    const text = rec(q)?.question;
-    return typeof text === 'string' && !!text.trim();
-  }).length;
 }
 
 /** A resposta cabe no formato original da pergunta (posições das opções e quantas escolhas). */
@@ -398,8 +389,13 @@ export class PermissionRegistry {
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
     // Pergunta: todas precisam aparecer no escritório (o hook só responde se cada uma tiver resposta).
-    if (ask && (!questions?.length || questions.length !== askCount(req.input.questions))) return { skip: 'unsupported-tool' };
-    if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
+    if (ask && (!questions?.length || questions.length !== askRealCount(req.input.questions))) return { skip: 'unsupported-tool' };
+    // Ninguém a ver NÃO é motivo para recusar quando a resposta pode chegar depois (`answerLater`: a porta remota
+    // com `permissions` liberado). O pedido é registado e espera; é o `tick()` que decide quando o larga, e aí já
+    // consulta o mesmo `answerLater`. Até 2026-10-29 isto recusava sempre, logo com a página fechada no telemóvel
+    // uma pergunta do AskUserQuestion nunca podia ser respondida pelo escritório, nem depois de alguém abrir a
+    // página: o hook já tinha saído. A incoerência era entre esta linha e o `unwatched` do tick().
+    if (this.opts.viewers() <= 0 && !this.opts.answerLater?.()) return { skip: 'no-viewers' };
     const target = codex
       ? this.resolveCodexAgent(req.sessionId, req.agentId, req.agentType, this.opts.codexAccount?.(req.account, req.codexHome) ?? req.account)
       : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
