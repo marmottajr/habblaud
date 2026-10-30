@@ -10,6 +10,14 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **O nome do personagem de um subagente vem do tipo da chamada.** Um subagente disparado como
+  `code-reviewer` aparece no escritório como "Code Reviewer", em vez de um nome sorteado sem relação com
+  o que ele faz. Dois do mesmo tipo ao mesmo tempo ficam "Revisor" e "Revisor 2", pela mesma regra de
+  sufixo que o sorteio já usava, e o nome derivado não rouba um nome em uso. Sem tipo na chamada (e no
+  `workflow-subagent`, que é interno), continua o sorteio de sempre.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

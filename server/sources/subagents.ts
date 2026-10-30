@@ -127,12 +127,21 @@ export function parseJournal(text: string): Map<string, JournalAgent> {
   return out;
 }
 
+/** Tipo interno dos subagentes de workflow: não é um tipo escolhido por quem chamou. */
+const WORKFLOW_TYPE = 'workflow-subagent';
+
 /** Papel exibido para o subagente. */
 export function subagentRole(meta: SubagentMeta | undefined, spawnType?: string): string {
   const t = meta?.agentType ?? spawnType;
   if (!t) return tr('Subagente');
-  if (t === 'workflow-subagent') return 'Workflow';
+  if (t === WORKFLOW_TYPE) return 'Workflow';
   return t;
+}
+
+/** Tipo escolhido por quem chamou ("code-reviewer"), ou undefined quando a chamada não indicou nenhum. */
+export function subagentTypeOf(meta: SubagentMeta | undefined, spawnType?: string): string | undefined {
+  const t = meta?.agentType ?? spawnType;
+  return !t || t === WORKFLOW_TYPE ? undefined : t;
 }
 
 export interface IdleCheck {
