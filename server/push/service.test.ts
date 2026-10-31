@@ -560,3 +560,30 @@ describe('o resumo sai sozinho, também no segundo lote', () => {
     expect(resumos(calls)).toBe(0);
   });
 });
+
+describe('loadVapidKeys: rasto da identidade gerada', () => {
+  it('uma identidade gerada agora deixa uma linha com o caminho, e nunca a chave', () => {
+    const d = dir();
+    const linhas: string[] = [];
+    const keys = loadVapidKeys(d, {}, (m) => linhas.push(m));
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0]).toContain(join(d, KEY_FILE));
+    expect(linhas[0]).not.toContain(keys.privateKey);
+    expect(linhas[0]).not.toContain(keys.publicKey);
+  });
+
+  it('uma identidade que já existe, no ficheiro ou no ambiente, não diz nada', () => {
+    const d = dir();
+    loadVapidKeys(d, {});
+    const linhas: string[] = [];
+    loadVapidKeys(d, {}, (m) => linhas.push(m));
+    loadVapidKeys(dir(), { HABBLAUD_PUSH_VAPID_PRIVATE: generateVapidKeys().privateKey }, (m) => linhas.push(m));
+    expect(linhas).toEqual([]);
+  });
+
+  it('o serviço passa o log adiante: o arranque que gera a identidade conta-o', () => {
+    const linhas: string[] = [];
+    expect(createPushService({ dataDir: dir(), env: {}, log: (m) => linhas.push(m) })).toBeTruthy();
+    expect(linhas.filter((l) => l.includes('identidade nova gerada'))).toHaveLength(1);
+  });
+});

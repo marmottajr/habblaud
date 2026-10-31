@@ -356,8 +356,14 @@ function truthy(v: string | undefined): boolean {
   return !!v && /^(1|true|yes|sim|on)$/i.test(v.trim());
 }
 
-/** Lê o par do ambiente; sem ele, de `<dataDir>/push-vapid.json`; sem o arquivo, gera e grava a 600. */
-export function loadVapidKeys(dataDir: string, env: NodeJS.ProcessEnv): { privateKey: string; publicKey: string } {
+/**
+ * Lê o par do ambiente; sem ele, de `<dataDir>/push-vapid.json`; sem o arquivo, gera e grava a 600.
+ *
+ * O `log` recebe uma linha quando o par é **gerado agora**, com o caminho onde ficou. A gravação é silenciosa por
+ * desenho, e um arranque fora do lugar (um clone de desenvolvimento sem a variável de ambiente, apontado ao mesmo
+ * `~/.habblaud` do arranque de verdade) deixava uma identidade de push naquela pasta sem rasto de onde vinha.
+ */
+export function loadVapidKeys(dataDir: string, env: NodeJS.ProcessEnv, log?: (msg: string) => void): { privateKey: string; publicKey: string } {
   const fromEnv = env.HABBLAUD_PUSH_VAPID_PRIVATE?.trim();
   if (fromEnv) return { privateKey: fromEnv, publicKey: publicFromPrivate(fromEnv) };
   const file = join(dataDir, KEY_FILE);
@@ -372,6 +378,9 @@ export function loadVapidKeys(dataDir: string, env: NodeJS.ProcessEnv): { privat
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(file, `${JSON.stringify({ privateKey: keys.privateKey, publicKey: keys.publicKey }, null, 2)}\n`, { encoding: 'utf8', mode: FILE_MODE });
   chmodSync(file, FILE_MODE);
+  // Caminho, nunca a chave. Quem vê esta linha num arranque que não devia persistir identidade nenhuma sabe logo
+  // qual o ficheiro a apagar, e de que arranque ele nasceu.
+  log?.(`push: identidade nova gerada e gravada em ${file} (nem HABBLAUD_PUSH_VAPID_PRIVATE nem ficheiro anterior)`);
   return keys;
 }
 
@@ -380,7 +389,7 @@ export function createPushService(deps: PushServiceDeps): PushService | undefine
   const flag = deps.env.HABBLAUD_PUSH?.trim();
   if (flag && !truthy(flag)) return undefined;
   try {
-    return new PushService(loadVapidKeys(deps.dataDir, deps.env), deps);
+    return new PushService(loadVapidKeys(deps.dataDir, deps.env, deps.log), deps);
   } catch (err) {
     deps.log?.(`push desligado: ${(err as Error).message}`);
     return undefined;
