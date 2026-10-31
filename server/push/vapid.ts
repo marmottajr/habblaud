@@ -77,13 +77,40 @@ export interface VapidHeaderOptions {
   now?: () => number;
 }
 
-/** Valor do cabeçalho `Authorization` de um envio (esquema `vapid` da RFC 8292 §3). */
+/**
+ * Margem de renovação do JWT. O servidor de push da Apple pede, no cabeçalho `Authorization`, que o JWT não seja
+ * renovado mais de uma vez por hora, e responde 400 aos tokens novos que chegam dentro dessa hora: um token assinado
+ * a cada envio faz a maior parte dos avisos cair. Com 12 h de validade e 1 h de margem, renova-se de 11 em 11 horas.
+ */
+export const JWT_REFRESH_MARGIN_S = 60 * 60;
+
+/** Token em uso, por identidade. No pior caso tem uma entrada por serviço de push, nunca uma por aparelho. */
+const tokens = new Map<string, { header: string; exp: number }>();
+
+/** Esvazia os tokens em uso (os testes, e quem trocar a identidade VAPID com o processo a correr). */
+export function clearVapidCache(): void {
+  tokens.clear();
+}
+
+/**
+ * Valor do cabeçalho `Authorization` de um envio (esquema `vapid` da RFC 8292 §3). O token é **reutilizado** enquanto
+ * lhe sobrar mais de `JWT_REFRESH_MARGIN_S` de validade; assinar um por envio é o que os servidores de push leem como
+ * renovação a mais.
+ */
 export function vapidAuthorization(opts: VapidHeaderOptions): string {
   const aud = new URL(opts.endpoint).origin;
   const now = Math.floor((opts.now?.() ?? Date.now()) / 1000);
+  // A chave é a identidade (origem do serviço de push, contato e chave pública), NUNCA o endpoint: o mesmo token
+  // serve todos os aparelhos do mesmo serviço, e assim o mapa não cresce com o número de inscrições.
+  const id = `${aud}\u0000${opts.subject}\u0000${opts.publicKey}`;
+  const emUso = tokens.get(id);
+  if (emUso && emUso.exp - now > JWT_REFRESH_MARGIN_S) return emUso.header;
+  const exp = now + JWT_TTL_S;
   const header = b64urlJson({ typ: 'JWT', alg: 'ES256' });
-  const body = b64urlJson({ aud, exp: now + JWT_TTL_S, sub: opts.subject });
+  const body = b64urlJson({ aud, exp, sub: opts.subject });
   const signing = Buffer.from(`${header}.${body}`, 'utf8');
   const sig = signEs256(signing, privateKeyFromRaw(opts.privateKey)).toString('base64url');
-  return `vapid t=${header}.${body}.${sig}, k=${opts.publicKey}`;
+  const value = `vapid t=${header}.${body}.${sig}, k=${opts.publicKey}`;
+  tokens.set(id, { header: value, exp });
+  return value;
 }

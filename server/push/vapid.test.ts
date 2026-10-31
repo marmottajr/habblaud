@@ -1,8 +1,8 @@
 // VAPID (RFC 8292): o servidor de push recusa o envio com 401 se o JWT vier torto, e a mensagem de erro da Apple não
 // diz qual campo está errado. Estes testes são o que separa "o push não chegou" de "o push não foi assinado".
 import { createVerify, createPublicKey } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import { generateVapidKeys, JWT_TTL_S, privateKeyFromRaw, publicFromPrivate, vapidAuthorization } from './vapid';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { clearVapidCache, generateVapidKeys, JWT_REFRESH_MARGIN_S, JWT_TTL_S, privateKeyFromRaw, publicFromPrivate, vapidAuthorization } from './vapid';
 
 const ENDPOINT = 'https://web.push.apple.com/abc123456789';
 
@@ -71,5 +71,50 @@ describe('vapidAuthorization', () => {
 
   it('nada da chave privada aparece no cabeçalho', () => {
     expect(header).not.toContain(keys.privateKey);
+  });
+});
+
+describe('vapidAuthorization: ritmo de renovação', () => {
+  const keys = generateVapidKeys();
+  const ident = { endpoint: ENDPOINT, ...keys, subject: 'mailto:alguem@exemplo.pt' };
+  const T0 = 1_700_000_000_000;
+
+  beforeEach(() => clearVapidCache());
+
+  it('o mesmo token serve as assinaturas seguintes', () => {
+    const inicial = vapidAuthorization({ ...ident, now: () => T0 });
+    expect(vapidAuthorization({ ...ident, now: () => T0 + 1_000 })).toBe(inicial);
+    expect(vapidAuthorization({ ...ident, now: () => T0 + 60 * 60 * 1000 })).toBe(inicial);
+  });
+
+  it('renova quando falta a margem para o fim, e não antes', () => {
+    const inicial = vapidAuthorization({ ...ident, now: () => T0 });
+    const limite = T0 + (JWT_TTL_S - JWT_REFRESH_MARGIN_S) * 1000;
+    expect(vapidAuthorization({ ...ident, now: () => limite - 1_000 })).toBe(inicial);
+    expect(vapidAuthorization({ ...ident, now: () => limite + 1_000 })).not.toBe(inicial);
+  });
+
+  it('o intervalo de renovação fica acima da hora que o servidor de push da Apple exige', () => {
+    expect(JWT_TTL_S - JWT_REFRESH_MARGIN_S).toBeGreaterThan(60 * 60);
+  });
+
+  it('identidades diferentes não partilham token', () => {
+    const apple = vapidAuthorization({ ...ident, now: () => T0 });
+    const outro = vapidAuthorization({ ...ident, endpoint: 'https://updates.push.services.mozilla.com/wpush/v2/abc', now: () => T0 });
+    expect(outro).not.toBe(apple);
+    expect(claims(parts(outro).jwt).aud).toBe('https://updates.push.services.mozilla.com');
+    const contacto = vapidAuthorization({ ...ident, subject: 'mailto:outro@exemplo.pt', now: () => T0 });
+    expect(contacto).not.toBe(apple);
+  });
+
+  it('o token reutilizado continua dentro das regras do servidor de push', () => {
+    vapidAuthorization({ ...ident, now: () => T0 });
+    const depois = vapidAuthorization({ ...ident, now: () => T0 + 2_000 });
+    const c = claims(parts(depois).jwt);
+    const agora = Math.floor((T0 + 2_000) / 1000);
+    expect(c.aud).toBe('https://web.push.apple.com');
+    expect(c.sub.startsWith('mailto:')).toBe(true);
+    expect(c.exp).toBeGreaterThan(agora);
+    expect(c.exp - agora).toBeLessThanOrEqual(24 * 60 * 60);
   });
 });

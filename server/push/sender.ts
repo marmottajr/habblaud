@@ -41,6 +41,22 @@ function safeTopic(topic: string): string {
   return topic.replace(/[^A-Za-z0-9\-_]/g, '').slice(0, 32);
 }
 
+/**
+ * O `reason` do JSON de erro de um servidor de push (a Apple responde `{"reason":"BadJwtToken"}`). Saneado a
+ * caracteres de identificador: o corpo é texto de terceiros e não entra cru num log nosso, nem com mudanças de linha
+ * que partiriam a linha em duas. `'sem motivo'` quando a resposta não o traz.
+ */
+export function pushReason(body: string | undefined): string {
+  if (!body) return 'sem motivo';
+  try {
+    const reason = (JSON.parse(body) as { reason?: unknown }).reason;
+    if (typeof reason === 'string') return reason.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 40) || 'sem motivo';
+  } catch {
+    // Corpo que não é JSON: fica o status, que já está na linha.
+  }
+  return 'sem motivo';
+}
+
 export async function sendPush(sub: PushSubscription, payload: string, opts: SendOptions, deps: SenderDeps): Promise<SendResult> {
   const doFetch = deps.fetch ?? globalThis.fetch;
   // Segunda barreira: a primeira é a rota de inscrição, esta apanha o que já estiver no ficheiro.
@@ -61,10 +77,13 @@ export async function sendPush(sub: PushSubscription, payload: string, opts: Sen
     'Content-Encoding': 'aes128gcm',
     'Content-Type': 'application/octet-stream',
     'Content-Length': String(body.length),
-    TTL: String(Math.max(0, Math.floor(opts.ttlS))),
+    // Mínimo 1: a Apple recusa com `BadTtl` um `TTL` que não seja um número positivo, e 0 não é.
+    TTL: String(Math.max(1, Math.floor(opts.ttlS) || 0)),
     Urgency: opts.urgency,
   };
-  if (opts.topic) headers.Topic = safeTopic(opts.topic);
+  // Só com valor: um `Topic` que fique vazio depois do saneamento vale um 400, pior do que não o mandar.
+  const topic = opts.topic ? safeTopic(opts.topic) : '';
+  if (topic) headers.Topic = topic;
 
   try {
     const res = await doFetch(sub.endpoint, {
@@ -85,7 +104,10 @@ export async function sendPush(sub: PushSubscription, payload: string, opts: Sen
     const ok = res.status >= 200 && res.status < 300;
     // 4xx que não é 404/410 quase sempre é VAPID ou cifra: o texto do servidor de push ajuda e não tem segredo nosso.
     const error = ok ? undefined : ((await res.text().catch(() => '')) || `HTTP ${res.status}`).slice(0, 300);
-    deps.log?.(`push ${endpointTag(sub.endpoint)} -> ${res.status}`);
+    // O `reason` do servidor de push (`BadJwtToken`, `BadTtl`, `BadWebPushTopic`, …) nomeia a regra que o envio
+    // violou, e o tipo diz por que aviso foi: sem os dois, um 400 no log é indistinguível de qualquer outro 400.
+    const tipo = topic ? ` ${topic}` : '';
+    deps.log?.(`push ${endpointTag(sub.endpoint)}${tipo} -> ${res.status}${ok ? '' : ` (${pushReason(error)})`}`);
     return { ok, status: res.status, gone, error };
   } catch (err) {
     deps.log?.(`push ${endpointTag(sub.endpoint)} -> falha de rede`);
