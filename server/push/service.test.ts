@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BURST_MAX, BURST_TOTAL_MAX, BURST_WINDOW_MS, createPushService, KEY_FILE, KEY_KEEP_MS, loadVapidKeys, PER_KEY_MS, PushService, safePath, SUMMARY_DELAY_MS, SUMMARY_EVERY_MS, SUMMARY_TOPIC, TEST_MS, TEXT_MAX, WRITE_WINDOW_MS, WRITES_PER_MIN } from './service';
 import { MAX_SUBSCRIPTIONS } from './store';
+import { fakePushServer } from '../test/fake-push-server';
+import { safeTopic } from './sender';
 import { generateVapidKeys } from './vapid';
 
 const KEYS = { p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4', auth: 'BTBZMqHH6r4Tts7J_aSIgg' };
@@ -16,15 +18,12 @@ function dir(): string {
   return mkdtempSync(join(tmpdir(), 'habblaud-push-'));
 }
 
-/** Servidor de push de mentira: guarda cada POST e responde 201, como a Apple responde. */
-function fakePush(status = 201) {
-  const calls: { url: string; headers: Record<string, string>; body: Uint8Array }[] = [];
-  const fetch = (async (url: string | URL, init?: RequestInit) => {
-    calls.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body as Uint8Array });
-    return { status, ok: status < 300, text: async () => '' } as Response;
-  }) as unknown as typeof globalThis.fetch;
-  return { calls, fetch };
-}
+/**
+ * Servidor de push de mentira, e ESTRITO: recusa os cabeçalhos que a Apple recusa. Vive em
+ * `server/test/fake-push-server.ts`. O que estava aqui respondia 201 a qualquer coisa, e foi assim que um `Topic`
+ * recusado pelo servidor de push atravessou a suíte inteira.
+ */
+const fakePush = fakePushServer;
 
 function service(opts: { fetch?: typeof globalThis.fetch; now?: () => number } = {}): PushService {
   const svc = new PushService(generateVapidKeys(), { dataDir: dir(), env: {}, fetch: opts.fetch, now: opts.now });
@@ -102,7 +101,7 @@ describe('envio', () => {
     expect(h['Content-Encoding']).toBe('aes128gcm');
     expect(h.TTL).toBe('600');
     expect(h.Urgency).toBe('high');
-    expect(h.Topic).toBe('needs-you');
+    expect(h.Topic).toBe(safeTopic('needs-you'));
   });
 
   it('o corpo vai cifrado: nem o título aparece nos bytes', async () => {
@@ -207,7 +206,7 @@ describe('resumo da rajada', () => {
     // O temporizador do resumo dispararia aqui; o teste chama direto para não esperar os 20 s.
     await svc.flushSummary();
     expect(api.calls).toHaveLength(BURST_MAX + 1);
-    expect(api.calls.at(-1)!.headers.Topic).toBe(SUMMARY_TOPIC);
+    expect(api.calls.at(-1)!.headers.Topic).toBe(safeTopic(SUMMARY_TOPIC));
     // Um resumo por rajada: o segundo pedido não manda nada.
     await svc.notify('needs-you', { title: 'x', key: 'agente-99' });
     await svc.flushSummary();
@@ -237,7 +236,7 @@ describe('resumo da rajada', () => {
     t += BURST_WINDOW_MS + 1;
     await svc.notify('needs-you', { title: 'x', key: 'depois' });
     expect(api.calls).toHaveLength(BURST_MAX + 1);
-    expect(api.calls.at(-1)!.headers.Topic).toBe('needs-you');
+    expect(api.calls.at(-1)!.headers.Topic).toBe(safeTopic('needs-you'));
     svc.stop();
   });
 });
@@ -390,10 +389,10 @@ describe('tetos por tipo e travão do processo', () => {
       await svc.notify('needs-you', { title: 'x', key: `a-${i}` });
       t += 5_000;
     }
-    expect(api.calls.filter((c) => c.headers.Topic === 'needs-you')).toHaveLength(BURST_MAX);
+    expect(api.calls.filter((c) => c.headers.Topic === safeTopic('needs-you'))).toHaveLength(BURST_MAX);
     // A resposta do Ana passa: é o aviso que você está mesmo à espera.
     await svc.notify('outro-aviso', { title: 'Alguém respondeu na sala', key: 'm1' });
-    expect(api.calls.filter((c) => c.headers.Topic === 'outro-aviso')).toHaveLength(1);
+    expect(api.calls.filter((c) => c.headers.Topic === safeTopic('outro-aviso'))).toHaveLength(1);
   });
 
   it('o travão do processo existe por cima dos tetos por tipo', async () => {
@@ -428,7 +427,7 @@ describe('segunda transbordagem na mesma janela', () => {
       t += 5_000;
     }
     await svc.flushSummary();
-    const primeiro = api.calls.filter((c) => c.headers.Topic === SUMMARY_TOPIC).length;
+    const primeiro = api.calls.filter((c) => c.headers.Topic === safeTopic(SUMMARY_TOPIC)).length;
     expect(primeiro).toBe(1);
     // Agora passa meia janela: a rajada NÃO está vazia (era isso que o booleano antigo exigia), mas o resumo
     // seguinte tem de poder sair.
@@ -438,7 +437,7 @@ describe('segunda transbordagem na mesma janela', () => {
       t += 1_000;
     }
     await svc.flushSummary();
-    expect(api.calls.filter((c) => c.headers.Topic === SUMMARY_TOPIC)).toHaveLength(2);
+    expect(api.calls.filter((c) => c.headers.Topic === safeTopic(SUMMARY_TOPIC))).toHaveLength(2);
     svc.stop();
   });
 
@@ -477,7 +476,7 @@ describe('o resumo só vai a quem quer o tipo que transbordou', () => {
       t += 1_000;
     }
     await svc.flushSummary();
-    const resumos = api.calls.filter((c) => c.headers.Topic === SUMMARY_TOPIC);
+    const resumos = api.calls.filter((c) => c.headers.Topic === safeTopic(SUMMARY_TOPIC));
     expect(resumos).toHaveLength(1);
     expect(resumos[0].url).toBe(ENDPOINT);
     svc.stop();
@@ -500,7 +499,7 @@ describe('o resumo sai sozinho, também no segundo lote', () => {
     return { svc, calls: api.calls };
   }
 
-  const resumos = (calls: { headers: Record<string, string> }[]): number => calls.filter((c) => c.headers.Topic === SUMMARY_TOPIC).length;
+  const resumos = (calls: { headers: Record<string, string> }[]): number => calls.filter((c) => c.headers.Topic === safeTopic(SUMMARY_TOPIC)).length;
 
   /** Enche o teto e engola `extra` avisos, cada um de um agente diferente. */
   async function transbordar(svc: PushService, extra: number): Promise<void> {

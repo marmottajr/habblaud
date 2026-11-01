@@ -13,6 +13,7 @@ import { Hub } from '../http/sse';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
+import { fakePushServer } from '../test/fake-push-server';
 import { tempDir } from '../test/fixtures';
 import { request } from '../test/permission-server';
 import { createPushRoutes } from './routes';
@@ -41,8 +42,9 @@ async function serve(opts: { env?: NodeJS.ProcessEnv; withPush?: boolean } = {})
   const office = new Office({ names: new NameStore(null), version: '9.9.9', startedAt: Date.now(), accounts: (s) => accounts.list(s), sources: () => [], accountName: () => undefined });
   late.office = office;
   const hub = new Hub(office, { throttleMs: 10 });
-  // `fetch` que nunca sai da máquina: estes testes medem respostas das rotas, não envios.
-  const fetchFake = (async () => ({ status: 201, ok: true, text: async () => '' }) as Response) as unknown as typeof globalThis.fetch;
+  // `fetch` que nunca sai da máquina, e que recusa os cabeçalhos que o servidor de push recusa: um 200 desta rota
+  // com o `Topic` inválido era o que escondia o aviso que não chegava.
+  const fetchFake = fakePushServer().fetch;
   const push = opts.withPush === false ? undefined : createPushService({ dataDir: tmp.dir, env: opts.env ?? {}, fetch: fetchFake });
   push?.registerType({ id: 'needs-you', label: 'Alguém precisa de você', enabled: true, ttlS: 600, urgency: 'high' });
   const api = createApiHandler({

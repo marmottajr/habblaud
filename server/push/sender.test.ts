@@ -2,7 +2,8 @@
 // o `fetch` é injetado, e é por isso que estes casos podem afirmar o que a Apple recusaria sem nunca lhe mandar nada.
 import { createECDH, randomBytes } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { pushReason, sendPush, type SendOptions } from './sender';
+import { recusaDeTopic } from '../test/fake-push-server';
+import { pushReason, safeTopic, sendPush, type SendOptions } from './sender';
 import { clearVapidCache, generateVapidKeys } from './vapid';
 import type { PushSubscription } from './store';
 
@@ -91,14 +92,65 @@ describe('sendPush: cabeçalhos que o servidor de push recusaria', () => {
     expect((await envia({ ttlS: 600.7 })).headers.TTL).toBe('600');
   });
 
-  it('um topic que fica vazio depois do saneamento não vai em cabeçalho', async () => {
+  it('um id sem nada de legível continua dando um `Topic` válido, e o log fica sem o tipo', async () => {
+    // A impressão digital vale para qualquer id não vazio, logo a substituição funciona até para um id que a lista
+    // branca do log esvazia. O que o log não leva é um tipo ilegível.
     const { headers, linhas } = await envia({ topic: ':::' });
-    expect(headers.Topic).toBeUndefined();
+    expect(recusaDeTopic(headers.Topic)).toBeUndefined();
     expect(linhas).toEqual(['push …aBcD-_12 -> 201']);
   });
 
-  it('um topic comprido é cortado aos 32 caracteres', async () => {
-    const { headers } = await envia({ topic: 'x'.repeat(40) });
-    expect(headers.Topic).toHaveLength(32);
+  it('um id comprido não estoura os 32 caracteres', async () => {
+    const { headers } = await envia({ topic: 'x'.repeat(400) });
+    expect(headers.Topic).toHaveLength(20);
+  });
+
+  it('sem tipo nenhum não vai cabeçalho `Topic`', async () => {
+    const { headers } = await envia({ topic: undefined });
+    expect(headers.Topic).toBeUndefined();
+  });
+});
+
+/**
+ * O `Topic` contra um duplo que recusa como o servidor da Apple recusa.
+ *
+ * O id do tipo ia direto no cabeçalho, e um id de 9 caracteres (`needs-you`) é recusado com
+ * `400 BadWebPushTopic`, porque 4n+1 caracteres não são base64 válido. O aviso não chegava ao celular, a suíte
+ * ficava verde, e o único sinal era a linha de log do envio.
+ */
+describe('o `Topic` de cada tipo passa pela regra do servidor de push', () => {
+  beforeEach(() => clearVapidCache());
+
+  it('os tipos deste repositório, e um id de cada comprimento recusado', async () => {
+    for (const id of ['needs-you', 'summary', 'outro-aviso', 'a']) {
+      const { headers } = await envia({ topic: id });
+      expect(recusaDeTopic(headers.Topic), `tipo ${id}`).toBeUndefined();
+    }
+  });
+
+  it('o id do jeito que estava seria recusado: é esse o defeito que isto fecha', () => {
+    // A prova pelo contrário: o duplo recusa o nome que antes ia no cabeçalho.
+    expect(recusaDeTopic('needs-you')).toBe('BadWebPushTopic');
+    expect(recusaDeTopic('a')).toBe('BadWebPushTopic');
+    expect(recusaDeTopic('outro-aviso')).toBeUndefined();
+  });
+
+  it('qualquer comprimento de id dá um `Topic` que passa', () => {
+    // Um id por comprimento, de 1 a 64: nenhum escapa, inclusive os múltiplos de 4 e os ≡ 1 (mod 4).
+    for (let n = 1; n <= 64; n++) {
+      expect(recusaDeTopic(safeTopic('a'.repeat(n))), `id de ${n} caracteres`).toBeUndefined();
+    }
+    // E ids com tudo o que não é base64url: acentos, espaços, barras, dois pontos, emoji.
+    for (const id of ['atenção à máquina', 'a b/c:d', '✅ feito', '..', '-', '_']) {
+      expect(recusaDeTopic(safeTopic(id)), `id ${JSON.stringify(id)}`).toBeUndefined();
+    }
+  });
+
+  it('é determinística e sem colisões', () => {
+    expect(safeTopic('needs-you')).toBe(safeTopic('needs-you'));
+    const ids = ['needs-you', 'summary', 'outro-aviso'];
+    expect(new Set(ids.map((i) => safeTopic(i))).size).toBe(ids.length);
+    // Dois ids com o mesmo começo comprido não se juntam: o corte aos 32 era o que fazia isso.
+    expect(safeTopic(`${'x'.repeat(40)}a`)).not.toBe(safeTopic(`${'x'.repeat(40)}b`));
   });
 });
