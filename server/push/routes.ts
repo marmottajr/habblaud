@@ -3,6 +3,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tr } from '../../shared/i18n';
 import { HttpError, readJson, sendJson } from '../http/app';
+import { pushReason } from './sender';
 import type { PushService } from './service';
 
 /** Corpo de uma inscrição é pequeno: endpoint, duas chaves e um rótulo. */
@@ -121,7 +122,10 @@ export function createPushRoutes(push: PushService): (req: IncomingMessage, res:
           }
           const r = await push.test(endpoint, { title: 'Habblaud', body: tr('Teste de notificação.') });
           if (r.status === 404) throw new HttpError(404, tr('este aparelho não está inscrito'));
-          sendJson(res, r.sent ? 200 : 502, r.sent ? { ok: true } : { ok: false, status: r.status, error: r.error });
+          // `r.error` traz até 300 octetos do corpo da resposta do servidor de push, que é texto de terceiros: o
+          // mesmo crivo do log (`pushReason`, lista branca) vale aqui, porque o destino é uma tela nossa. O corpo
+          // completo fica no log do servidor, onde serve para depurar.
+          sendJson(res, r.sent ? 200 : 502, r.sent ? { ok: true } : { ok: false, status: r.status, error: pushReason(r.error) });
         } catch (err) {
           fail(err);
         }

@@ -34,7 +34,7 @@ interface Srv {
   close(): Promise<void>;
 }
 
-async function serve(opts: { env?: NodeJS.ProcessEnv; withPush?: boolean } = {}): Promise<Srv> {
+async function serve(opts: { env?: NodeJS.ProcessEnv; withPush?: boolean; fetch?: typeof globalThis.fetch } = {}): Promise<Srv> {
   const tmp = tempDir('push-routes-');
   tmps.push(tmp);
   const late: { office?: Office } = {};
@@ -45,7 +45,7 @@ async function serve(opts: { env?: NodeJS.ProcessEnv; withPush?: boolean } = {})
   // `fetch` que nunca sai da máquina, e que recusa os cabeçalhos que o servidor de push recusa: um 200 desta rota
   // com o `Topic` inválido era o que escondia o aviso que não chegava.
   const fetchFake = fakePushServer().fetch;
-  const push = opts.withPush === false ? undefined : createPushService({ dataDir: tmp.dir, env: opts.env ?? {}, fetch: fetchFake });
+  const push = opts.withPush === false ? undefined : createPushService({ dataDir: tmp.dir, env: opts.env ?? {}, fetch: opts.fetch ?? fetchFake });
   push?.registerType({ id: 'needs-you', label: 'Alguém precisa de você', enabled: true, ttlS: 600, urgency: 'high' });
   const api = createApiHandler({
     office,
@@ -230,6 +230,33 @@ describe('POST /api/push/test', () => {
   it('um endpoint recusado nem chega ao teto de ritmo', async () => {
     const s = await up();
     expect((await request(s.base, '/api/push/test', { method: 'POST', headers: LOCAL, body: { endpoint: 'https://192.0.2.1/x' } })).status).toBe(400);
+  });
+  // O corpo da resposta do servidor de push é texto de terceiros, e ia cru na resposta desta rota, apesar de o log
+  // já o sanear. O caso medido é o real: o servidor da Apple responde 400 com um JSON de motivo.
+  it('o motivo que o servidor de push devolve é saneado antes de ir na resposta', async () => {
+    const mau = '{"reason":"Bad\\nJwt Token; rm -rf / <script>"}';
+    const fetchMau = (async () => ({ status: 400, ok: false, text: async () => mau }) as Response) as unknown as typeof globalThis.fetch;
+    const s = await up({ fetch: fetchMau });
+    s.push!.subscribe({ endpoint: ENDPOINT, keys: KEYS });
+    const r = await request(s.base, '/api/push/test', { method: 'POST', headers: LOCAL, body: { endpoint: ENDPOINT } });
+    expect(r.status).toBe(502);
+    const body = r.json as { ok: boolean; status: number; error: string };
+    expect(body).toMatchObject({ ok: false, status: 400 });
+    // Sobram só caracteres de identificador: as letras de `script` ficam, os sinais com que se faz marcação,
+    // comando ou segunda linha desaparecem.
+    expect(body.error).toBe('BadJwtTokenrm-rfscript');
+    for (const sujo of ['\n', '<', '>', ';', ' ', '/']) expect(body.error).not.toContain(sujo);
+  });
+
+  it('um corpo que não é JSON de motivo não vaza nem um pedaço na resposta', async () => {
+    const mau = '<html><body>Forbidden: /home/alguem/.habblaud/push-vapid.json</body></html>';
+    const fetchMau = (async () => ({ status: 403, ok: false, text: async () => mau }) as Response) as unknown as typeof globalThis.fetch;
+    const s = await up({ fetch: fetchMau });
+    s.push!.subscribe({ endpoint: ENDPOINT, keys: KEYS });
+    const r = await request(s.base, '/api/push/test', { method: 'POST', headers: LOCAL, body: { endpoint: ENDPOINT } });
+    const body = r.json as { error: string };
+    expect(body.error).toBe('sem motivo');
+    expect(JSON.stringify(r.json)).not.toContain('habblaud/push-vapid');
   });
 });
 
