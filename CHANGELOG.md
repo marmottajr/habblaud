@@ -10,6 +10,44 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Notificações no aparelho, com o Habblaud fechado (Web Push).** Em **Configurações › Notificações no aparelho**,
+  "Ligar notificações neste aparelho" inscreve o aparelho no serviço de push do próprio navegador (no iPhone, a web
+  app adicionada à tela de início) e "Enviar teste" manda uma notificação na hora. O corpo vai cifrado de ponta a
+  ponta (RFC 8291): nem o servidor de push lê o texto. A seção só aparece onde o navegador tem `PushManager`.
+  Desligado com `HABBLAUD_PUSH=0`; a identidade do servidor sai de `HABBLAUD_PUSH_VAPID_PRIVATE` ou de
+  `<dados>/push-vapid.json`, gerado na primeira vez a 600. Sem dependência nova: só `node:crypto`.
+- **O aviso "alguém precisa de você" chega ao celular com o Habblaud fechado.** O tipo `needs-you` dispara nos avisos
+  de nível `alert` do escritório e a notificação leva só o nome do agente ("Ana 2 precisa de você"): o motivo, a sala
+  e o caminho da pasta nunca saem do escritório, porque a notificação aparece na tela de bloqueio. Tocar nela abre o
+  Habblaud com o agente selecionado. No máximo um aviso por agente a cada minuto e dez a cada dez minutos; acima
+  disso vai um único "{N} avisos novos no Habblaud" e o resto fica na página. Cada tipo liga-se e desliga-se por
+  aparelho, nas Configurações.
+- **As notificações só vão para servidores de push conhecidos, e um endpoint mal formado é recusado.** O endereço
+  da inscrição passa a ser validado com `new URL` e o anfitrião tem de ser de um serviço de push de navegador
+  (`.push.apple.com`, `fcm.googleapis.com`, `.push.services.mozilla.com`; alargável com `HABBLAUD_PUSH_HOSTS`).
+  O envio não segue redirecionamentos e desiste depois de dez segundos. Há teto de dez aparelhos inscritos e de dez
+  pedidos de inscrição por minuto, e cada inscrição ou mudança de preferência deixa uma linha no log, sem o endereço
+  inteiro e sem as chaves.
+- **Cada tipo de aviso tem o seu teto.** Eram dez pushes por dez minutos no total, logo uma manhã de «alguém precisa
+  de você» engolia o aviso que se estava mesmo à espera. Agora o teto é por tipo, e o do processo (vinte por dez
+  minutos) fica só como travão. O resumo «{N} avisos novos» volta a sair na transbordagem seguinte da mesma janela, e
+  vai só aos aparelhos que têm ligado algum dos tipos que transbordaram.
+- **A seção de notificações diz por que não dá, em vez de desaparecer.** Quando o navegador não tem Push API, a app
+  não foi aberta pelo ícone da tela de início ou a sessão expirou, a seção continua visível com o motivo e uma linha
+  técnica (service worker, `display-mode`, `navigator.standalone`, código de `/api/push/status`).
+
+### Corrigido
+
+- **O interruptor de cada tipo de notificação mentia depois de recarregar a página.** A página lia os valores de
+  omissão em vez dos guardados para o aparelho, logo um tipo desligado aparecia ligado e o primeiro toque voltava a
+  desligá-lo. Passa a haver `POST /api/push/state`, que devolve o estado deste aparelho sem levar o endereço de push
+  na barra de endereços.
+- **Tocar na notificação com o Habblaud já aberto abre o sítio certo.** O service worker pedia à janela para navegar
+  por um método que o Safari do iPhone não garante; agora pede à própria página, por mensagem, e a navegação pelo
+  service worker fica como reserva.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

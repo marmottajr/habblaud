@@ -27,6 +27,9 @@ import { loadHeadlessScreen } from './pty/screen';
 import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { createPermissionRoutes } from './permissions/http';
+import { NEEDS_YOU, noticePush } from './push/notices';
+import { createPushRoutes } from './push/routes';
+import { createPushService } from './push/service';
 import { PermissionRegistry } from './permissions/registry';
 import { codexAccountOf } from './codex/http';
 import { createCodexQueueRunner, findCodexBin } from './messages/codex';
@@ -338,6 +341,23 @@ const ticker = setInterval(() => {
   }
 }, 250);
 
+// Notificações push (server/push/): a identidade VAPID vem de HABBLAUD_PUSH_VAPID_PRIVATE ou de
+// <dataDir>/push-vapid.json, gerado na primeira vez a 600. HABBLAUD_PUSH=0 devolve undefined: nenhuma rota
+// /api/push/* existe e a página não mostra a seção.
+const push = createPushService({ dataDir: config.dataDir, env: process.env, log: (msg) => log.info(msg) });
+if (push) {
+  // Único tipo do Habblaud: alguém precisa de você. Extensões registram os seus com push.registerType.
+  push.registerType({ id: NEEDS_YOU, label: tr('Alguém precisa de você'), enabled: true, ttlS: 600, urgency: 'high' });
+  // Os avisos só saem do escritório pelo commit() que o Hub drena, então é no Hub que se escuta (http/sse.ts). O
+  // texto do aviso NÃO atravessa: push/notices.ts monta a notificação a partir do nome do agente e de mais nada.
+  hub.onNotice((n) => {
+    const text = noticePush(n, (id) => office.get(id)?.name);
+    // `.catch()` obrigatório: em Node 22 uma promessa rejeitada sem tratamento mata o processo, e um aviso de nível
+    // `alert` chega a cada agente que pede resposta.
+    if (text) push.notify(NEEDS_YOU, text).catch((err) => log.warn(tr('Falha ao enviar notificação: {0}', [errMsg(err)])));
+  });
+}
+
 const api = createApiHandler({
   renameRoom: (id, name) => {
     const path = office.roomPath(id);
@@ -375,6 +395,7 @@ const api = createApiHandler({
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
+  push: push ? createPushRoutes(push) : undefined,
   world: world ? createWorldRoutes(world, worldViewer, worldSocial) : undefined,
 });
 
