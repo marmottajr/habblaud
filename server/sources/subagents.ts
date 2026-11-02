@@ -20,6 +20,8 @@ export interface SubagentMeta {
   spawnDepth?: number;
   requestShape?: string;
   workflowPhase?: string;
+  /** O Claude Code grava "finished": true quando o subagente para; some quando ele é retomado (SendMessage). */
+  finished?: boolean;
 }
 
 /** Sem escrita há 5 s depois de um end_turn: concluiu. */
@@ -83,6 +85,7 @@ export function parseSubagentMeta(raw: string): SubagentMeta | undefined {
     if (typeof j.spawnDepth === 'number') meta.spawnDepth = j.spawnDepth;
     if (requestShape) meta.requestShape = requestShape;
     if (workflowPhase) meta.workflowPhase = workflowPhase;
+    if (j.finished === true) meta.finished = true;
     return meta;
   } catch {
     return undefined;
