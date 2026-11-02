@@ -255,6 +255,71 @@ describe('ClaudeWatcher', () => {
     expect(c.agent('sess-a:b1')!.status).toBe('done');
   });
 
+  // Retomado por SendMessage: o meta mantém o toolUseId do spawn (já notificado), perde o "finished" e o .jsonl volta a crescer.
+  const KAREN = { agentType: 'karen', description: 'KAREN confere a R06', toolUseId: 'toolu_k', requestShape: 'background' };
+  const writeMeta = (jsonl: string, meta: Record<string, unknown>) => writeFileSync(jsonl.replace(/\.jsonl$/, '.meta.json'), JSON.stringify(meta));
+  const resumeLines = [
+    L.assistant([L.tool('toolu_s', 'SendMessage', { to: 'k1', message: 'Confira a R07' })]),
+    L.result('toolu_s', 'ok', { toolUseResult: { success: true, resumedAgentId: 'k1' } }),
+  ];
+
+  it('subagente retomado por SendMessage volta a trabalhar e sai de novo ao concluir', () => {
+    bootWithSession();
+    appendLines(c.transcript('sess-a'), [
+      L.assistant([L.tool('toolu_k', 'Agent', { description: 'KAREN confere a R06', subagent_type: 'karen', run_in_background: true })]),
+      L.result('toolu_k', 'lançado', { toolUseResult: { isAsync: true, status: 'async_launched', agentId: 'k1' } }),
+    ]);
+    const path = c.subFile('sess-a', 'k1', KAREN, [L.prompt('Confira a R06', { agentId: 'k1' }), L.assistant([L.tool('r1', 'Read', { file_path: '/p/R06.pdf' })], { agentId: 'k1' })]);
+    c.poll();
+    expect(c.agent('sess-a:k1')).toMatchObject({ kind: 'sub', status: 'working' });
+    // Primeira execução termina: meta "finished" + notificação do spawn.
+    appendLines(path, [L.assistant([L.text('R06 reprovada.')], { agentId: 'k1', stop: 'end_turn' })]);
+    writeMeta(path, { ...KAREN, finished: true });
+    appendLines(c.transcript('sess-a'), [L.notification('toolu_k', 'completed', 'Agent "KAREN confere a R06" finished')]);
+    c.poll();
+    expect(c.agent('sess-a:k1')!.status).toBe('done');
+    c.advance(26_000);
+    c.poll();
+    expect(c.agent('sess-a:k1')).toBeUndefined();
+    // Retomada: o arquivo cresce e o meta perde o "finished".
+    appendLines(c.transcript('sess-a'), resumeLines);
+    writeMeta(path, KAREN);
+    appendLines(path, [L.prompt('Confira a R07', { agentId: 'k1' }), L.assistant([L.tool('r2', 'Read', { file_path: '/p/R07.pdf' })], { agentId: 'k1' })]);
+    c.poll(); // descarta o tracker da execução anterior
+    c.poll();
+    expect(c.agent('sess-a:k1')).toMatchObject({ kind: 'sub', status: 'working', role: 'karen' });
+    expect(c.agent('sess-a:k1')!.activity?.text).toBe('Lendo R07.pdf');
+    // Conclui de novo (a notificação agora traz o toolUseId do SendMessage): sai da sala como antes.
+    appendLines(path, [L.assistant([L.text('R07 aprovada.')], { agentId: 'k1', stop: 'end_turn' })]);
+    writeMeta(path, { ...KAREN, finished: true });
+    appendLines(c.transcript('sess-a'), [L.notification('toolu_s', 'completed', 'Agent "KAREN confere a R06" finished')]);
+    c.poll();
+    expect(c.agent('sess-a:k1')!.status).toBe('done');
+    c.advance(26_000);
+    c.poll();
+    expect(c.agent('sess-a:k1')).toBeUndefined();
+  });
+
+  it('boot com um subagente retomado já em andamento: entra assim que volta a escrever', () => {
+    writeLines(c.transcript('sess-k'), [
+      L.prompt('Confira a planta'),
+      L.assistant([L.tool('toolu_k', 'Agent', { description: 'KAREN confere a R06', subagent_type: 'karen', run_in_background: true })]),
+      L.result('toolu_k', 'lançado', { toolUseResult: { isAsync: true, status: 'async_launched', agentId: 'k1' } }),
+      L.notification('toolu_k', 'completed', 'Agent "KAREN confere a R06" finished'),
+      ...resumeLines,
+    ]);
+    const path = c.subFile('sess-k', 'k1', KAREN, [
+      L.prompt('Confira a R06', { agentId: 'k1' }),
+      L.assistant([L.text('R06 reprovada.')], { agentId: 'k1', stop: 'end_turn' }),
+      L.prompt('Confira a R07', { agentId: 'k1' }),
+    ]);
+    c.openSession(300, 'sess-k');
+    c.watcher.boot();
+    appendLines(path, [L.assistant([L.tool('r2', 'Read', { file_path: '/p/R07.pdf' })], { agentId: 'k1' })]);
+    c.poll();
+    expect(c.agent('sess-k:k1')).toMatchObject({ kind: 'sub', status: 'working', title: 'KAREN confere a R06' });
+  });
+
   it('fork em segundo plano: entra e trabalha (a cópia da chamada do pai não o conclui); a notificação conclui', () => {
     const mainId = bootWithSession();
     appendLines(c.transcript('sess-a'), [

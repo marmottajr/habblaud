@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Subagente retomado com SendMessage volta a aparecer trabalhando.** Um subagente em segundo plano que já tinha
+  concluído e era retomado pela sessão (SendMessage) ficava invisível até terminar, mesmo reiniciando o Habblaud: a
+  conclusão da primeira execução continuava valendo. Agora ele volta à sala assim que retoma o trabalho e sai de novo
+  quando conclui.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

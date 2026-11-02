@@ -120,6 +120,8 @@ interface SessionTracker {
   finishedTools: Set<string>;
   finishedAgents: Set<string>;
   finishedRuns: Set<string>;
+  /** Subagentes retomados (SendMessage) depois de concluídos: os sinais de conclusão anteriores não valem. */
+  resumed: Set<string>;
   journals: Map<string, { size: number; agents: Map<string, JournalAgent> }>;
   /** Shells (Bash/Monitor) que o principal e os subagentes desta sessão estão esperando. */
   shells: ShellTracker;
@@ -413,6 +415,7 @@ export class ClaudeWatcher implements AgentSource {
       finishedTools: new Set(),
       finishedAgents: new Set(),
       finishedRuns: new Set(),
+      resumed: new Set(),
       journals: new Map(),
       shells: new ShellTracker(),
       workflowAgents: 0,
@@ -623,6 +626,8 @@ export class ClaudeWatcher implements AgentSource {
   // ---------------------------------------------------------------- subagentes
 
   private isFinished(t: SessionTracker, file: SubagentFile, meta: SubagentMeta | undefined): boolean {
+    if (meta?.finished) return true;
+    if (t.resumed.has(file.agentId)) return false;
     if (meta?.toolUseId && t.finishedTools.has(meta.toolUseId)) return true;
     if (t.finishedAgents.has(file.agentId)) return true;
     if (file.runId) {
@@ -692,6 +697,8 @@ export class ClaudeWatcher implements AgentSource {
         }
         this.openSub(t, file, firstScan ? 'replay' : 'new');
       } else if (size > known) {
+        // Voltou a ser escrito depois de sair: retomado por SendMessage (o toolUseId ainda é o do spawn concluído).
+        addBounded(t.resumed, file.agentId);
         this.openSub(t, file, 'regrown');
       }
     }
@@ -750,6 +757,7 @@ export class ClaudeWatcher implements AgentSource {
       this.isFinished(t, file, meta) ||
       (mode !== 'new' && concludedByIdle({ now, lastWriteAt: tail.mtimeMs, ended: state.ended, pendingTool: state.pendingTools.size > 0 }));
     if (finished) {
+      t.resumed.delete(file.agentId);
       t.known.set(file.path, tail.size);
       return;
     }
@@ -801,7 +809,8 @@ export class ClaudeWatcher implements AgentSource {
         t.known.set(sub.file.path, sub.tail.size);
         continue;
       }
-      sub.meta ??= readSubagentMeta(sub.file.metaPath);
+      // Relido a cada ciclo: "finished" entra quando o subagente para e sai quando ele é retomado.
+      sub.meta = readSubagentMeta(sub.file.metaPath) ?? sub.meta;
       let fresh = 0;
       for (let i = 0; i < 4; i++) {
         let r;
@@ -820,9 +829,11 @@ export class ClaudeWatcher implements AgentSource {
         if (!r.more) break;
       }
       if (office.isSubDone(sub.id)) {
-        if (fresh > 0 && !this.isFinished(t, sub.file, sub.meta)) {
-          const since = office.get(sub.id)?.statusSince ?? now;
-          if (now - since > 3_000) office.reactivateSub(sub.id);
+        const since = office.get(sub.id)?.statusSince ?? now;
+        if (fresh > 0 && now - since > 3_000 && !sub.meta?.finished) {
+          // Escreveu de novo depois de concluir (retomado ainda no período de graça).
+          addBounded(t.resumed, sub.agentId);
+          office.reactivateSub(sub.id);
         }
         continue;
       }
@@ -830,6 +841,7 @@ export class ClaudeWatcher implements AgentSource {
         this.isFinished(t, sub.file, sub.meta) ||
         concludedByIdle({ now, lastWriteAt: sub.tail.mtimeMs, ended: sub.state.ended, pendingTool: sub.state.pendingTools.size > 0 });
       if (done) {
+        t.resumed.delete(sub.agentId);
         office.completeSub(sub.id);
         // Concluiu: nada dele roda em primeiro plano (o que estiver em segundo plano passa para o principal).
         t.shells.endForeground(sub.id, now);
