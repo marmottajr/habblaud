@@ -180,6 +180,25 @@ export class MessageComposer {
     return mode.kind;
   }
 
+  /**
+   * Manda um texto pronto pelo agente da caixa (botão de resposta de uma pergunta de fim de turno, ui/reply.ts):
+   * o texto entra na caixa e segue pelo mesmo caminho do Enter, então a linha de situação acompanha a entrega e,
+   * se for recusado, o texto fica lá para tentar de novo. `false` = a caixa não está pronta para mandar.
+   */
+  sendText(text: string): boolean {
+    if (this.mode.kind !== 'ready' || !canSend(text)) return false;
+    this.drafts.set(this.agentId, text);
+    this.box.value = text;
+    this.resize();
+    void this.send();
+    return true;
+  }
+
+  /** A caixa pode mandar agora (agente principal presente, recurso ligado, página local, plugin conectado). */
+  get ready(): boolean {
+    return this.mode.kind === 'ready';
+  }
+
   // ---------------------------------------------------------------- internos
 
   private onKey(e: KeyboardEvent): void {

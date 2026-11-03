@@ -13,7 +13,7 @@
 // `codexRng`), sem chamadas a mais no sorteio principal; ainda assim o escritório de cada semente mudou em relação
 // às versões sem o Codex (a 2ª sessão muda de sala, e os agentes do Codex não sorteiam custo). Vale sempre: a mesma
 // semente gera o mesmo escritório.
-import type { AccountInfo, AccountUsage, Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionDecision, RoomInfo, ShellJob, TaskItem } from '../types';
+import type { AccountInfo, AccountUsage, Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PendingReply, PermissionDecision, ReplyOption, RoomInfo, ShellJob, TaskItem } from '../types';
 import { describePrompt, describeShellJob, describeTool, SHELL_DONE_TOOL, SHELL_WAIT_TOOL, SPECIAL, type ActivityDescription, type ShellOutcome } from '../activity';
 import { answerSummary, ASK_TOOL, checkAnswers } from '../answers';
 import { describeGitHubEvent, GITHUB_TOOL, RoomEffects } from '../github';
@@ -35,6 +35,37 @@ interface DemoProject {
 }
 
 const ROOT = '/Users/dev/projetos';
+
+/**
+ * Perguntas de fim de turno do demo (a caixa de "próximo passo" do app do Claude Code, ver PendingReply): o agente
+ * termina o turno e deixa uma pergunta com botões, para responder pelo escritório.
+ */
+const REPLIES: Array<{ recap: string; ask: string; options: ReplyOption[] }> = [
+  {
+    recap: tr('Testes passando e nada quebrado no caminho. Falta só gravar: a mudança está só na cópia de trabalho.'),
+    ask: tr('Commito essa mudança?'),
+    options: [
+      { label: tr('Commita'), message: tr('Pode commitar.') },
+      { label: tr('Deixa comigo'), message: tr('Deixa comigo, eu commito depois.') },
+    ],
+  },
+  {
+    recap: tr('A correção está de pé e cobre os dois casos do relato. O resto do módulo continua como estava.'),
+    ask: tr('Sigo para a próxima tarefa?'),
+    options: [
+      { label: tr('Segue'), message: tr('Pode seguir para a próxima.') },
+      { label: tr('Espera'), message: tr('Espera, quero conferir antes.') },
+    ],
+  },
+  {
+    recap: tr('Branch pronta e empurrada. O PR é o passo que falta, e ele sai daqui ou do Claude Code.'),
+    ask: tr('Abro o PR agora?'),
+    options: [
+      { label: tr('Abre o PR'), appAction: 'create_pr' },
+      { label: tr('Agora não'), message: tr('Agora não, deixa a branch assim.') },
+    ],
+  },
+];
 
 const PROJECTS: DemoProject[] = [
   {
@@ -135,6 +166,8 @@ const FOREGROUND_JOBS: Array<{ description: string; command: string }> = [
 ];
 /** Chance de, ao fim de um turno, deixar um shell em segundo plano rodando. */
 const SHELL_CHANCE = 0.35;
+/** Chance de, ao fim de um turno, deixar uma pergunta de fim de turno esperando resposta. */
+const REPLY_CHANCE = 0.45;
 /** Chance, a cada ação, de rodar um comando longo em primeiro plano (no máximo um por turno). */
 const FOREGROUND_CHANCE = 0.07;
 /** Chance de um shell em segundo plano falhar. */
@@ -463,6 +496,38 @@ export class DemoSimulator {
     return a.info.id;
   }
 
+  /**
+   * Faz um agente principal terminar o turno com uma pergunta de fim de turno esperando resposta (a caixa de
+   * "próximo passo"). Para testes e capturas de tela; devolve o id do agente.
+   */
+  forceReply(now = Date.now()): string | undefined {
+    const mains = [...this.agents.values()].filter((a) => a.info.kind === 'main' && a.removeAt === undefined && (a.info.provider ?? 'claude') === 'claude');
+    const a = mains.find((x) => x.phase === 'idle') ?? mains[0];
+    if (!a) return undefined;
+    if (a.phase !== 'idle') {
+      a.phase = 'idle';
+      a.phaseUntil = now + this.ms(30_000, 75_000);
+      this.setStatus(a, 'idle', now);
+    }
+    this.leaveReply(a, now);
+    return a.info.id;
+  }
+
+  /** Deixa a pergunta de fim de turno no agente (ela vale até o próximo prompt). */
+  private leaveReply(a: SimAgent, now: number): void {
+    const pick = this.pick(REPLIES, a.rng);
+    const reply: PendingReply = {
+      id: `${this.prefix}reply-${this.tag}-${++this.seq}`,
+      ask: pick.ask,
+      recap: pick.recap,
+      options: pick.options.map((o) => ({ ...o })),
+      at: now,
+      blocked: true,
+    };
+    a.info.reply = reply;
+    this.dirty = true;
+  }
+
   /** Para no meio do turno pedindo permissão ou perguntando (com o pedido fictício para responder pelo escritório). */
   private askPermission(a: SimAgent, now: number, kind?: DemoPermissionKind): void {
     a.phase = 'waiting';
@@ -667,6 +732,8 @@ export class DemoSimulator {
         if (now >= a.phaseUntil) {
           const prompt = this.pick(a.project.prompts, a.rng);
           a.info.title = prompt;
+          // Prompt novo: a pergunta de fim de turno anterior foi respondida.
+          delete a.info.reply;
           a.phase = 'working';
           a.shelledThisTurn = false;
           a.foregroundThisTurn = false;
@@ -733,6 +800,8 @@ export class DemoSimulator {
           a.phase = 'idle';
           a.phaseUntil = now + this.ms(20_000, 75_000);
           this.advanceTask(a, 'completed');
+          // Só o Claude Code tem a caixa de fim de turno; o Codex não pergunta assim.
+          if (a.info.provider !== 'codex' && a.rng() < REPLY_CHANCE) this.leaveReply(a, now);
           this.activity(a, now, SPECIAL.turnDone(this.ms(40_000, 240_000) * this.speed));
           this.setStatus(a, 'idle', now);
           this.notice(now, 'success', tr('✅ {0} concluiu em {1}', [a.info.name, a.project.name]), a.info.id, a.info.roomId);
@@ -988,6 +1057,7 @@ function structuredCloneAgent(a: AgentInfo): AgentInfo {
     activity: a.activity ? { ...a.activity } : undefined,
   };
   if (a.shells) c.shells = a.shells.map((j) => ({ ...j }));
+  if (a.reply) c.reply = { ...a.reply, options: a.reply.options.map((o) => ({ ...o })) };
   if (a.permission) {
     c.permission = { ...a.permission, suggestions: a.permission.suggestions?.map((s) => ({ ...s, rules: s.rules.slice() })) };
     if (a.permission.questions) c.permission.questions = a.permission.questions.map((q) => ({ ...q, options: q.options.map((o) => ({ ...o })) }));

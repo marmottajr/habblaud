@@ -40,6 +40,7 @@ import {
 } from './model';
 import { access } from '../net/access';
 import { PermissionCard } from './permission';
+import { ReplyCard } from './reply';
 import { canRenameRoom } from './roomrename';
 import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
 import { ptyControllable } from './ptyapi';
@@ -245,6 +246,8 @@ class AgentView {
   /** Mandar mensagem ao agente principal pelo Habblaud (plugin habblaud-mensagens). */
   private composer: MessageComposer;
   private msgSec: ReturnType<typeof section>;
+  /** Pergunta de fim de turno com os botões de resposta (ui/reply.ts), acima da caixa de mensagem. */
+  private reply: ReplyCard;
   private tasksSec: ReturnType<typeof section>;
   private tasksBar: HTMLElement;
   private tasks: KeyedList<TaskItem>;
@@ -356,7 +359,8 @@ class AgentView {
     this.actDetails = h('details', { class: 'ui-now__details' }, h('summary', { text: tr('Detalhes') }), this.actDetail);
     const nowSec = section(tr('Agora'), h('div', { class: 'ui-now' }, this.actIcon, h('div', { class: 'ui-now__body' }, this.actText, this.actTime)), this.actDetails);
     this.composer = new MessageComposer(ctx, 'drawer');
-    this.msgSec = section(tr('Mandar mensagem'), this.composer.el);
+    this.reply = new ReplyCard(() => ctx.invalidate(), this.composer, 'drawer');
+    this.msgSec = section(tr('Mandar mensagem'), this.reply.el, this.composer.el);
     // No celular a caixa fica presa no rodapé da gaveta enquanto a conversa rola (styles.css, .ui-sec--msg).
     this.msgSec.el.classList.add('ui-sec--msg');
     this.social = new SocialSection(ctx);
@@ -617,6 +621,8 @@ class AgentView {
 
     // Mandar mensagem: só para principais presentes (com o recurso ligado e a página local; sem o plugin, a dica).
     setHidden(this.msgSec.el, this.composer.render(live, this.id) === 'off');
+    // Depois da caixa: os botões só valem quando ela está pronta para mandar.
+    this.reply.render(live ? a : undefined);
 
     // Vida social (personalidade, carteira, rodas): só de quem está no escritório.
     if (live) this.social.render(a.id, now);

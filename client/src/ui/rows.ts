@@ -1,9 +1,13 @@
 // Linha de agente (avatar, nome, conta, papel, status e atividade), usada na barra lateral e na gaveta.
+// Com o turno terminado e uma pergunta de fim de turno esperando (AgentInfo.reply), a linha de atividade mostra a
+// pergunta: é por ela que se vê, da barra lateral, quem está esperando uma resposta (responder é na gaveta ou no
+// terminal, ui/reply.ts).
 import type { AccountInfo, AgentInfo } from '../../../shared/types';
 import { createAvatar, updateAvatar, type AvatarSize } from './avatar';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { formatDuration } from './format';
 import { activityFallback, shellLine, shellWaitIn, statusLabel } from './model';
+import { replyActivity } from './reply';
 import {
   createAccountChip,
   createActivityLine,
@@ -90,13 +94,15 @@ export function updateAgentRow(
   const wait = shellWaitIn(agent, agents, now);
   const status = wait ? 'shell' : agent.status;
   updateStatusDot(r.dot, status);
+  // Turno terminado com uma pergunta esperando resposta: a linha mostra a pergunta, não o último passo dele.
+  const asking = wait ? undefined : replyActivity(agent);
   if (wait) updateShellActivityLine(r.activity, wait, now);
-  else updateActivityLine(r.activity, agent.activity, activityFallback(agent));
+  else updateActivityLine(r.activity, asking ?? agent.activity, activityFallback(agent));
   setVariant(row, 'is-', status);
   row.classList.toggle('is-selected', selected);
   setAttr(row, 'aria-current', selected ? 'true' : null);
   // Para leitores de tela, o tempo em minutos (o cronômetro mudaria o rótulo a cada segundo).
-  const doing = wait ? tr('{0}, há {1}', [shellLine(wait, now).label, formatDuration(now - wait.since)]) : agent.activity?.text;
+  const doing = wait ? tr('{0}, há {1}', [shellLine(wait, now).label, formatDuration(now - wait.since)]) : (asking ?? agent.activity)?.text;
   setAttr(
     row,
     'aria-label',

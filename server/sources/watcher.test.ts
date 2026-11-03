@@ -437,6 +437,33 @@ describe('ClaudeWatcher', () => {
     expect(c.agent(id)!.status).toBe('offline');
   });
 
+  it('pergunta de fim de turno chega ao snapshot e sai no prompt seguinte', () => {
+    const id = bootWithSession();
+    appendLines(c.transcript('sess-a'), [
+      L.assistant([
+        L.tool('w1', 'mcp__ccd_turn__wrap_up', {
+          recap: 'Publiquei a 2.96.0.',
+          ask: 'Ligo a fase pela tela?',
+          actions: [{ label: 'Liga você', message: 'Pode ligar a fase.' }, { action: 'commit', label: 'Commita' }],
+          blocked: true,
+        }),
+      ]),
+      L.assistant([L.text('Está no ar.')], { stop: 'end_turn' }),
+    ]);
+    c.poll();
+    expect(c.agent(id)!.reply).toMatchObject({
+      id: 'w1',
+      ask: 'Ligo a fase pela tela?',
+      recap: 'Publiquei a 2.96.0.',
+      options: [{ label: 'Liga você', message: 'Pode ligar a fase.' }, { label: 'Commita', appAction: 'commit' }],
+      blocked: true,
+    });
+
+    appendLines(c.transcript('sess-a'), [L.prompt('Pode ligar a fase.')]);
+    c.poll();
+    expect(c.agent(id)!.reply).toBeUndefined();
+  });
+
   it('/clear: mesmo processo, sessão nova — mesmo personagem, tarefas zeradas', () => {
     writeLines(c.transcript('sess-a'), [L.assistant([L.tool('t', 'TodoWrite', { todos: [{ content: 'A', status: 'pending' }] })])]);
     c.openSession(100, 'sess-a');

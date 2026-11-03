@@ -10,6 +10,17 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Responder pelo escritório as perguntas de fim de turno do app do Claude Code.** Quando o agente termina o turno
+  com a caixa de "próximo passo" — o resumo do que fez e uma pergunta com botões —, ela aparece agora no rodapé do
+  terminal e na gaveta do agente, logo acima da caixa de mensagem: clicar num botão manda a resposta à sessão como se
+  você a tivesse digitado (precisa do plugin `habblaud-mensagens`). Na barra lateral, a linha do agente passa a mostrar
+  a pergunta no lugar da última coisa que ele fez, então dá para ver de longe quem está esperando. A pergunta sai
+  sozinha quando a sessão recebe o próximo prompt, respondido por aqui ou pelo Claude Code. Botão que é ação do
+  próprio app (commit, abrir PR) aparece desligado, com a dica de que só de lá dá para fazer. Essas perguntas não
+  passam pelo hook de permissão (o app aprova as ferramentas dele sozinho): o Habblaud as lê do transcript.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

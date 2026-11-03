@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APP_WRAP_UP_TOOL,
   describeCommand,
   describePrompt,
   describeShellJob,
@@ -10,6 +11,7 @@ import {
   shellWords,
   SPECIAL,
   splitShell,
+  wrapUpReply,
 } from './activity';
 
 describe('describeCommand', () => {
@@ -141,6 +143,31 @@ describe('atividades', () => {
     expect(describeTool('TodoWrite', {
       todos: [null, undefined, 'inválido', 42, false, { content: 'Sem status' }, { content: 'Pronta', status: 'completed' }, { content: 'Pendente', status: 'pending' }],
     }).detail).toBe('1/3 concluídas');
+  });
+
+  it('wrap_up vira pergunta com os botões (texto da ação ou o rótulo); ação do app fica sem texto', () => {
+    const input = {
+      recap: 'Testes passando, nada commitado.',
+      ask: 'Commito essa mudança?',
+      actions: [{ label: 'Commita', message: 'Pode commitar.' }, { label: 'Agora não' }, { action: 'create_pr', label: 'Abrir PR' }],
+      blocked: true,
+    };
+    expect(wrapUpReply('tu1', input, 50)).toEqual({
+      id: 'tu1',
+      ask: 'Commito essa mudança?',
+      recap: 'Testes passando, nada commitado.',
+      options: [{ label: 'Commita', message: 'Pode commitar.' }, { label: 'Agora não', message: 'Agora não' }, { label: 'Abrir PR', appAction: 'create_pr' }],
+      at: 50,
+      blocked: true,
+    });
+    expect(describeTool(APP_WRAP_UP_TOOL, input)).toEqual({ kind: 'ask', icon: '❓', text: 'Fazendo uma pergunta a você', detail: 'Commito essa mudança?' });
+  });
+
+  it('wrap_up só com o resumo (ou sem botão) não vira pergunta', () => {
+    expect(wrapUpReply('tu1', { recap: 'Tudo pronto.' }, 50)).toBeUndefined();
+    expect(wrapUpReply('tu1', { ask: 'E agora?', actions: [null, 42, {}] }, 50)).toBeUndefined();
+    expect(wrapUpReply('tu1', 'nem é objeto', 50)).toBeUndefined();
+    expect(describeTool(APP_WRAP_UP_TOOL, { recap: 'Tudo pronto.' })).toEqual({ kind: 'communicate', icon: '🧾', text: 'Resumindo o que fez', detail: 'Tudo pronto.' });
   });
 
   it('ferramentas e especiais em PT-BR', () => {

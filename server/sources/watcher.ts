@@ -529,6 +529,7 @@ export class ClaudeWatcher implements AgentSource {
     if (s.model) summary.model = s.model;
     if (s.gitBranch) summary.gitBranch = s.gitBranch;
     if (s.permissionMode) summary.permissionMode = s.permissionMode;
+    if (s.reply) summary.reply = s.reply;
     if (s.lastAt !== undefined) summary.lastAt = s.lastAt;
     this.opts.office.applyTranscript(t.key, summary);
   }

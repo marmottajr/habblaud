@@ -3,8 +3,8 @@
 // atividades (o que o personagem está fazendo) e sinais (ciclo de vida de subagentes).
 // Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
 import { createReadStream } from 'node:fs';
-import type { Activity, AgentStats, TaskItem, TaskStatus } from '../../shared/types';
-import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../shared/activity';
+import type { Activity, AgentStats, PendingReply, TaskItem, TaskStatus } from '../../shared/types';
+import { APP_WRAP_UP_TOOL, describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, wrapUpReply, type ActivityDescription } from '../../shared/activity';
 import type { GitHubEvent } from '../../shared/github';
 import { detectGitHubNotification, detectGitHubResult, githubCallOf, type GitHubCall } from './github';
 import type { ShellStart } from './shells';
@@ -16,7 +16,9 @@ export type TaskOp =
   | { op: 'replace'; tasks: TaskItem[] }
   | { op: 'create'; id: string; title: string; activeForm?: string }
   | { op: 'update'; id: string; status?: TaskStatus | 'deleted'; title?: string; activeForm?: string }
-  | { op: 'rename'; from: string; to: string };
+  | { op: 'rename'; from: string; to: string }
+  /** Fecha o passo em andamento (o turno acabou e o app fecha a lista junto com a caixa de fim de turno). */
+  | { op: 'finish' };
 
 const TASK_STATUSES = new Set<string>(['pending', 'in_progress', 'completed']);
 
@@ -44,6 +46,9 @@ export function applyTaskOp(tasks: TaskItem[], op: TaskOp): TaskItem[] {
     }
     case 'rename':
       return tasks.map((t) => (t.id === op.from ? { ...t, id: op.to } : t));
+    case 'finish':
+      // Só o que estava em andamento: passo que nem começou continua pendente.
+      return tasks.map((t) => (t.status === 'in_progress' ? { ...t, status: 'completed' as TaskStatus } : t));
   }
 }
 
@@ -118,6 +123,8 @@ export interface TranscriptState {
   /** Operações de tarefas feitas desde o início da janela lida (até o prefixo do arquivo ser mesclado). */
   taskOpsLog: TaskOp[] | null;
   sawTaskReplace: boolean;
+  /** Pergunta de fim de turno esperando resposta (APP_WRAP_UP_TOOL); some no próximo prompt. */
+  reply?: PendingReply;
   stats: AgentStats;
   costSeen: boolean;
   model?: string;
@@ -481,6 +488,19 @@ class LineParser {
       case 'TodoWrite':
         this.taskOp({ op: 'replace', tasks: todosToTasks(input.todos) });
         break;
+      case APP_WRAP_UP_TOOL: {
+        // A caixa de fim de turno do app: guarda a pergunta (com os botões) para responder pelo escritório.
+        const reply = wrapUpReply(id, input, this.at);
+        if (reply || this.s.reply) {
+          if (reply) this.s.reply = reply;
+          else delete this.s.reply;
+          this.changed();
+        }
+        // O app fecha a lista de tarefas junto com esta caixa (por isso o agente não manda um update_plan no fim):
+        // o passo em andamento terminou com o turno. Com `blocked` ele parou para esperar você, e o passo continua.
+        if (input.blocked !== true) this.taskOp({ op: 'finish' });
+        break;
+      }
       case 'TaskCreate': {
         const title = str(input.subject) ?? str(input.description);
         if (!title) break;
@@ -579,6 +599,11 @@ class LineParser {
       prompt = `${cmd} ${args}`.trim();
     }
     this.s.ended = false;
+    // Prompt novo: a pergunta de fim de turno anterior já foi respondida (aqui ou no Claude Code).
+    if (this.s.reply) {
+      delete this.s.reply;
+      this.changed();
+    }
     this.meta('lastPrompt', truncate(maskSecrets(prompt.slice(0, 1_000)), 200));
     this.push(describePrompt(prompt));
   }
