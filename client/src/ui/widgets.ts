@@ -1,6 +1,6 @@
 // Peças visuais reutilizadas pelos painéis: chip de conta (e o selo "Codex"), ponto de status, selo de papel, barra
-// de progresso.
-import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
+// de progresso, item da lista de tarefas e linha de atividade.
+import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider, TaskItem } from '../../../shared/types';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
@@ -73,6 +73,24 @@ export function updateProgress(bar: HTMLElement, done: number, total: number, pa
   setAttr(bar, 'aria-valuenow', String(pct));
   setAttr(bar, 'aria-valuetext', `${done} de ${total}`);
   bar.classList.toggle('is-complete', total > 0 && done === total);
+}
+
+const TASK_MARK: Record<TaskItem['status'], string> = { completed: '✓', in_progress: '◐', pending: '○' };
+const TASK_STATE: Record<TaskItem['status'], string> = { completed: tr('concluída'), in_progress: tr('em andamento'), pending: 'pendente' };
+
+/** Um item da lista de tarefas ("✓ Rodar os testes"); `owner` é o nome de quem a fez (lista da sala). */
+export function createTaskItem(): HTMLElement {
+  return h('li', { class: 'ui-task' }, h('span', { class: 'ui-task__mark', attrs: { 'aria-hidden': 'true' } }), h('span', { class: 'ui-task__text' }), h('span', { class: 'ui-task__owner' }));
+}
+
+export function updateTaskItem(li: HTMLElement, t: TaskItem, owner?: string): void {
+  const [mark, text, ownerEl] = li.children as unknown as HTMLElement[];
+  setText(mark, TASK_MARK[t.status]);
+  setText(text, t.status === 'in_progress' && t.activeForm ? t.activeForm : t.title);
+  setText(ownerEl, owner ?? '');
+  setHidden(ownerEl, !owner);
+  setVariant(li, 'is-', t.status);
+  setAttr(li, 'aria-label', `${t.title}: ${TASK_STATE[t.status]}`);
 }
 
 /**

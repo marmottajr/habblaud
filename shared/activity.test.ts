@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APP_PLAN_TOOL,
   describeCommand,
   describePrompt,
   describeShellJob,
@@ -141,6 +142,16 @@ describe('atividades', () => {
     expect(describeTool('TodoWrite', {
       todos: [null, undefined, 'inválido', 42, false, { content: 'Sem status' }, { content: 'Pronta', status: 'completed' }, { content: 'Pendente', status: 'pending' }],
     }).detail).toBe('1/3 concluídas');
+  });
+
+  it('update_plan do app descreve como a lista de tarefas (sem items, fica sem o detalhe)', () => {
+    expect(describeTool(APP_PLAN_TOOL, { items: [{ content: 'Ler', status: 'completed' }, { content: 'Corrigir', status: 'in_progress' }] })).toEqual({
+      kind: 'plan',
+      icon: '🗒️',
+      text: 'Atualizando a lista de tarefas',
+      detail: '1/2 concluídas',
+    });
+    expect(describeTool(APP_PLAN_TOOL, { advance: true })).toEqual({ kind: 'plan', icon: '🗒️', text: 'Atualizando a lista de tarefas' });
   });
 
   it('ferramentas e especiais em PT-BR', () => {

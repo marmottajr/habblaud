@@ -5057,6 +5057,73 @@ button.ui-term__think:hover,
   color: var(--ui-faint);
 }
 
+/* Lista de tarefas entre a linha de estado e a caixa de mensagem. */
+.ui-term__tasks {
+  margin: 0 4px 8px;
+  border-top: 1px solid var(--ui-line);
+  padding-top: 7px;
+}
+
+.ui-term__tasks-head {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  min-width: 0;
+  cursor: pointer;
+  color: var(--term-dim);
+  list-style: none;
+}
+
+.ui-term__tasks-head::-webkit-details-marker {
+  display: none;
+}
+
+.ui-term__tasks-head::before {
+  content: '▸';
+  flex: none;
+  width: 2ch;
+  text-align: center;
+}
+
+.ui-term__tasks[open] > .ui-term__tasks-head::before {
+  content: '▾';
+}
+
+.ui-term__tasks-label {
+  flex: none;
+}
+
+.ui-term__tasks-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-muted);
+}
+
+.ui-term__tasks-head .ui-progress {
+  flex: none;
+  width: 56px;
+}
+
+/* Passo atual (só faz sentido com a lista recolhida; aberta, ele já aparece em destaque na lista). */
+.ui-term__tasks-now {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--st-waiting);
+}
+
+.ui-term__tasks[open] .ui-term__tasks-now {
+  display: none;
+}
+
+.ui-term__tasks-list {
+  max-height: 24vh;
+  overflow-y: auto;
+  margin-top: 7px;
+  padding-left: 2ch;
+}
+
 .ui-term__prompt {
   display: grid;
   grid-template-columns: 2ch minmax(0, 1fr) auto;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentInfo, ShellJob, TerminalEntry } from '../../../shared/types';
+import type { AgentInfo, ShellJob, TaskItem, TerminalEntry } from '../../../shared/types';
 import {
+  currentTaskText,
   diffLineKind,
   entryKey,
   footerGlyph,
@@ -283,5 +284,20 @@ describe('rodapé do Codex', () => {
     expect(footerGlyph('working', 'codex')).toBe('•');
     expect(footerGlyph('waiting', 'codex')).toBe('✋');
     expect(footerGlyph('ended', 'claude')).toBe('■');
+  });
+});
+
+describe('currentTaskText', () => {
+  const task = (title: string, status: TaskItem['status'], activeForm?: string): TaskItem => ({ id: title, title, status, ...(activeForm ? { activeForm } : {}) });
+
+  it('mostra o passo em andamento (no gerúndio), senão o próximo pendente', () => {
+    expect(currentTaskText([task('Ler', 'completed'), task('Corrigir', 'in_progress', 'Corrigindo o bug'), task('Testar', 'pending')])).toBe('Corrigindo o bug');
+    expect(currentTaskText([task('Ler', 'completed'), task('Corrigir', 'in_progress'), task('Testar', 'pending')])).toBe('Corrigir');
+    expect(currentTaskText([task('Ler', 'completed'), task('Testar', 'pending')])).toBe('Testar');
+  });
+
+  it('tudo concluído diz isso; lista vazia não diz nada', () => {
+    expect(currentTaskText([task('Ler', 'completed')])).toBe('Tudo concluído');
+    expect(currentTaskText([])).toBe('');
   });
 });

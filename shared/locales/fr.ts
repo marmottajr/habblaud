@@ -668,6 +668,8 @@ export const FR: Readonly<Record<string, string>> = {
   "Esperando o shell: {0}{1}": "Attend le shell : {0}{1}",
   "Esperando você: {0}": "Vous attend : {0}",
   "Aguardando o próximo prompt": "Attend le prochain prompt",
+  "Tudo concluído": "Tout est terminé",
+  "{0} de {1} tarefas concluídas": "{0} tâches sur {1} terminées",
   "Recolher": "Replier",
   "Mostrar tudo ({0} {1})": "Tout afficher ({0} {1})",
   "(erro sem mensagem)": "(erreur sans message)",

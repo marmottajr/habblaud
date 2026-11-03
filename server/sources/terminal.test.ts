@@ -234,6 +234,14 @@ describe('terminal — respostas e ferramentas', () => {
       L.tool('t14', 'FerramentaNova', { alvo: 'servidor', vezes: 2 }),
       L.tool('t15', 'mcp__srv__ping', {}),
       L.tool('t16', 'MultiEdit', { file_path: '/projetos/demo/b.ts', edits: [{ old_string: 'x', new_string: 'y' }, { old_string: 'p', new_string: 'q' }] }),
+      L.tool('t17', 'mcp__ccd_turn__update_plan', {
+        items: [
+          { content: 'Ler o plano', status: 'completed' },
+          { content: 'Criar o worktree', status: 'in_progress' },
+        ],
+        scope: 'first_task',
+      }),
+      L.tool('t18', 'mcp__ccd_turn__update_plan', { advance: true }),
     ];
     const e = only(run([L.assistant(tools, { msgId: 'm1' })]), 'tool');
     const view = (id: string) => {
@@ -257,6 +265,8 @@ describe('terminal — respostas e ferramentas', () => {
     expect(view('t14')).toEqual({ title: 'FerramentaNova(servidor)', input: '{\n  "vezes": 2\n}', kind: 'json' });
     expect(view('t15')).toEqual({ title: 'srv - ping (MCP)', input: undefined, kind: undefined });
     expect(view('t16')).toEqual({ title: 'MultiEdit(b.ts)', input: '- x\n+ y\n@@\n- p\n+ q', kind: 'diff' });
+    expect(view('t17')).toEqual({ title: 'update_plan(1/2 concluídas)', input: '☒ Ler o plano\n◐ Criar o worktree', kind: 'text' });
+    expect(view('t18')).toEqual({ title: 'update_plan', input: '{\n  "advance": true\n}', kind: 'json' });
   });
 
   it('resultados: texto, blocos, imagem, erro, recusa e id próprio', () => {

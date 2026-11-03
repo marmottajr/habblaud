@@ -5,13 +5,15 @@
 // Também mostra as sessões do histórico (ui/history.ts), pelo mesmo protocolo em
 // GET /api/sessions/:conta/:sessionId/terminal: o cabeçalho traz projeto, título e data, e o rodapé, "Sessão encerrada às …".
 // Busca (Ctrl/⌘+F ou a lupa), filtro e o botão de copiar de cada entrada vêm de ui/termtools.ts.
+// Entre a linha de estado e a caixa de mensagem fica a lista de tarefas do agente (AgentInfo.tasks, a mesma da
+// gaveta), recolhível e lembrada em prefs.termTasksOpen; no histórico e sem tarefas ela não aparece.
 // O modelo (deduplicação, junção ferramenta -> resultado, limite de entradas, prévias recolhidas e rodapé) é puro e
 // testado em ui/terminal.test.ts; a montagem usa só textContent (o markdown das respostas vem de ui/markdown.ts).
 // Sessão do Codex: selo "Codex" no cabeçalho e um spinner neutro no rodapé (o ✻ é do Claude Code).
-import type { AgentInfo, Provider, RecentSession, TerminalEntry, TerminalInit } from '../../../shared/types';
+import type { AgentInfo, Provider, RecentSession, TaskItem, TerminalEntry, TerminalInit } from '../../../shared/types';
 import { MessageComposer } from './composer';
 import type { UiComponent, UiContext } from './context';
-import { copyText, h, iconButton, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
+import { copyText, h, iconButton, KeyedList, prefersReducedMotion, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { calendarDayDiff, formatClock, formatDateTime, formatDuration, formatElapsed, relativeTime } from './format';
 import { ICONS } from './icons';
 import { maximizeButton, Movable } from './movable';
@@ -19,7 +21,7 @@ import type { PtyControl } from './pty';
 import { TermActions } from './termactions';
 import { TermTabs } from './termtabs';
 import { renderMarkdown } from './markdown';
-import { roleLabel, shellWaitIn } from './model';
+import { roleLabel, shellWaitIn, taskProgress } from './model';
 import { providerOf } from './provider';
 import {
   clearHits,
@@ -35,7 +37,16 @@ import {
   TERMINAL_FILTERS,
   type TerminalFilter,
 } from './termtools';
-import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
+import {
+  createAccountChip,
+  createProgress,
+  createProviderTag,
+  createTaskItem,
+  updateAccountChip,
+  updateProgress,
+  updateProviderTag,
+  updateTaskItem,
+} from './widgets';
 import { intlLocale, tr } from '../../../shared/i18n';
 
 /** Máximo de itens no DOM: os mais antigos saem primeiro. */
@@ -355,6 +366,18 @@ export interface TerminalFooter {
   since?: number;
 }
 
+/**
+ * Passo que a lista de tarefas recolhida mostra ao lado da contagem: o que está em andamento (na forma do gerúndio,
+ * quando vier) ou, se nenhum estiver, o próximo pendente. Lista inteira concluída: diz isso; lista vazia: ''.
+ */
+export function currentTaskText(tasks: readonly TaskItem[]): string {
+  const doing = tasks.find((t) => t.status === 'in_progress');
+  if (doing) return doing.activeForm?.trim() || doing.title;
+  const next = tasks.find((t) => t.status === 'pending');
+  if (next) return next.title;
+  return tasks.length ? tr('Tudo concluído') : '';
+}
+
 /** Linha de estado do rodapé, imitando o Claude Code, a partir do agente vivo no snapshot. */
 export function terminalFooter(agent: AgentInfo | undefined, agents: readonly AgentInfo[], now: number): TerminalFooter {
   if (!agent || agent.status === 'offline') return { kind: 'ended', text: tr('Sessão encerrada') };
@@ -650,6 +673,12 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private glyph: HTMLElement;
   private statusText: HTMLElement;
   private statusTime: HTMLElement;
+  /** Lista de tarefas do rodapé (aberta/recolhida pelo <details>). */
+  private tasksEl: HTMLDetailsElement;
+  private tasksCount: HTMLElement;
+  private tasksNow: HTMLElement;
+  private tasksBar: HTMLElement;
+  private tasks: KeyedList<TaskItem>;
   /** "Assumir daqui" e "Encerrar" (terminal interativo ligado) e as abas dos agentes do projeto. */
   private actions: TermActions | null;
   private tabs: TermTabs;
@@ -745,6 +774,21 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.statusText = h('span', { class: 'ui-term__status-text' });
     this.statusTime = h('span', { class: 'ui-term__status-time' });
     this.status = h('p', { class: 'ui-term__status' }, this.glyph, this.statusText, this.statusTime);
+    this.tasksCount = h('span', { class: 'ui-term__tasks-count' });
+    this.tasksBar = createProgress(tr('Progresso das tarefas'));
+    this.tasksNow = h('span', { class: 'ui-term__tasks-now' });
+    const tasksList = h('ul', { class: 'ui-tasks ui-term__tasks-list' });
+    this.tasks = new KeyedList<TaskItem>(tasksList, { key: (t) => t.id, create: createTaskItem, update: (li, x) => updateTaskItem(li, x) });
+    this.tasksEl = h(
+      'details',
+      { class: 'ui-term__tasks', hidden: true },
+      h('summary', { class: 'ui-term__tasks-head' }, h('span', { class: 'ui-term__tasks-label', text: tr('Tarefas') }), this.tasksCount, this.tasksBar, this.tasksNow),
+      tasksList,
+    );
+    this.tasksEl.open = ctx.prefs.termTasksOpen;
+    this.tasksEl.addEventListener('toggle', () => {
+      if (this.tasksEl.open !== this.ctx.prefs.termTasksOpen) this.ctx.updatePrefs({ termTasksOpen: this.tasksEl.open });
+    });
     // Esc na caixa devolve o foco à conversa (o próximo fecha o terminal).
     this.composer = new MessageComposer(ctx, 'terminal', { onEscape: () => this.focusLog() });
 
@@ -755,7 +799,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.tabs.el,
       tools,
       h('div', { class: 'ui-term__body' }, this.alertEl, this.scroll, this.newBtn),
-      h('div', { class: 'ui-term__foot' }, this.status, this.composer.el),
+      h('div', { class: 'ui-term__foot' }, this.status, this.tasksEl, this.composer.el),
     );
     this.el.addEventListener('keydown', (e) => this.onKey(e));
     // Arrastar pela barra solta a janela (ui/movable.ts).
@@ -821,6 +865,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.actions?.render(live);
     this.tabs.render(live ? live.id : null);
     this.renderFooter();
+    this.renderTasks(live);
     this.renderState();
     // Mensagens só para a sessão ao vivo (no histórico, a caixa diz que a sessão foi encerrada).
     this.composer.render(this.session ? undefined : this.ctx.agent(this.id), this.id);
@@ -1349,6 +1394,25 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private renderNewButton(): void {
     setHidden(this.newBtn, this.follow || this.visibleRows === 0);
     setText(this.newBtn, this.unread > 0 ? tr('↓ Novas mensagens') : tr('↓ Ir para o fim'));
+  }
+
+  /** Lista de tarefas do rodapé: só a da sessão ao vivo (o histórico não traz tarefas). */
+  private renderTasks(agent: AgentInfo | null): void {
+    const tasks = agent?.tasks ?? [];
+    setHidden(this.tasksEl, tasks.length === 0);
+    if (!tasks.length) {
+      this.tasks.clear();
+      return;
+    }
+    if (this.tasksEl.open !== this.ctx.prefs.termTasksOpen) this.tasksEl.open = this.ctx.prefs.termTasksOpen;
+    const p = taskProgress(tasks);
+    setText(this.tasksCount, `${p.completed}/${p.total}`);
+    setTitle(this.tasksEl, tr('{0} de {1} tarefas concluídas', [p.completed, p.total]));
+    updateProgress(this.tasksBar, p.completed, p.total, p.inProgress);
+    const current = currentTaskText(tasks);
+    setText(this.tasksNow, current);
+    setHidden(this.tasksNow, !current);
+    this.tasks.sync(tasks);
   }
 
   private renderFooter(): void {
