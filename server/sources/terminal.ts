@@ -13,7 +13,7 @@
 // - erros da API: uma linha system `api_error` por tentativa e, quando o Claude Code desiste, uma
 //   mensagem sintética do assistant com `isApiErrorMessage`.
 import type { TerminalEntry, TerminalInputKind } from '../../shared/types';
-import { formatDuration, maskSecrets, truncate } from '../../shared/activity';
+import { APP_PLAN_TOOL, formatDuration, maskSecrets, truncate } from '../../shared/activity';
 import { forkDirective, parseTaskNotification } from './transcript';
 import { tr } from '../../shared/i18n';
 
@@ -324,6 +324,12 @@ export function toolView(name: string, input: Rec, cwd?: string): ToolView {
     case 'TodoWrite': {
       const t = todoList(input.todos);
       return { title: t.total ? tr('TodoWrite({0}/{1} concluídas)', [t.done, t.total]) : 'TodoWrite', ...textInput(t.list) };
+    }
+    case APP_PLAN_TOOL: {
+      // A lista inteira vira as linhas marcadas; só o que mudou (`advance`, `done`/`start`) fica no JSON.
+      const t = todoList(input.items);
+      if (!t.total) return { title: 'update_plan', ...jsonInput(input, [], cwd) };
+      return { title: tr('{0}({1}/{2} concluídas)', ['update_plan', t.done, t.total]), ...textInput(t.list) };
     }
     case 'TaskCreate':
       return { title: titled('TaskCreate', s('subject')), ...textInput(s('description')) };

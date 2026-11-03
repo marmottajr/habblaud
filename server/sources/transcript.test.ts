@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { APP_PLAN_TOOL } from '../../shared/activity';
 import { log } from '../log';
 import { L, tempDir } from '../test/fixtures';
 import { FileTail, MAX_LINE_BYTES } from './tail';
@@ -467,5 +468,59 @@ describe('janela final + prefixo em segundo plano', () => {
 
   it('applyTaskOp ignora atualização de tarefa desconhecida', () => {
     expect(applyTaskOp([], { op: 'update', id: '9', status: 'completed' })).toEqual([]);
+  });
+
+  it('update_plan do app: items substitui a lista, advance anda um passo e done/start mexem por posição', () => {
+    const s = createTranscriptState();
+    feed(s, [
+      L.assistant([
+        L.tool('p1', APP_PLAN_TOOL, {
+          items: [
+            { content: 'Ler o plano', status: 'in_progress' },
+            { content: 'Criar o worktree', status: 'pending' },
+            { content: 'Rodar a fase 0', status: 'pending' },
+          ],
+          scope: 'first_task',
+        }),
+      ]),
+    ]);
+    expect(s.tasks.map((t) => [t.id, t.title, t.status])).toEqual([
+      ['1', 'Ler o plano', 'in_progress'],
+      ['2', 'Criar o worktree', 'pending'],
+      ['3', 'Rodar a fase 0', 'pending'],
+    ]);
+
+    feed(s, [L.assistant([L.tool('p2', APP_PLAN_TOOL, { advance: true })])]);
+    expect(s.tasks.map((t) => t.status)).toEqual(['completed', 'in_progress', 'pending']);
+
+    feed(s, [L.assistant([L.tool('p3', APP_PLAN_TOOL, { done: [2], start: 3 })])]);
+    expect(s.tasks.map((t) => t.status)).toEqual(['completed', 'completed', 'in_progress']);
+
+    // Chamada sem lista nem posições válidas não mexe em nada.
+    feed(s, [L.assistant([L.tool('p4', APP_PLAN_TOOL, { done: ['x', 0, 1.5], start: null })])]);
+    expect(s.tasks.map((t) => t.status)).toEqual(['completed', 'completed', 'in_progress']);
+  });
+
+  it('update_plan do app: advance sem nada em andamento começa o primeiro pendente', () => {
+    expect(applyTaskOp([{ id: '1', title: 'A', status: 'pending' }], { op: 'advance' })).toEqual([{ id: '1', title: 'A', status: 'in_progress' }]);
+    // Tudo concluído: nada a começar.
+    expect(applyTaskOp([{ id: '1', title: 'A', status: 'completed' }], { op: 'advance' })).toEqual([{ id: '1', title: 'A', status: 'completed' }]);
+    // Posição que não existe é ignorada.
+    expect(applyTaskOp([{ id: '1', title: 'A', status: 'pending' }], { op: 'mark', done: [9], start: 9 })).toEqual([{ id: '1', title: 'A', status: 'pending' }]);
+  });
+
+  it('update_plan do app: o que mudou é reaplicado sobre a lista que veio do começo do arquivo', () => {
+    const prefix = createTranscriptState();
+    feed(prefix, [
+      L.assistant([L.tool('p1', APP_PLAN_TOOL, { items: [{ content: 'Primeira', status: 'in_progress' }, { content: 'Segunda', status: 'pending' }] })]),
+    ]);
+    const state = createTranscriptState({ trackPrefix: true });
+    feed(state, [L.assistant([L.tool('p2', APP_PLAN_TOOL, { advance: true })])]);
+    expect(state.tasks).toEqual([]);
+    mergePrefix(state, prefix);
+    expect(state.tasks.map((t) => [t.title, t.status])).toEqual([
+      ['Primeira', 'completed'],
+      ['Segunda', 'in_progress'],
+    ]);
   });
 });

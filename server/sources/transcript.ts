@@ -4,7 +4,7 @@
 // Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
 import { createReadStream } from 'node:fs';
 import type { Activity, AgentStats, TaskItem, TaskStatus } from '../../shared/types';
-import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../shared/activity';
+import { APP_PLAN_TOOL, describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../shared/activity';
 import type { GitHubEvent } from '../../shared/github';
 import { detectGitHubNotification, detectGitHubResult, githubCallOf, type GitHubCall } from './github';
 import type { ShellStart } from './shells';
@@ -16,7 +16,11 @@ export type TaskOp =
   | { op: 'replace'; tasks: TaskItem[] }
   | { op: 'create'; id: string; title: string; activeForm?: string }
   | { op: 'update'; id: string; status?: TaskStatus | 'deleted'; title?: string; activeForm?: string }
-  | { op: 'rename'; from: string; to: string };
+  | { op: 'rename'; from: string; to: string }
+  /** Conclui o passo em andamento e começa o próximo pendente (`advance` do app do Claude Code). */
+  | { op: 'advance' }
+  /** Conclui e começa passos por POSIÇÃO, a partir de 1 (`done`/`start` do app do Claude Code). */
+  | { op: 'mark'; done?: number[]; start?: number };
 
 const TASK_STATUSES = new Set<string>(['pending', 'in_progress', 'completed']);
 
@@ -44,6 +48,26 @@ export function applyTaskOp(tasks: TaskItem[], op: TaskOp): TaskItem[] {
     }
     case 'rename':
       return tasks.map((t) => (t.id === op.from ? { ...t, id: op.to } : t));
+    case 'advance': {
+      const next = tasks.map((t) => ({ ...t }));
+      for (const t of next) if (t.status === 'in_progress') t.status = 'completed';
+      const pending = next.find((t) => t.status === 'pending');
+      if (pending) pending.status = 'in_progress';
+      return next;
+    }
+    case 'mark': {
+      // Aplica só o que a chamada pediu: quem começa vinha de `done` na mesma chamada (o app mantém um em andamento).
+      const next = tasks.map((t) => ({ ...t }));
+      for (const i of op.done ?? []) {
+        const t = next[i - 1];
+        if (t) t.status = 'completed';
+      }
+      if (op.start !== undefined) {
+        const t = next[op.start - 1];
+        if (t) t.status = 'in_progress';
+      }
+      return next;
+    }
   }
 }
 
@@ -63,6 +87,23 @@ function todosToTasks(raw: unknown): TaskItem[] {
   });
   return out;
 }
+
+/** Posição de um passo nas chamadas do app (a partir de 1); qualquer outra coisa é ignorada. */
+function position(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_TASKS ? v : undefined;
+}
+
+function positions(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const out = new Set<number>();
+  for (const v of raw.slice(0, MAX_TASKS)) {
+    const n = position(v);
+    if (n !== undefined) out.add(n);
+  }
+  return [...out];
+}
+
+const MAX_TASKS = 64;
 
 // ------------------------------------------------------------------ estado
 
@@ -316,6 +357,19 @@ class LineParser {
     this.changed();
   }
 
+  /**
+   * Lista de tarefas do app do Claude Code (APP_PLAN_TOOL): `items` é a lista inteira, `advance` conclui o passo em
+   * andamento e começa o próximo, e `done`/`start` mexem em passos por posição. Chamada sem nada disso não muda nada.
+   */
+  private planUpdate(input: Record<string, unknown>): void {
+    if (Array.isArray(input.items)) return this.taskOp({ op: 'replace', tasks: todosToTasks(input.items) });
+    if (truthy(input.advance)) return this.taskOp({ op: 'advance' });
+    const done = positions(input.done);
+    const start = position(input.start);
+    if (!done.length && start === undefined) return;
+    this.taskOp({ op: 'mark', ...(done.length ? { done } : {}), ...(start !== undefined ? { start } : {}) });
+  }
+
   run(): void {
     const j = this.j;
     const branch = str(j.gitBranch);
@@ -480,6 +534,9 @@ class LineParser {
       }
       case 'TodoWrite':
         this.taskOp({ op: 'replace', tasks: todosToTasks(input.todos) });
+        break;
+      case APP_PLAN_TOOL:
+        this.planUpdate(input);
         break;
       case 'TaskCreate': {
         const title = str(input.subject) ?? str(input.description);

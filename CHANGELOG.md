@@ -10,6 +10,22 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Lista de tarefas no rodapé do terminal.** Entre a linha de estado ("Editando App.tsx…") e a caixa de mensagem, a
+  janela do terminal mostra as tarefas da sessão com a contagem e a barra de progresso, como a gaveta do agente já
+  mostrava. Recolhida, fica só a contagem e o passo atual ("Tarefas 3/7 · Escrevendo os testes"); aberta, a lista
+  inteira, com o que está em andamento em destaque. Aberta ou recolhida, a escolha fica guardada. Sem tarefas, a lista
+  não aparece, e no histórico de sessões também não (o transcript antigo não traz tarefas).
+
+### Corrigido
+
+- **As tarefas das sessões abertas no app do Claude Code agora aparecem.** A lista de tarefas (na gaveta do agente, na
+  da sala e no rodapé do terminal) entendia só o `TodoWrite` do terminal e o `update_plan` do Codex; no app (aba Code)
+  quem mantém a lista é a ferramenta `mcp__ccd_turn__update_plan`, então essas sessões ficavam sempre em "0 tarefas".
+  O Habblaud lê agora as três formas dela — a lista inteira, "andou um passo" e "concluiu/começou o passo N" — e o
+  balão do personagem diz "Atualizando a lista de tarefas" no lugar de "ccd_turn: update plan".
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

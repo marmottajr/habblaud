@@ -714,6 +714,8 @@ export const EN: Readonly<Record<string, string>> = {
   "Esperando o shell: {0}{1}": "Waiting on shell: {0}{1}",
   "Esperando você: {0}": "Waiting on you: {0}",
   "Aguardando o próximo prompt": "Waiting for the next prompt",
+  "Tudo concluído": "All done",
+  "{0} de {1} tarefas concluídas": "{0} of {1} tasks completed",
   "Recolher": "Collapse",
   "Mostrar tudo ({0} {1})": "Show all ({0} {1})",
   "(erro sem mensagem)": "(error with no message)",

@@ -54,10 +54,12 @@ import {
   createProgress,
   createProviderTag,
   createStatusDot,
+  createTaskItem,
   updateAccountChip,
   updateProgress,
   updateProviderTag,
   updateStatusDot,
+  updateTaskItem,
 } from './widgets';
 import { tr } from '../../../shared/i18n';
 
@@ -87,23 +89,6 @@ function copyButton(getText: () => string, label: string): HTMLButtonElement {
     }, 1400);
   }, 'ui-icon-btn--sm');
   return b;
-}
-
-const TASK_MARK: Record<TaskItem['status'], string> = { completed: '✓', in_progress: '◐', pending: '○' };
-const TASK_STATE: Record<TaskItem['status'], string> = { completed: tr('concluída'), in_progress: tr('em andamento'), pending: 'pendente' };
-
-function createTaskItem(): HTMLElement {
-  return h('li', { class: 'ui-task' }, h('span', { class: 'ui-task__mark', attrs: { 'aria-hidden': 'true' } }), h('span', { class: 'ui-task__text' }), h('span', { class: 'ui-task__owner' }));
-}
-
-function updateTaskItem(li: HTMLElement, t: TaskItem, owner?: string): void {
-  const [mark, text, ownerEl] = li.children as unknown as HTMLElement[];
-  setText(mark, TASK_MARK[t.status]);
-  setText(text, t.status === 'in_progress' && t.activeForm ? t.activeForm : t.title);
-  setText(ownerEl, owner ?? '');
-  setHidden(ownerEl, !owner);
-  setVariant(li, 'is-', t.status);
-  setAttr(li, 'aria-label', `${t.title}: ${TASK_STATE[t.status]}`);
 }
 
 function createTimelineItem(): HTMLElement {

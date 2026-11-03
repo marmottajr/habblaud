@@ -14,6 +14,12 @@ export interface ActivityDescription {
 const MAX_QUESTIONS = 4;
 const MAX_OPTIONS = 6;
 
+/**
+ * Lista de tarefas do app do Claude Code (aba Code): o mesmo papel do TodoWrite, por uma ferramenta MCP do próprio
+ * app. Manda a lista inteira (`items`) ou só o que mudou (`advance`, `done`/`start`, posições a partir de 1).
+ */
+export const APP_PLAN_TOOL = 'mcp__ccd_turn__update_plan';
+
 /** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas e cortadas, como o resto). */
 function askQuestions(raw: unknown): AskQuestion[] {
   const clean = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? truncate(maskSecrets(v.slice(0, n * 4)), n) : '');
@@ -634,6 +640,13 @@ function humanize(id: string): string {
     .toLowerCase();
 }
 
+/** "Atualizando a lista de tarefas", com "3/7 concluídas" quando a chamada traz a lista inteira. */
+function describeTaskList(raw: unknown): ActivityDescription {
+  const items = Array.isArray(raw) ? raw.filter((t): t is Record<string, unknown> => !!t && typeof t === 'object') : [];
+  const done = items.filter((t) => t.status === 'completed').length;
+  return make('plan', '🗒️', tr('Atualizando a lista de tarefas'), items.length ? tr('{0}/{1} concluídas', [done, items.length]) : undefined);
+}
+
 function describeMcp(name: string, input: Record<string, unknown>): ActivityDescription {
   const [, server = '', ...rest] = name.split('__');
   const tool = rest.join('__');
@@ -698,11 +711,11 @@ export function describeTool(name: string, rawInput: unknown): ActivityDescripti
       const url = str(input.url);
       return make('web', '🌐', url ? tr('Lendo {0}', [domainOf(url)]) : tr('Lendo uma página'), url);
     }
-    case 'TodoWrite': {
-      const todos = Array.isArray(input.todos) ? input.todos.filter((t): t is Record<string, unknown> => !!t && typeof t === 'object') : [];
-      const done = todos.filter((t) => t.status === 'completed').length;
-      return make('plan', '🗒️', tr('Atualizando a lista de tarefas'), todos.length ? tr('{0}/{1} concluídas', [done, todos.length]) : undefined);
-    }
+    case 'TodoWrite':
+      return describeTaskList(input.todos);
+    case APP_PLAN_TOOL:
+      // Só o que mudou (sem `items`): fica sem o detalhe, porque a chamada não diz o tamanho da lista.
+      return describeTaskList(input.items);
     case 'TaskCreate':
       return make('plan', '🗒️', tr('Nova tarefa: {0}', [str(input.subject) || tr('sem título')]), str(input.description));
     case 'TaskUpdate': {
