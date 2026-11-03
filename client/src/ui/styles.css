@@ -1802,6 +1802,26 @@
   font-size: 12.5px;
 }
 
+/* Dispensados: quantos são e o botão de trazer todos de volta, no fim da lista. */
+.ui-side__dismissed {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px 16px;
+  color: var(--ui-faint);
+  font-size: 12px;
+}
+
+/* "Dispensar" é uma saída, não uma ação destrutiva: fica discreto até o hover. */
+.ui-btn--dismiss {
+  color: var(--ui-muted);
+}
+
+.ui-btn--dismiss:hover {
+  color: var(--ui-text);
+}
+
 /* Entradas e saídas de itens */
 .is-entering {
   animation: ui-enter 0.32s var(--ease) both;

@@ -117,6 +117,16 @@ describe('groupRooms', () => {
     const onlyD = groupRooms(snap, { query: '', hiddenAccounts: new Set(['.claude']) });
     expect(onlyD.map((r) => r.room.id)).toEqual(['api']);
   });
+  it('dispensado sai da lista, das contagens e, com a sala inteira dispensada, a sala some', () => {
+    // João e os subagentes dele dispensados: sobra a Marina, e as tarefas da sala eram só dele.
+    const g = groupRooms(snap, { query: '', hiddenAccounts: new Set(), dismissed: new Set(['joao', 'sub1', 'sub2']) });
+    const api = g.find((r) => r.room.id === 'api')!;
+    expect(api.nodes.map((n) => n.agent.id)).toEqual(['marina']);
+    expect(api.agents.map((a) => a.id)).toEqual(['marina']);
+    expect(api.tasks).toEqual({ completed: 0, inProgress: 0, total: 0 });
+    // A sala "site" só tem o Diego: dispensá-lo tira a sala da lista.
+    expect(groupRooms(snap, { query: '', hiddenAccounts: new Set(), dismissed: new Set(['orfao']) }).map((r) => r.room.id)).not.toContain('site');
+  });
   it('sem snapshot devolve lista vazia', () => {
     expect(groupRooms(null)).toEqual([]);
   });

@@ -197,6 +197,43 @@ describe('simulação do escritório', () => {
     expect(sim.rooms.get('/a')!.lightOn).toBe(true);
   });
 
+  it('dispensar: o personagem sai como quem encerra a sessão, a sala dele some e trazer de volta o traz', () => {
+    const sim = newSim();
+    const clock = { now: T0 };
+    const rooms = [room('/a', 0), room('/b', 1)];
+    const agents = [agent('ana', '/a', 'working'), agent('caio', '/b', 'idle'), agent('bia', '/b', 'working')];
+    sim.applySnapshot(snap(rooms, agents), clock.now);
+    run(sim, clock, 0.5);
+
+    // Só o caio dispensado: a sala /b continua, porque a bia está nela.
+    sim.setDismissed(['caio']);
+    expect(sim.chars.get('caio')!.mode).toBe('leave');
+    expect(sim.rooms.get('/b')!.listed).toBe(true);
+    run(sim, clock, 90, () => !sim.chars.has('caio'));
+    expect(sim.chars.has('caio')).toBe(false);
+    // O snapshot continua trazendo o caio, mas ele não volta enquanto estiver dispensado.
+    sim.applySnapshot(snap(rooms, agents, 2), clock.now);
+    run(sim, clock, 1);
+    expect(sim.chars.has('caio')).toBe(false);
+
+    // Os dois da sala /b dispensados: ela apaga a luz e some, como quando o último sai.
+    sim.setDismissed(['caio', 'bia']);
+    expect(sim.rooms.get('/b')!.listed).toBe(false);
+    run(sim, clock, 120, () => !sim.rooms.has('/b'));
+    expect(sim.rooms.has('/b')).toBe(false);
+    // A outra sala não muda.
+    expect(sim.rooms.get('/a')!.lightOn).toBe(true);
+    expect(sim.chars.has('ana')).toBe(true);
+
+    // Trazer de volta: no próximo snapshot os dois entram de novo e a sala volta.
+    sim.setDismissed([]);
+    run(sim, clock, 1);
+    expect(sim.rooms.has('/b')).toBe(true);
+    run(sim, clock, 60, () => sim.chars.has('caio') && sim.chars.has('bia'));
+    expect(sim.chars.has('caio')).toBe(true);
+    expect(sim.chars.has('bia')).toBe(true);
+  });
+
   it('subagente entrega o resultado ao pai e vai embora', () => {
     const sim = newSim();
     const clock = { now: T0 };

@@ -211,6 +211,8 @@ export const FR: Readonly<Record<string, string>> = {
   "só tokens": "tokens uniquement",
 
   // client/src/ui/drawer.ts
+  "Dispensar": "Libérer",
+  "Tira o personagem do escritório desta página. A sessão continua aberta, e ele volta sozinho se ela fizer algo novo.": "Retire le personnage du bureau sur cette page. La session reste ouverte, et il revient tout seul si elle fait quelque chose de neuf.",
   "Copiado!": "Copié !",
   "Não foi possível copiar": "Copie impossible",
   "concluída": "terminée",
@@ -323,6 +325,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Automático": "Automatique",
 
   // client/src/ui/help.ts
+  "“Dispensar”, nos detalhes de um agente, tira o personagem do escritório quando você não vai mais mexer naquela sessão (a sessão continua aberta no Claude Code). Ele volta sozinho se ela fizer algo novo, e “Trazer de volta”, no fim da lista lateral, traz todos de uma vez. Vale só para esta página.": "« Libérer », dans les détails d'un agent, retire le personnage du bureau quand vous ne touchez plus à cette session (la session reste ouverte dans Claude Code). Il revient tout seul si elle fait quelque chose de neuf, et « Faire revenir », en bas de la liste latérale, les ramène tous d'un coup. Cela ne vaut que pour cette page.",
   "Na mesa, digitando: está processando um pedido.": "Au bureau, en train de taper : traite une demande.",
   "Mão levantada: espera uma resposta sua no terminal (permissão, pergunta ou escolha).": "Main levée : attend votre réponse dans le terminal (permission, question ou choix).",
   "Ampulheta sobre a cabeça: terminou o turno e fica na mesa esperando um shell terminar.": "Sablier au-dessus de la tête : a fini son tour et reste au bureau en attendant la fin d'un shell.",
@@ -623,6 +626,9 @@ export const FR: Readonly<Record<string, string>> = {
   "Não foi possível mudar o modo demonstração.": "Impossible de changer le mode démonstration.",
 
   // client/src/ui/sidebar.ts
+  "Trazer de volta": "Faire revenir",
+  "agente dispensado": "agent libéré",
+  "agentes dispensados": "agents libérés",
   "Atalho: /": "Raccourci : /",
   "Filtrar por conta": "Filtrer par compte",
   "Mostrar a {0} na lista, no feed e nos avisos": "Afficher {0} dans la liste, le fil et les alertes",

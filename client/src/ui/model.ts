@@ -298,6 +298,8 @@ export interface AgentFilter {
   query: string;
   /** Contas ocultas (AccountInfo.id). */
   hiddenAccounts: ReadonlySet<string>;
+  /** Agentes dispensados (ui/dismiss.ts), já com os subagentes deles. */
+  dismissed?: ReadonlySet<string>;
 }
 
 export interface AgentNode {
@@ -361,7 +363,9 @@ export function groupRooms(snap: Pick<OfficeSnapshot, 'rooms' | 'agents' | 'acco
   const accountOrder = new Map(snap.accounts.map((a, i) => [a.id, i]));
   const query = filter?.query.trim() ?? '';
   const hidden = filter?.hiddenAccounts ?? new Set<string>();
-  const filtering = query.length > 0 || hidden.size > 0;
+  const dismissed = filter?.dismissed ?? new Set<string>();
+  // Dispensar também filtra: a sala em que todos foram dispensados sai da lista, como sai do escritório.
+  const filtering = query.length > 0 || hidden.size > 0 || dismissed.size > 0;
 
   const byRoom = new Map<string, AgentInfo[]>();
   for (const a of snap.agents) {
@@ -372,7 +376,8 @@ export function groupRooms(snap: Pick<OfficeSnapshot, 'rooms' | 'agents' | 'acco
 
   const groups: RoomGroup[] = [];
   for (const room of [...snap.rooms].sort((a, b) => a.slot - b.slot)) {
-    const agents = (byRoom.get(room.id) ?? []).slice().sort(byArrival);
+    // Dispensado não entra nem na lista nem nas contagens da sala: para esta página ele não está aqui.
+    const agents = (byRoom.get(room.id) ?? []).filter((a) => !dismissed.has(a.id)).sort(byArrival);
     const visible = (a: AgentInfo) => !hidden.has(a.account) && matchesQuery(a, room, accounts.get(a.account), query);
     const ids = new Set(agents.map((a) => a.id));
     const subsOf = new Map<string, AgentInfo[]>();

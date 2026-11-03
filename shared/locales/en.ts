@@ -211,6 +211,8 @@ export const EN: Readonly<Record<string, string>> = {
   "só tokens": "tokens only",
 
   // client/src/ui/drawer.ts
+  "Dispensar": "Dismiss",
+  "Tira o personagem do escritório desta página. A sessão continua aberta, e ele volta sozinho se ela fizer algo novo.": "Takes the character out of the office on this page. The session stays open, and they come back on their own if it does anything new.",
   "Copiado!": "Copied!",
   "Não foi possível copiar": "Couldn't copy",
   "concluída": "completed",
@@ -330,6 +332,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Automático": "Automatic",
 
   // client/src/ui/help.ts
+  "“Dispensar”, nos detalhes de um agente, tira o personagem do escritório quando você não vai mais mexer naquela sessão (a sessão continua aberta no Claude Code). Ele volta sozinho se ela fizer algo novo, e “Trazer de volta”, no fim da lista lateral, traz todos de uma vez. Vale só para esta página.": "“Dismiss”, in an agent's details, takes the character out of the office when you are done with that session (the session stays open in Claude Code). They come back on their own if it does anything new, and “Bring back”, at the bottom of the side list, brings everyone back at once. It only applies to this page.",
   "Na mesa, digitando: está processando um pedido.": "At the desk, typing: processing a request.",
   "Mão levantada: espera uma resposta sua no terminal (permissão, pergunta ou escolha).": "Hand raised: waiting for your answer in the terminal (permission, question or choice).",
   "Ampulheta sobre a cabeça: terminou o turno e fica na mesa esperando um shell terminar.": "Hourglass overhead: finished its turn and stays at the desk waiting for a shell to finish.",
@@ -656,6 +659,9 @@ export const EN: Readonly<Record<string, string>> = {
   "Não foi possível mudar o modo demonstração.": "Couldn't change demo mode.",
 
   // client/src/ui/sidebar.ts
+  "Trazer de volta": "Bring back",
+  "agente dispensado": "agent dismissed",
+  "agentes dispensados": "agents dismissed",
   "Atalho: /": "Shortcut: /",
   "Filtrar por conta": "Filter by account",
   "Mostrar a {0} na lista, no feed e nos avisos": "Show {0} in the list, feed and alerts",

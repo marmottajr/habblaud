@@ -431,6 +431,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       return p;
     },
     social: (id) => sim.social.info(id),
+    setDismissed: (ids) => sim.setDismissed(ids),
     onRoomContextMenu: (cb) => {
       roomMenuCbs.add(cb);
       return () => void roomMenuCbs.delete(cb);

@@ -1,4 +1,6 @@
 // Barra lateral: busca, filtro por conta e a lista de salas -> agentes -> subagentes.
+// Agente dispensado (ui/dismiss.ts) sai da lista e das contagens da sala; no fim da lista fica quantos são e o
+// botão de trazer todos de volta.
 import type { AccountInfo, AgentInfo } from '../../../shared/types';
 import { roomTheme } from '../art';
 import type { UiComponent, UiContext } from './context';
@@ -55,6 +57,9 @@ export class Sidebar implements UiComponent {
   private empty: HTMLElement;
   private emptyText: HTMLElement;
   private clearBtn: HTMLButtonElement;
+  /** Linha dos dispensados no fim da lista. */
+  private dismissedLine: HTMLElement;
+  private dismissedText: HTMLElement;
   private lastSelKey = '';
 
   constructor(private ctx: UiContext) {
@@ -128,6 +133,16 @@ export class Sidebar implements UiComponent {
     this.empty = h('div', { class: 'ui-side__empty', hidden: true }, this.emptyText, this.clearBtn);
     this.scroller.append(this.empty);
 
+    // Dispensados: quantos e o botão de trazer todos de volta.
+    this.dismissedText = h('span');
+    this.dismissedLine = h(
+      'p',
+      { class: 'ui-side__dismissed', hidden: true },
+      this.dismissedText,
+      h('button', { class: 'ui-link-btn', type: 'button', text: tr('Trazer de volta'), on: { click: () => this.ctx.restoreDismissed() } }),
+    );
+    this.scroller.append(this.dismissedLine);
+
     const close = iconButton(ICONS.close, tr('Fechar painel lateral'), () => ctx.togglePanel('sidebar', false), 'ui-side__close');
     this.el = h(
       'aside',
@@ -150,12 +165,13 @@ export class Sidebar implements UiComponent {
     setHidden(this.filters, accounts.length <= 1);
 
     // Ordem das salas escolhida pelo usuário (arrastando o cabeçalho da sala).
-    const groups = orderRooms(groupRooms(snap, { query: this.query, hiddenAccounts: hidden }), (g) => g.room.id);
+    const groups = orderRooms(groupRooms(snap, { query: this.query, hiddenAccounts: hidden, dismissed: this.ctx.dismissed }), (g) => g.room.id);
     this.shownRooms = groups.map((g) => g.room.id);
     this.rooms.sync(groups);
 
+    this.renderDismissed();
     const filtering = this.query.trim().length > 0 || hidden.size > 0;
-    const total = snap?.agents.length ?? 0;
+    const total = (snap?.agents.length ?? 0) - this.ctx.dismissed.size;
     // Escritório vazio sem filtro: o cartão central já explica; a lista não repete o aviso.
     const showEmpty = groups.length === 0 && (filtering || !officeIsEmpty(this.ctx));
     setHidden(this.empty, !showEmpty);
@@ -184,6 +200,13 @@ export class Sidebar implements UiComponent {
         target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     }
+  }
+
+  /** Linha "N dispensados · Trazer de volta" no fim da lista (só os principais contam). */
+  private renderDismissed(): void {
+    const mains = (this.ctx.store.snapshot?.agents ?? []).filter((a) => a.kind === 'main' && this.ctx.dismissed.has(a.id)).length;
+    setHidden(this.dismissedLine, mains === 0);
+    if (mains) setText(this.dismissedText, plural(mains, tr('agente dispensado'), tr('agentes dispensados')));
   }
 
   private toggleAccount(id: string): void {

@@ -40,6 +40,12 @@ export interface UiContext {
   readonly root: HTMLElement;
   readonly prefs: Readonly<UiPrefs>;
   updatePrefs(patch: Partial<UiPrefs>): void;
+  /** Agentes dispensados agora (o principal dispensado e os subagentes dele); ver ui/dismiss.ts. */
+  readonly dismissed: ReadonlySet<string>;
+  /** Dispensa um agente principal: ele sai do escritório e dos painéis até a sessão fazer algo novo. */
+  dismissAgent(id: string): void;
+  /** Traz de volta todos os dispensados. */
+  restoreDismissed(): void;
   /** Relógio do servidor (corrige a diferença entre o relógio local e o do servidor). */
   now(): number;
   account(id: string): AccountInfo | undefined;

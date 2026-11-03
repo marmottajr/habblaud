@@ -1,6 +1,7 @@
 // Preferências da interface, persistidas em localStorage ('habblaud:prefs').
 // Puro: o armazenamento é injetado (testável em node).
 import { DEFAULT_SOUND_SETTINGS, sanitizeSoundSettings, type SoundSettings } from '../audio/scheduler';
+import type { Dismissal } from './dismiss';
 import type { DaylightMode, WorldOptions } from '../world/api';
 import { DEFAULT_WORLD_OPTIONS } from '../world/api';
 
@@ -23,6 +24,8 @@ export interface UiPrefs {
   feedOpen: boolean;
   /** Contas ocultas na barra lateral (AccountInfo.id). */
   hiddenAccounts: string[];
+  /** Agentes dispensados: saem do escritório desta página até a sessão fazer algo novo (ver ui/dismiss.ts). */
+  dismissedAgents: Dismissal[];
   /** Habblaud World: aviso quando o primeiro visitante entra no seu prédio (a cada conexão). Ligado por padrão. */
   worldVisitNotify: boolean;
 }
@@ -39,6 +42,7 @@ export const DEFAULT_PREFS: UiPrefs = {
   sidebarOpen: true,
   feedOpen: true,
   hiddenAccounts: [],
+  dismissedAgents: [],
   worldVisitNotify: true,
 };
 
@@ -65,8 +69,22 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
     sidebarOpen: bool(o.sidebarOpen, d.sidebarOpen),
     feedOpen: bool(o.feedOpen, d.feedOpen),
     hiddenAccounts: Array.isArray(o.hiddenAccounts) ? o.hiddenAccounts.filter((x): x is string => typeof x === 'string').slice(0, 20) : [],
+    dismissedAgents: dismissals(o.dismissedAgents),
     worldVisitNotify: bool(o.worldVisitNotify, d.worldVisitNotify),
   };
+}
+
+/** Dispensas guardadas: só as entradas com id e hora válidos (máx. 50, as mais recentes). */
+function dismissals(raw: unknown): Dismissal[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Dismissal[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const d = item as Record<string, unknown>;
+    if (typeof d.id !== 'string' || !d.id || typeof d.at !== 'number' || !Number.isFinite(d.at)) continue;
+    out.push({ id: d.id, at: d.at });
+  }
+  return out.slice(-50);
 }
 
 export function loadPrefs(storage: StorageLike | null): UiPrefs {

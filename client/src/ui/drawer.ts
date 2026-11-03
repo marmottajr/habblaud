@@ -1,4 +1,5 @@
-// Gaveta de detalhes (direita): agente ou sala selecionados. Agente do Codex: selo "Codex", textos dele (onde
+// Gaveta de detalhes (direita): agente ou sala selecionados. "Dispensar" tira o personagem do escritório desta
+// página até a sessão fazer algo novo (ui/dismiss.ts). Agente do Codex: selo "Codex", textos dele (onde
 // responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
@@ -39,6 +40,7 @@ import {
   visibleShells,
 } from './model';
 import { access } from '../net/access';
+import { canDismiss } from './dismiss';
 import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
 import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
@@ -214,6 +216,8 @@ class AgentView {
   private statusText: HTMLElement;
   private statusSince: HTMLElement;
   private followBtn: HTMLButtonElement;
+  /** "Dispensar": tira o personagem do escritório desta página (a sessão continua aberta). */
+  private dismissBtn: HTMLButtonElement;
   private termBtn: HTMLButtonElement;
   private termLabel: HTMLElement;
   /** Por que o terminal não abre: no celular não há hover para ler o title, então o toque mostra o motivo aqui. */
@@ -299,11 +303,19 @@ class AgentView {
     const centerBtn = h('button', { class: 'ui-btn', type: 'button', title: tr('Levar a câmera até o agente'), on: { click: () => ctx.focusSelection() } });
     centerBtn.innerHTML = ICONS.center;
     centerBtn.append(h('span', { text: tr('Centralizar') }));
+    this.dismissBtn = h('button', {
+      class: 'ui-btn ui-btn--dismiss',
+      type: 'button',
+      title: tr('Tira o personagem do escritório desta página. A sessão continua aberta, e ele volta sozinho se ela fizer algo novo.'),
+      on: { click: () => this.id && this.ctx.dismissAgent(this.id) },
+    });
+    this.dismissBtn.innerHTML = ICONS.close;
+    this.dismissBtn.append(h('span', { text: tr('Dispensar') }));
     const statusRow = h(
       'div',
       { class: 'ui-status' },
       h('span', { class: 'ui-status__label' }, this.dot, this.statusText, this.statusSince),
-      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn),
+      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn, this.dismissBtn),
     );
 
     // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
@@ -565,6 +577,8 @@ class AgentView {
     const following = this.ctx.world.getOptions().followSelected;
     setAttr(this.followBtn, 'aria-pressed', String(following));
     this.followBtn.classList.toggle('is-on', following);
+    // Dispensar: só um principal que esteja no escritório (o subagente vai junto com o principal dele).
+    setHidden(this.dismissBtn, !live || !canDismiss(a, this.ctx.dismissed));
     this.renderTerminalButton(!!live);
 
     // Alerta.

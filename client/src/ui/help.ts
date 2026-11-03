@@ -150,6 +150,9 @@ export class HelpDialog {
               text: tr('Com o plugin habblaud-mensagens (npm run mod:install), dá para mandar mensagens ao agente principal pelos detalhes dele ou pela caixa no rodapé do terminal: o texto entra na sessão como se você o tivesse digitado. Enter manda, Shift+Enter quebra a linha.'),
             }),
             h('li', {
+              text: tr('“Dispensar”, nos detalhes de um agente, tira o personagem do escritório quando você não vai mais mexer naquela sessão (a sessão continua aberta no Claude Code). Ele volta sozinho se ela fizer algo novo, e “Trazer de volta”, no fim da lista lateral, traz todos de uma vez. Vale só para esta página.'),
+            }),
+            h('li', {
               text: tr('No terminal: busca (lupa ou Ctrl/⌘+F), filtro “Tudo / Só prompts / Sem ferramentas” e um botão de copiar em cada entrada. O relógio da barra superior abre o histórico das sessões dos últimos 7 dias, inclusive as já encerradas.'),
             }),
             h('li', {
