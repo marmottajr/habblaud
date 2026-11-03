@@ -16,7 +16,9 @@ export type TaskOp =
   | { op: 'replace'; tasks: TaskItem[] }
   | { op: 'create'; id: string; title: string; activeForm?: string }
   | { op: 'update'; id: string; status?: TaskStatus | 'deleted'; title?: string; activeForm?: string }
-  | { op: 'rename'; from: string; to: string };
+  | { op: 'rename'; from: string; to: string }
+  /** Fecha o passo em andamento (o turno acabou e o app fecha a lista junto com a caixa de fim de turno). */
+  | { op: 'finish' };
 
 const TASK_STATUSES = new Set<string>(['pending', 'in_progress', 'completed']);
 
@@ -44,6 +46,9 @@ export function applyTaskOp(tasks: TaskItem[], op: TaskOp): TaskItem[] {
     }
     case 'rename':
       return tasks.map((t) => (t.id === op.from ? { ...t, id: op.to } : t));
+    case 'finish':
+      // Só o que estava em andamento: passo que nem começou continua pendente.
+      return tasks.map((t) => (t.status === 'in_progress' ? { ...t, status: 'completed' as TaskStatus } : t));
   }
 }
 
@@ -491,6 +496,9 @@ class LineParser {
           else delete this.s.reply;
           this.changed();
         }
+        // O app fecha a lista de tarefas junto com esta caixa (por isso o agente não manda um update_plan no fim):
+        // o passo em andamento terminou com o turno. Com `blocked` ele parou para esperar você, e o passo continua.
+        if (input.blocked !== true) this.taskOp({ op: 'finish' });
         break;
       }
       case 'TaskCreate': {

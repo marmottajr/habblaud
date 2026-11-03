@@ -470,6 +470,36 @@ describe('janela final + prefixo em segundo plano', () => {
     expect(applyTaskOp([], { op: 'update', id: '9', status: 'completed' })).toEqual([]);
   });
 
+  it('wrap_up do app: fecha o passo em andamento (o app fecha a lista junto com a caixa)', () => {
+    const s = createTranscriptState();
+    feed(s, [
+      L.assistant([
+        L.tool('t1', 'TodoWrite', {
+          todos: [
+            { content: 'Conferir os arquivos', status: 'completed' },
+            { content: 'Commitar', status: 'in_progress' },
+            { content: 'Publicar', status: 'pending' },
+          ],
+        }),
+      ]),
+      L.assistant([L.tool('w1', APP_WRAP_UP_TOOL, { recap: 'Commitado em f11c74b.' })]),
+    ]);
+    // O passo que estava em andamento terminou com o turno; o que nem começou continua pendente.
+    expect(s.tasks.map((t) => t.status)).toEqual(['completed', 'completed', 'pending']);
+    expect(applyTaskOp([], { op: 'finish' })).toEqual([]);
+  });
+
+  it('wrap_up do app: parado esperando você (blocked), o passo continua em andamento', () => {
+    const s = createTranscriptState();
+    feed(s, [
+      L.assistant([L.tool('t1', 'TodoWrite', { todos: [{ content: 'Publicar', status: 'in_progress' }] })]),
+      L.assistant([
+        L.tool('w1', APP_WRAP_UP_TOOL, { recap: 'Falta a senha.', ask: 'Me passa a senha?', actions: [{ label: 'Segue' }], blocked: true }),
+      ]),
+    ]);
+    expect(s.tasks.map((t) => t.status)).toEqual(['in_progress']);
+  });
+
   it('wrap_up do app: guarda a pergunta até o próximo prompt', () => {
     const s = createTranscriptState();
     feed(s, [
