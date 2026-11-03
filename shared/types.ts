@@ -105,6 +105,36 @@ export interface AskQuestion {
   options: Array<{ index: number; label: string; description?: string }>;
 }
 
+/**
+ * Pergunta de fim de turno que dá para responder pelo escritório mandando uma mensagem (POST /api/messages). Vem da
+ * ferramenta do app do Claude Code que monta a caixa de "próximo passo" (APP_WRAP_UP_TOOL em shared/activity.ts).
+ * Não é um pedido de permissão: a sessão não fica presa esperando, e a resposta é texto, como se fosse digitado.
+ * Vale enquanto a sessão não receber um prompt novo (o parser a apaga no próximo prompt).
+ */
+export interface PendingReply {
+  /** Id do tool_use que fez a pergunta: muda a cada pergunta nova. */
+  id: string;
+  /** A pergunta ("Commito essa mudança?"). */
+  ask: string;
+  /** Resumo do que o agente fez, quando a chamada trouxer. */
+  recap?: string;
+  /** Botões de resposta, na ordem da chamada (o primeiro é a recomendação do agente). */
+  options: ReplyOption[];
+  /** Epoch ms da pergunta. */
+  at: number;
+  /** O agente disse que está parado esperando a resposta. */
+  blocked?: true;
+}
+
+export interface ReplyOption {
+  /** Texto do botão ("Commita"). */
+  label: string;
+  /** O que vai para a sessão ao clicar. Ausente = só o Claude Code faz (ver `appAction`). */
+  message?: string;
+  /** Ação do próprio app do Claude Code (commit, create_pr...), que o Habblaud não tem como fazer. */
+  appAction?: string;
+}
+
 export type TaskStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface TaskItem {
@@ -186,6 +216,8 @@ export interface AgentInfo {
    * e perguntou pela caixa de entrada há pouco. Ver POST /api/messages.
    */
   canMessage?: boolean;
+  /** Pergunta de fim de turno esperando resposta (ver PendingReply). Responder = mandar uma mensagem. */
+  reply?: PendingReply;
 }
 
 export interface RoomInfo {

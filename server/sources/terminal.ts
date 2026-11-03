@@ -13,7 +13,7 @@
 // - erros da API: uma linha system `api_error` por tentativa e, quando o Claude Code desiste, uma
 //   mensagem sintética do assistant com `isApiErrorMessage`.
 import type { TerminalEntry, TerminalInputKind } from '../../shared/types';
-import { formatDuration, maskSecrets, truncate } from '../../shared/activity';
+import { APP_WRAP_UP_TOOL, formatDuration, maskSecrets, truncate } from '../../shared/activity';
 import { forkDirective, parseTaskNotification } from './transcript';
 import { tr } from '../../shared/i18n';
 
@@ -265,6 +265,13 @@ function todoList(raw: unknown): { list: string; done: number; total: number } {
   return { list: lines.join('\n'), done: items.filter((t) => t.status === 'completed').length, total: items.length };
 }
 
+/** Caixa de fim de turno do app: o resumo, a pergunta e os rótulos dos botões, como o Claude Code a mostra. */
+function wrapUpText(input: Rec): string {
+  const actions = Array.isArray(input.actions) ? input.actions.map(rec).filter((a): a is Rec => !!a) : [];
+  const labels = actions.map((a) => `  - ${str(a.label) ?? str(a.action) ?? tr('(sem rótulo)')}`);
+  return [str(input.recap), str(input.ask), ...labels].filter(Boolean).join('\n');
+}
+
 function questionsText(raw: unknown): string {
   const qs = Array.isArray(raw) ? raw.map(rec).filter((q): q is Rec => !!q) : [];
   return qs
@@ -343,6 +350,8 @@ export function toolView(name: string, input: Rec, cwd?: string): ToolView {
     }
     case 'ExitPlanMode':
       return { title: 'ExitPlanMode', ...textInput(s('plan')) };
+    case APP_WRAP_UP_TOOL:
+      return { title: titled('wrap_up', s('ask')), ...textInput(wrapUpText(input)) };
     case 'SubagentHandback':
     case 'StructuredOutput':
       return { title: name, ...(s('message') ? textInput(s('message')) : jsonInput(input, [], cwd)) };

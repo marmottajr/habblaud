@@ -5057,6 +5057,59 @@ button.ui-term__think:hover,
   color: var(--ui-faint);
 }
 
+/* Pergunta de fim de turno com os botões de resposta (ui/reply.ts), no terminal e na gaveta. */
+.ui-reply {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ui-reply__recap {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+  color: var(--ui-muted);
+}
+
+.ui-reply__ask {
+  font-weight: 600;
+  color: var(--st-waiting);
+  overflow-wrap: anywhere;
+}
+
+.ui-reply__opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ui-reply__note {
+  color: var(--ui-muted);
+}
+
+.ui-reply .ui-btn.is-disabled {
+  opacity: 0.5;
+}
+
+.ui-reply .ui-btn.is-disabled:hover {
+  background: var(--ui-bg-soft);
+  border-color: var(--ui-line-strong);
+}
+
+/* No terminal, separada da lista de tarefas e da caixa de mensagem pela mesma linha fina. */
+.ui-reply--terminal {
+  margin: 0 4px 9px;
+  border-top: 1px solid var(--ui-line);
+  padding-top: 8px;
+}
+
+.ui-reply--drawer {
+  margin-bottom: 9px;
+}
+
 .ui-term__prompt {
   display: grid;
   grid-template-columns: 2ch minmax(0, 1fr) auto;

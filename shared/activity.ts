@@ -1,6 +1,6 @@
 // Tradução de chamadas de ferramenta do Claude Code em atividades legíveis (PT-BR).
 // Código puro, usado pelo servidor (transcripts reais) e pelo simulador de demonstração.
-import type { ActivityKind, AskQuestion } from './types';
+import type { ActivityKind, AskQuestion, PendingReply, ReplyOption } from './types';
 import { tr } from './i18n';
 
 export interface ActivityDescription {
@@ -14,9 +14,23 @@ export interface ActivityDescription {
 const MAX_QUESTIONS = 4;
 const MAX_OPTIONS = 6;
 
+/** Texto de uma chamada de ferramenta pronto para a tela: mascarado e cortado em `n` caracteres. */
+function clean(v: unknown, n: number): string {
+  return typeof v === 'string' && v.trim() ? truncate(maskSecrets(v.slice(0, n * 4)), n) : '';
+}
+
+/**
+ * Ferramenta do app do Claude Code (aba Code) que monta a caixa de fim de turno: o resumo do que ele fez e, quando a
+ * próxima decisão é sua, uma pergunta com botões de resposta. Não passa pelo hook de permissão (o app aprova as
+ * ferramentas dele sozinho), então a pergunta chega ao escritório pelo transcript — ver wrapUpReply.
+ */
+export const APP_WRAP_UP_TOOL = 'mcp__ccd_turn__wrap_up';
+
+/** Botões de resposta que o escritório mostra de uma pergunta de fim de turno. */
+const MAX_REPLIES = 4;
+
 /** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas e cortadas, como o resto). */
 function askQuestions(raw: unknown): AskQuestion[] {
-  const clean = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? truncate(maskSecrets(v.slice(0, n * 4)), n) : '');
   const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
   // As posições contam no original (com as entradas inválidas): a resposta pelo escritório volta por elas.
   const qs = Array.isArray(raw) ? raw.slice(0, MAX_QUESTIONS) : [];
@@ -634,6 +648,33 @@ function humanize(id: string): string {
     .toLowerCase();
 }
 
+/**
+ * Pergunta de fim de turno de uma chamada do APP_WRAP_UP_TOOL, para responder pelo escritório. `undefined` quando a
+ * chamada só resume o turno (sem `ask`) ou quando nenhum botão sobrou: aí não há o que responder por aqui.
+ *
+ * Cada botão vira uma resposta em texto: o `message` da ação ou, sem ele, o próprio rótulo (é o que o app manda ao
+ * clicar). Ação do app (`action`: commit, create_pr...) fica no botão sem texto: só o Claude Code faz.
+ */
+export function wrapUpReply(id: string, rawInput: unknown, at: number): PendingReply | undefined {
+  const input = (rawInput && typeof rawInput === 'object' ? rawInput : {}) as Record<string, unknown>;
+  const ask = clean(input.ask, 160);
+  if (!ask) return undefined;
+  const raw = Array.isArray(input.actions) ? input.actions.slice(0, MAX_REPLIES) : [];
+  const options: ReplyOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const appAction = clean(o.action, 40);
+    const label = clean(o.label, 60) || appAction;
+    if (!label) continue;
+    if (appAction) options.push({ label, appAction });
+    else options.push({ label, message: clean(o.message, 600) || label });
+  }
+  if (!options.length) return undefined;
+  const recap = clean(input.recap, 400);
+  return { id, ask, ...(recap ? { recap } : {}), options, at, ...(input.blocked === true ? { blocked: true as const } : {}) };
+}
+
 function describeMcp(name: string, input: Record<string, unknown>): ActivityDescription {
   const [, server = '', ...rest] = name.split('__');
   const tool = rest.join('__');
@@ -702,6 +743,11 @@ export function describeTool(name: string, rawInput: unknown): ActivityDescripti
       const todos = Array.isArray(input.todos) ? input.todos.filter((t): t is Record<string, unknown> => !!t && typeof t === 'object') : [];
       const done = todos.filter((t) => t.status === 'completed').length;
       return make('plan', '🗒️', tr('Atualizando a lista de tarefas'), todos.length ? tr('{0}/{1} concluídas', [done, todos.length]) : undefined);
+    }
+    case APP_WRAP_UP_TOOL: {
+      const ask = clean(input.ask, 160);
+      if (ask) return make('ask', '❓', tr('Fazendo uma pergunta a você'), ask);
+      return make('communicate', '🧾', tr('Resumindo o que fez'), clean(input.recap, 300) || undefined);
     }
     case 'TaskCreate':
       return make('plan', '🗒️', tr('Nova tarefa: {0}', [str(input.subject) || tr('sem título')]), str(input.description));

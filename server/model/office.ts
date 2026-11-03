@@ -12,6 +12,7 @@ import type {
   Notice,
   NoticeLevel,
   OfficeSnapshot,
+  PendingReply,
   PermissionDecision,
   PermissionRequestInfo,
   Provider,
@@ -87,6 +88,8 @@ export interface OfficeDeps {
 export interface TranscriptSummary {
   title?: string;
   tasks: TaskItem[];
+  /** Pergunta de fim de turno esperando resposta (AgentInfo.reply). */
+  reply?: PendingReply;
   stats: AgentStats;
   model?: string;
   gitBranch?: string;
@@ -670,6 +673,7 @@ export class Office {
     };
     if (info.kind === 'main') set('title', t.title);
     set('tasks', t.tasks.map((x) => ({ ...x })));
+    set('reply', t.reply ? { ...t.reply, options: t.reply.options.map((o) => ({ ...o })) } : undefined);
     set('stats', { ...t.stats });
     set('model', t.model);
     set('gitBranch', t.gitBranch);

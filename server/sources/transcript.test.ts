@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { APP_WRAP_UP_TOOL } from '../../shared/activity';
 import { log } from '../log';
 import { L, tempDir } from '../test/fixtures';
 import { FileTail, MAX_LINE_BYTES } from './tail';
@@ -467,5 +468,34 @@ describe('janela final + prefixo em segundo plano', () => {
 
   it('applyTaskOp ignora atualização de tarefa desconhecida', () => {
     expect(applyTaskOp([], { op: 'update', id: '9', status: 'completed' })).toEqual([]);
+  });
+
+  it('wrap_up do app: guarda a pergunta até o próximo prompt', () => {
+    const s = createTranscriptState();
+    feed(s, [
+      L.assistant([
+        L.tool('w1', APP_WRAP_UP_TOOL, {
+          recap: 'Publiquei a 2.96.0.',
+          ask: 'Ligo a fase pela tela?',
+          actions: [{ label: 'Liga você', message: 'Pode ligar a fase.' }, { label: 'Eu faço' }],
+          blocked: true,
+        }),
+      ]),
+      L.assistant([L.text('Está no ar.')], { stop: 'end_turn' }),
+    ]);
+    expect(s.reply).toMatchObject({ id: 'w1', ask: 'Ligo a fase pela tela?', recap: 'Publiquei a 2.96.0.', blocked: true });
+    expect(s.reply?.options).toEqual([{ label: 'Liga você', message: 'Pode ligar a fase.' }, { label: 'Eu faço', message: 'Eu faço' }]);
+
+    // Pergunta nova substitui a anterior; uma chamada sem pergunta apaga.
+    feed(s, [L.assistant([L.tool('w2', APP_WRAP_UP_TOOL, { ask: 'Commito?', actions: [{ label: 'Commita' }] })])]);
+    expect(s.reply?.id).toBe('w2');
+    feed(s, [L.assistant([L.tool('w3', APP_WRAP_UP_TOOL, { recap: 'Só isso.' })])]);
+    expect(s.reply).toBeUndefined();
+
+    // Respondida (aqui ou no Claude Code): o prompt novo tira a pergunta do escritório.
+    feed(s, [L.assistant([L.tool('w4', APP_WRAP_UP_TOOL, { ask: 'Sigo?', actions: [{ label: 'Segue' }] })])]);
+    expect(s.reply?.id).toBe('w4');
+    feed(s, [L.prompt('Segue')]);
+    expect(s.reply).toBeUndefined();
   });
 });

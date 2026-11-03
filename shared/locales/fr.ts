@@ -558,6 +558,11 @@ export const FR: Readonly<Record<string, string>> = {
   "Pergunta quando um comando falha": "Demande quand une commande échoue",
   "Nunca pergunta": "Ne demande jamais",
 
+  // client/src/ui/reply.ts
+  "Resposta enviada.": "Réponse envoyée.",
+  "“{0}” é do Claude Code; por aqui dá para responder com texto.": "« {0} » est une action de Claude Code ; d’ici, on ne peut répondre qu’avec du texte.",
+  "Responder “{0}” — vai para a sessão como se você tivesse digitado": "Répondre « {0} » — envoyé à la session comme si vous l’aviez tapé",
+
   // client/src/ui/roomrename.ts
   "o Habblaud não respondeu": "Habblaud n'a pas répondu",
   "Nome da sala": "Nom de la salle",
@@ -1738,6 +1743,7 @@ export const FR: Readonly<Record<string, string>> = {
   "Histórico de sessões ({0}): falha ao listar ({1}).": "Historique des sessions ({0}) : échec du listage ({1}).",
 
   // server/sources/terminal.ts
+  "(sem rótulo)": "(sans libellé)",
   "(sem título)": "(sans titre)",
   "TodoWrite({0}/{1} concluídas)": "TodoWrite({0}/{1} terminées)",
   "Resumo da conversa compactada": "Résumé de la conversation compactée",
@@ -1777,6 +1783,7 @@ export const FR: Readonly<Record<string, string>> = {
   "sem conexão com o GitHub": "pas de connexion avec GitHub",
 
   // shared/activity.ts
+  "Resumindo o que fez": "Récapitule ce qu’il a fait",
   "[chave privada]": "[clé privée]",
   "{0} e mais {1}": "{0} et {1} de plus",
   "Fazendo uma requisição HTTP": "Fait une requête HTTP",
@@ -1967,6 +1974,22 @@ export const FR: Readonly<Record<string, string>> = {
   "Acesso à rede: {0}": "Accès au réseau : {0}",
 
   // shared/demo/simulator.ts
+  "Testes passando e nada quebrado no caminho. Falta só gravar: a mudança está só na cópia de trabalho.": "Tests au vert et rien de cassé en chemin. Il ne reste qu’à l’enregistrer : la modification n’est que dans la copie de travail.",
+  "Commito essa mudança?": "Je commite cette modification ?",
+  "Commita": "Commite",
+  "Pode commitar.": "Tu peux commiter.",
+  "Deixa comigo": "Je m’en charge",
+  "Deixa comigo, eu commito depois.": "Laisse, je commiterai plus tard.",
+  "A correção está de pé e cobre os dois casos do relato. O resto do módulo continua como estava.": "Le correctif tient et couvre les deux cas signalés. Le reste du module est inchangé.",
+  "Sigo para a próxima tarefa?": "Je passe à la tâche suivante ?",
+  "Segue": "Continue",
+  "Pode seguir para a próxima.": "Tu peux passer à la suivante.",
+  "Espera": "Attends",
+  "Espera, quero conferir antes.": "Attends, je veux vérifier avant.",
+  "Branch pronta e empurrada. O PR é o passo que falta, e ele sai daqui ou do Claude Code.": "Branche prête et poussée. Il ne manque que la PR, qui part d’ici ou de Claude Code.",
+  "Abro o PR agora?": "J’ouvre la PR maintenant ?",
+  "Abre o PR": "Ouvre la PR",
+  "Agora não, deixa a branch assim.": "Pas maintenant, laisse la branche telle quelle.",
   "Cria a página de checkout com resumo do pedido": "Crée la page de paiement avec le récapitulatif de commande",
   "O total do carrinho não atualiza ao remover item": "Le total du panier ne se met pas à jour quand on retire un article",
   "Adiciona cupom de desconto no checkout": "Ajoute un code promo au paiement",

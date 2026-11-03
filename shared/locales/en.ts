@@ -586,6 +586,11 @@ export const EN: Readonly<Record<string, string>> = {
   "Claude Code encerrado (código {0})": "Claude Code exited (code {0})",
   "Claude Code encerrado": "Claude Code exited",
 
+  // client/src/ui/reply.ts
+  "Resposta enviada.": "Reply sent.",
+  "“{0}” é do Claude Code; por aqui dá para responder com texto.": "“{0}” is a Claude Code action; from here you can only reply with text.",
+  "Responder “{0}” — vai para a sessão como se você tivesse digitado": "Reply “{0}” — goes to the session as if you had typed it",
+
   // client/src/ui/roomrename.ts
   "Nome da sala": "Room name",
   "Enter salva · Esc cancela · vazio volta a “{0}”": "Enter saves · Esc cancels · empty resets to “{0}”",
@@ -1244,6 +1249,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Ganhou {0} de {1}": "Won {0} against {1}",
 
   // shared/activity.ts
+  "Resumindo o que fez": "Summing up what it did",
   "[chave privada]": "[private key]",
   "{0} e mais {1}": "{0} and {1} more",
   "Fazendo uma requisição HTTP": "Making an HTTP request",
@@ -1434,6 +1440,22 @@ export const EN: Readonly<Record<string, string>> = {
   "Acesso à rede: {0}": "Network access: {0}",
 
   // shared/demo/simulator.ts
+  "Testes passando e nada quebrado no caminho. Falta só gravar: a mudança está só na cópia de trabalho.": "Tests passing and nothing broken along the way. All that is left is recording it: the change is only in the working copy.",
+  "Commito essa mudança?": "Shall I commit this change?",
+  "Commita": "Commit it",
+  "Pode commitar.": "Go ahead and commit.",
+  "Deixa comigo": "I will do it",
+  "Deixa comigo, eu commito depois.": "Leave it to me, I will commit later.",
+  "A correção está de pé e cobre os dois casos do relato. O resto do módulo continua como estava.": "The fix is in place and covers both cases from the report. The rest of the module is untouched.",
+  "Sigo para a próxima tarefa?": "Shall I move on to the next task?",
+  "Segue": "Go ahead",
+  "Pode seguir para a próxima.": "Go ahead to the next one.",
+  "Espera": "Hold on",
+  "Espera, quero conferir antes.": "Hold on, I want to check first.",
+  "Branch pronta e empurrada. O PR é o passo que falta, e ele sai daqui ou do Claude Code.": "Branch ready and pushed. The PR is the missing step, and it can go out from here or from Claude Code.",
+  "Abro o PR agora?": "Shall I open the PR now?",
+  "Abre o PR": "Open the PR",
+  "Agora não, deixa a branch assim.": "Not now, leave the branch as it is.",
   "Cria a página de checkout com resumo do pedido": "Build the checkout page with an order summary",
   "O total do carrinho não atualiza ao remover item": "The cart total doesn't update when an item is removed",
   "Adiciona cupom de desconto no checkout": "Add discount coupons to checkout",
@@ -1923,6 +1945,7 @@ export const EN: Readonly<Record<string, string>> = {
   "Linha com mais de {0} MiB em {1} foi ignorada até a próxima quebra.": "Line over {0} MiB in {1} skipped until the next line break.",
 
   // server/sources/terminal.ts
+  "(sem rótulo)": "(no label)",
   "(sem título)": "(untitled)",
   "TodoWrite({0}/{1} concluídas)": "TodoWrite({0}/{1} done)",
   "Resumo da conversa compactada": "Compacted conversation summary",

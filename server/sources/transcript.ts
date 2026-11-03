@@ -3,8 +3,8 @@
 // atividades (o que o personagem está fazendo) e sinais (ciclo de vida de subagentes).
 // Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
 import { createReadStream } from 'node:fs';
-import type { Activity, AgentStats, TaskItem, TaskStatus } from '../../shared/types';
-import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../shared/activity';
+import type { Activity, AgentStats, PendingReply, TaskItem, TaskStatus } from '../../shared/types';
+import { APP_WRAP_UP_TOOL, describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, wrapUpReply, type ActivityDescription } from '../../shared/activity';
 import type { GitHubEvent } from '../../shared/github';
 import { detectGitHubNotification, detectGitHubResult, githubCallOf, type GitHubCall } from './github';
 import type { ShellStart } from './shells';
@@ -118,6 +118,8 @@ export interface TranscriptState {
   /** Operações de tarefas feitas desde o início da janela lida (até o prefixo do arquivo ser mesclado). */
   taskOpsLog: TaskOp[] | null;
   sawTaskReplace: boolean;
+  /** Pergunta de fim de turno esperando resposta (APP_WRAP_UP_TOOL); some no próximo prompt. */
+  reply?: PendingReply;
   stats: AgentStats;
   costSeen: boolean;
   model?: string;
@@ -481,6 +483,16 @@ class LineParser {
       case 'TodoWrite':
         this.taskOp({ op: 'replace', tasks: todosToTasks(input.todos) });
         break;
+      case APP_WRAP_UP_TOOL: {
+        // A caixa de fim de turno do app: guarda a pergunta (com os botões) para responder pelo escritório.
+        const reply = wrapUpReply(id, input, this.at);
+        if (reply || this.s.reply) {
+          if (reply) this.s.reply = reply;
+          else delete this.s.reply;
+          this.changed();
+        }
+        break;
+      }
       case 'TaskCreate': {
         const title = str(input.subject) ?? str(input.description);
         if (!title) break;
@@ -579,6 +591,11 @@ class LineParser {
       prompt = `${cmd} ${args}`.trim();
     }
     this.s.ended = false;
+    // Prompt novo: a pergunta de fim de turno anterior já foi respondida (aqui ou no Claude Code).
+    if (this.s.reply) {
+      delete this.s.reply;
+      this.changed();
+    }
     this.meta('lastPrompt', truncate(maskSecrets(prompt.slice(0, 1_000)), 200));
     this.push(describePrompt(prompt));
   }
