@@ -211,6 +211,8 @@ export const ES: Readonly<Record<string, string>> = {
   "só tokens": "solo tokens",
 
   // client/src/ui/drawer.ts
+  "Dispensar": "Despedir",
+  "Tira o personagem do escritório desta página. A sessão continua aberta, e ele volta sozinho se ela fizer algo novo.": "Saca al personaje de la oficina de esta página. La sesión sigue abierta y vuelve solo si hace algo nuevo.",
   "Copiado!": "¡Copiado!",
   "Não foi possível copiar": "No se pudo copiar",
   "concluída": "completada",
@@ -330,6 +332,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Automático": "Automático",
 
   // client/src/ui/help.ts
+  "“Dispensar”, nos detalhes de um agente, tira o personagem do escritório quando você não vai mais mexer naquela sessão (a sessão continua aberta no Claude Code). Ele volta sozinho se ela fizer algo novo, e “Trazer de volta”, no fim da lista lateral, traz todos de uma vez. Vale só para esta página.": "“Despedir”, en los detalles de un agente, saca al personaje de la oficina cuando ya no vas a trabajar en esa sesión (la sesión sigue abierta en Claude Code). Vuelve solo si ella hace algo nuevo, y “Traer de vuelta”, al final de la lista lateral, los trae a todos de una vez. Solo vale para esta página.",
   "Na mesa, digitando: está processando um pedido.": "En el escritorio, tecleando: está procesando una solicitud.",
   "Mão levantada: espera uma resposta sua no terminal (permissão, pergunta ou escolha).": "Mano levantada: espera tu respuesta en la terminal (permiso, pregunta o elección).",
   "Ampulheta sobre a cabeça: terminou o turno e fica na mesa esperando um shell terminar.": "Reloj de arena sobre la cabeza: terminó su turno y se queda en el escritorio esperando que termine un shell.",
@@ -656,6 +659,9 @@ export const ES: Readonly<Record<string, string>> = {
   "Não foi possível mudar o modo demonstração.": "No se pudo cambiar el modo demostración.",
 
   // client/src/ui/sidebar.ts
+  "Trazer de volta": "Traer de vuelta",
+  "agente dispensado": "agente despedido",
+  "agentes dispensados": "agentes despedidos",
   "Atalho: /": "Atajo: /",
   "Filtrar por conta": "Filtrar por cuenta",
   "Mostrar a {0} na lista, no feed e nos avisos": "Mostrar {0} en la lista, el feed y los avisos",

@@ -39,6 +39,8 @@ export class Toasts implements UiComponent {
     if (n.level !== 'alert' && n.agentId) {
       const acc = this.ctx.agent(n.agentId)?.account;
       if (acc && this.ctx.prefs.hiddenAccounts.includes(acc)) return;
+      // Dispensado: você já disse que não quer saber dessa sessão agora.
+      if (n.agentId && this.ctx.dismissed.has(n.agentId)) return;
     }
     const key = `${n.level}|${n.agentId ?? ''}|${n.text}`;
     const dup = this.toasts.find((t) => t.key === key && n.at - t.notice.at < DEDUPE_MS);

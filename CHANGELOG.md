@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Dispensar um personagem.** Sessão que você abriu só para ler e não vai mais mexer deixava o personagem no
+  escritório até desligar o computador. "Dispensar", nos detalhes do agente, manda ele embora pelo elevador: sai da
+  barra lateral, das contagens da sala e dos avisos, e a sala em que todos foram dispensados apaga a luz e some. A
+  sessão continua aberta no Claude Code — o servidor segue contando com ela, e o que sobe para o Habblaud World não
+  muda. Ele volta sozinho assim que a sessão registrar qualquer coisa nova, e "Trazer de volta", no fim da lista
+  lateral, traz todos de uma vez. A escolha é desta página (fica no navegador, não no servidor).
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

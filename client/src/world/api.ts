@@ -80,6 +80,12 @@ export interface WorldApi {
    * moedinhas, amizades/rivalidades com quem está lá agora e a roda de que participa. null se não está.
    */
   social?(agentId: string): AgentSocial | null;
+  /**
+   * (Opcional, aditivo) Agentes dispensados pelo usuário (ui/dismiss.ts): o personagem sai pelo elevador, como quem
+   * encerra a sessão, e some. Com todos os agentes de uma sala dispensados, ela apaga a luz e some junto. Só muda o
+   * que esta página desenha: a sessão continua aberta e o servidor continua contando com ela.
+   */
+  setDismissed?(agentIds: readonly string[]): void;
   /** (Opcional, aditivo) Botão direito numa sala do escritório: id da sala e o ponto do clique (px da janela). */
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
   /** (Opcional, aditivo) Acontecimentos sociais (partidas e apostas) para o feed. */

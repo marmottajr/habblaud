@@ -26,6 +26,7 @@ import { hasCodexPermission } from './provider';
 import { Notifier } from './notify';
 import { ConnectionBanner, EmptyState, Splash } from './overlays';
 import { focusPermission, nextPermissionAgent } from './permission';
+import { activeDismissals, expandDismissed } from './dismiss';
 import { loadPrefs, safeLocalStorage, savePrefs, worldOptionsFrom, type UiPrefs } from './prefs';
 import { SettingsPopover } from './settings';
 import { Sidebar } from './sidebar';
@@ -70,6 +71,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     feed: narrowMq?.matches ? false : prefs.feedOpen,
   };
 
+  /** Agentes dispensados agora (já com os subagentes deles); refeito a cada quadro em syncDismissed. */
+  let dismissed: ReadonlySet<string> = new Set();
+
   const live = h('div', { class: 'ui-sr', role: 'status', attrs: { 'aria-live': 'polite' } });
 
   let topbar: TopBar;
@@ -98,6 +102,19 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       savePrefs(storage, prefs);
       world.setOptions(worldOptionsFrom(prefs));
       invalidate();
+    },
+    get dismissed() {
+      return dismissed;
+    },
+    dismissAgent(id) {
+      const a = store.agent(id);
+      if (!a || a.kind !== 'main') return;
+      // A gaveta ficaria mostrando um agente que não está mais à vista.
+      if (selection?.type === 'agent' && selection.id === id) ctx.select(null);
+      ctx.updatePrefs({ dismissedAgents: [...prefs.dismissedAgents.filter((d) => d.id !== id), { id, at: ctx.now() }] });
+    },
+    restoreDismissed() {
+      ctx.updatePrefs({ dismissedAgents: [] });
     },
     now: () => timelapse?.replayTime ?? Date.now() + skew,
     account: (id) => store.snapshot?.accounts.find((a) => a.id === id),
@@ -306,8 +323,24 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   let rafId = 0;
   let hiddenTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Dispensados (ui/dismiss.ts): larga as dispensas que caducaram (a sessão fez algo novo ou saiu), guarda o que
+   * sobrou e avisa o mundo. Roda antes dos painéis, que leem ctx.dismissed.
+   */
+  function syncDismissed(): void {
+    const agents = store.snapshot?.agents ?? [];
+    const active = activeDismissals(prefs.dismissedAgents, agents);
+    if (active.length !== prefs.dismissedAgents.length) {
+      prefs = { ...prefs, dismissedAgents: active };
+      savePrefs(storage, prefs);
+    }
+    dismissed = expandDismissed(active, agents);
+    world.setDismissed?.([...dismissed]);
+  }
+
   function renderAll(): void {
     rafId = 0;
+    syncDismissed();
     for (const c of components) {
       try {
         c.render();

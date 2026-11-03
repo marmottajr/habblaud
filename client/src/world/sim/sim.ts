@@ -117,6 +117,10 @@ export class Sim {
   /** Depuração: agentes forçados a encerrar e salas forçadas a sumir do snapshot. */
   readonly forcedOffline = new Set<string>();
   readonly hiddenRooms = new Set<string>();
+  /** Agentes dispensados pelo usuário (ui/dismiss.ts; já com os subagentes deles): saem como quem encerra a sessão. */
+  private dismissed: ReadonlySet<string> = new Set();
+  /** Salas em que todo mundo foi dispensado: somem junto (do contrário fica uma sala acesa e vazia). */
+  private dismissedRooms = new Set<string>();
   /** Contas do snapshot (id -> cor/letra/ferramenta) para etiquetas: a do Codex ganha chip vazado e o selo. */
   accounts = new Map<string, { short: string; color: string; name: string; provider?: Provider }>();
   /** Depuração: salas/agentes extras mesclados a cada snapshot (sessões simuladas). */
@@ -157,6 +161,38 @@ export class Sim {
     for (const s of this.spots.ofKind('elevator')) this.elevators.push(new Elevator(this.elevators.length, s.id));
   }
 
+  // =================================================================== dispensados
+
+  /** O personagem não deve aparecer: dispensado pelo usuário ou forçado pela depuração. */
+  private away(id: string): boolean {
+    return this.forcedOffline.has(id) || this.dismissed.has(id);
+  }
+
+  /**
+   * Agentes dispensados (ids já com os subagentes; ver ui/dismiss.ts). Quem entra sai do escritório pelo elevador e
+   * quem sai volta na próxima carga; a sala sem ninguém à vista some junto.
+   */
+  setDismissed(ids: readonly string[]): void {
+    const next = new Set(ids);
+    if (next.size === this.dismissed.size && [...next].every((id) => this.dismissed.has(id))) return;
+    this.dismissed = next;
+    // O snapshot atual, reaplicado: quem foi dispensado vai embora, quem voltou entra e as salas acompanham.
+    if (this.lastSnapshot) this.applySnapshot(this.lastSnapshot, this.now);
+  }
+
+  /** Salas cujos agentes estão todos dispensados (ninguém mais à vista nelas). */
+  private syncDismissedRooms(snap: OfficeSnapshot): void {
+    this.dismissedRooms = new Set();
+    if (!this.dismissed.size) return;
+    const empty = new Set<string>();
+    const busy = new Set<string>();
+    for (const a of snap.agents) {
+      if (this.dismissed.has(a.id)) empty.add(a.roomId);
+      else if (a.status !== 'offline' && a.status !== 'done') busy.add(a.roomId);
+    }
+    for (const id of empty) if (!busy.has(id)) this.dismissedRooms.add(id);
+  }
+
   // =================================================================== snapshot
 
   applySnapshot(input: OfficeSnapshot, now: number): void {
@@ -167,6 +203,7 @@ export class Sim {
     }
     this.lastSnapshot = input;
     this.now = now;
+    this.syncDismissedRooms(snap);
     const first = !this.initialized;
     this.initialized = true;
     this.accounts = new Map(snap.accounts.map((a) => [a.id, { short: a.short, color: a.color, name: a.name, ...(a.provider === 'codex' ? { provider: a.provider } : {}) }]));
@@ -176,7 +213,7 @@ export class Sim {
     const listed = new Set<string>();
     // na ordem de chegada (slot do servidor): na carga inicial as salas ocupam as vagas 0, 1, 2... nessa ordem
     for (const r of [...snap.rooms].sort((a, b) => a.slot - b.slot)) {
-      if (this.hiddenRooms.has(r.id)) continue;
+      if (this.hiddenRooms.has(r.id) || this.dismissedRooms.has(r.id)) continue;
       listed.add(r.id);
       const rs = this.rooms.get(r.id);
       if (!rs) {
@@ -212,7 +249,7 @@ export class Sim {
         this.social.syncAgent(ch, a, now, true);
         continue;
       }
-      if (a.status === 'offline' || this.forcedOffline.has(a.id) || this.hiddenRooms.has(a.roomId)) continue;
+      if (a.status === 'offline' || this.away(a.id) || this.hiddenRooms.has(a.roomId) || this.dismissedRooms.has(a.roomId)) continue;
       // subagente que nunca vimos trabalhar e já terminou, ou cujo pai está indo embora: não entra
       if (a.status === 'done') continue;
       if (a.kind === 'sub' && a.parentId) {
@@ -313,7 +350,7 @@ export class Sim {
       this.reactShellDone(ch, !sd.error, now);
     }
     // shells mudam sem mudar o status (ex.: comando em primeiro plano começou/terminou)
-    if (prevStatus !== a.status || hadShells || !!a.shells?.length || ch.mode === 'shell' || this.forcedOffline.has(ch.id)) this.refreshMode(ch);
+    if (prevStatus !== a.status || hadShells || !!a.shells?.length || ch.mode === 'shell' || this.away(ch.id)) this.refreshMode(ch);
     this.refreshShell(ch, now);
   }
 
@@ -344,7 +381,7 @@ export class Sim {
     const parent = a.parentId ? this.chars.get(a.parentId) : undefined;
     const parentGone = !!parent && (parent.leaving || parent.gone);
     const missing = ch.missingSince !== null && this.now - ch.missingSince >= MISSING_DEBOUNCE_MS;
-    const offline = this.forcedOffline.has(ch.id);
+    const offline = this.away(ch.id);
     if (a.kind === 'sub' && a.status === 'done' && !ch.delivered && !offline && !parentGone) return 'deliver';
     const m = modeFor(offline ? 'offline' : a.status, { kind: a.kind, missing, parentGone, shells: a.shells, now: this.now });
     if (m === 'deliver' && ch.delivered) return 'leave';

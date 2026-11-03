@@ -35,6 +35,7 @@ describe('preferências', () => {
     expect(p.liveliness).toBe('lively');
     expect(p.sound).toBe(false);
     expect(p.hiddenAccounts).toEqual(['.claude']);
+    expect(p.dismissedAgents).toEqual([]);
   });
   it('salva e carrega de volta', () => {
     const st = memoryStorage();
@@ -121,5 +122,11 @@ describe('migração do nome antigo (CodeTown)', () => {
     };
     expect(migrateLegacyKeys(full)).toBe(0);
     expect(Object.fromEntries(full.data)).toEqual({ 'codetown:prefs': '{}' });
+  });
+
+  it('dispensas guardadas: só as entradas com id e hora válidos', () => {
+    const p = sanitizePrefs({ dismissedAgents: [{ id: 'acc:1', at: 10 }, { id: '', at: 1 }, { id: 'acc:2' }, { at: 2 }, null, 'x', { id: 'acc:3', at: 'ontem' }] });
+    expect(p.dismissedAgents).toEqual([{ id: 'acc:1', at: 10 }]);
+    expect(sanitizePrefs({ dismissedAgents: 'tudo' }).dismissedAgents).toEqual([]);
   });
 });
