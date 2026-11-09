@@ -9,6 +9,7 @@ import { HISTORY_LIMIT, HISTORY_MAX_AGE_MS } from '../history';
 import type { HistoryProvider, HistoryResolveResult } from '../source';
 import { encodeCwd } from '../watcher';
 import { KiroTerminalParser } from './terminal';
+import { cleanKiroPrompt, cleanKiroTitle } from './parser';
 import { tr } from '../../../shared/i18n';
 
 const READ_CONCURRENCY = 8;
@@ -214,7 +215,7 @@ export class KiroHistory implements HistoryProvider {
       const raw = await readFile(c.jsonPath, 'utf8');
       const meta = JSON.parse(raw) as Record<string, unknown>;
       if (typeof meta.cwd === 'string') cwd = meta.cwd;
-      if (typeof meta.title === 'string') title = meta.title;
+      if (typeof meta.title === 'string') title = cleanKiroTitle(meta.title);
       if (typeof meta.started_at === 'string') {
         const ms = Date.parse(meta.started_at);
         if (!Number.isNaN(ms)) firstAt = ms;
@@ -233,7 +234,8 @@ export class KiroHistory implements HistoryProvider {
         const st = await fh.stat();
         lastAt = st.mtimeMs;
         if (st.size > 0 && !title) {
-          const headLen = Math.min(st.size, 64 * 1024);
+          // O primeiro prompt de uma sessão aberta pelo Kiro Crew passa de 70 KB (prompt do agente junto).
+          const headLen = Math.min(st.size, 512 * 1024);
           const buf = Buffer.alloc(headLen);
           await fh.read(buf, 0, headLen, 0);
           const lines = buf.toString('utf8').split('\n');
@@ -244,9 +246,8 @@ export class KiroHistory implements HistoryProvider {
               if (p.kind === 'Prompt') {
                 const contents = p.data?.content || [];
                 const textPart = contents.find((x) => x.kind === 'text');
-                if (typeof textPart?.data === 'string' && textPart.data.trim()) {
-                  title = textPart.data.trim().slice(0, 90);
-                }
+                const text = typeof textPart?.data === 'string' ? cleanKiroPrompt(textPart.data) : '';
+                if (text) title = text.slice(0, 90);
                 break;
               }
             } catch {

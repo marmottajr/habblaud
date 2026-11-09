@@ -616,6 +616,20 @@ terminal with live streaming, and history. The Kiro account chip carries the **K
 - **Zero configuration:** Habblaud detects active Kiro CLI sessions automatically by reading session locks in
   `~/.kiro/sessions/cli/*.lock` (and `KIRO_HOME` or `KIRO_SESSIONS_DIR`). The working directory (`cwd`) is determined from
   the lockfile and process status.
+- **Open session = live Kiro process:** the lock's PID must really be Kiro (`/proc` on Linux, `tasklist` on Windows, `ps`
+  on macOS); a stale lock whose PID was reused by another program doesn't become a character. In Docker, or when processes
+  can't be listed, a lock, `.json` or `.jsonl` touched in the last 12 h counts (`HABBLAUD_KIRO_LIVENESS=pid|mtime` forces a
+  method).
+- **WSL and Windows together:** running in WSL, Habblaud also shows the Kiro sessions on Windows
+  (`/mnt/c/Users/<you>/.kiro`, account **Kiro (Windows)**, live via `tasklist.exe`). `HABBLAUD_KIRO_WINDOWS=0` turns it off;
+  `HABBLAUD_KIRO_DIRS` (comma-separated list) picks the folders.
+- **Waiting for approval:** on Linux/WSL, a pending tool with the Kiro process idle (no I/O and no new process under it)
+  becomes "Needs you: approve a permission". `HABBLAUD_KIRO_APPROVAL=0` turns it off. Native Windows and macOS don't get it.
+- **Times and Kiro Crew:** the replay uses the prompt and turn times from the `.json` (the `.jsonl` has no per-line time)
+  and doesn't repeat the history in the live feed; the context Kiro Crew injects in the prompt (`[AGENT SYSTEM PROMPT] …`)
+  is removed from the title and the balloon.
+- **Limit:** Kiro writes the transcript per model response (the request shows up with the first response), so the
+  character only starts working when the first response arrives.
 - **Live Terminal & History:** Habblaud tails `~/.kiro/sessions/cli/<sessionId>.jsonl` to reconstruct prompts, tool usage
   (shell commands, file edits, git, test execution), model thinking, and outputs in real time via Server-Sent Events.
 - **Account & Plan:** Habblaud discovers plan metadata automatically from local files (`plan`, `plan.txt`,

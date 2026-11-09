@@ -70,11 +70,13 @@ describe('Kiro integration', () => {
       expect(parsed).toBeDefined();
       expect(parsed?.status).toBe('working');
       expect(parsed?.activity?.kind).toBe('prompt');
-      expect(parsed?.activity?.icon).toBe('💬');
+      expect(parsed?.activity?.icon).toBe('📨');
       expect(parsed?.activity?.detail).toContain('Liste os arquivos');
+      // meta.timestamp vem em segundos
+      expect(parsed?.activity?.at).toBe(1700000000 * 1000);
     });
 
-    it('mapeia evento de Thinking', () => {
+    it('AssistantMessage só com thinking fecha o turno (é a última do turno)', () => {
       const line = JSON.stringify({
         version: 'v1',
         kind: 'AssistantMessage',
@@ -84,9 +86,9 @@ describe('Kiro integration', () => {
       });
       const parsed = parseKiroJsonlLine(line, 2, 1000);
       expect(parsed).toBeDefined();
-      expect(parsed?.status).toBe('working');
-      expect(parsed?.activity?.kind).toBe('think');
-      expect(parsed?.activity?.icon).toBe('🧠');
+      expect(parsed?.status).toBe('idle');
+      expect(parsed?.turnEnd).toBe(true);
+      expect(parsed?.activities).toEqual([]);
     });
 
     it('mapeia evento de toolUse shell com comando comum', () => {
@@ -112,10 +114,11 @@ describe('Kiro integration', () => {
       const parsed = parseKiroJsonlLine(line, 3, 1000);
       expect(parsed).toBeDefined();
       expect(parsed?.status).toBe('working');
-      expect(parsed?.activity?.kind).toBe('run');
-      expect(parsed?.activity?.icon).toBe('💻');
-      expect(parsed?.activity?.text).toBe('Listar arquivos');
-      expect(parsed?.activity?.detail).toBe('ls -la');
+      expect(parsed?.activity?.tool).toBe('shell');
+      // O texto sai da mesma heurística do Bash do Claude Code; o "para quê" do Kiro vai para o detalhe.
+      expect(parsed?.activity?.detail).toContain('ls -la');
+      expect(parsed?.activity?.detail).toContain('Listar arquivos');
+      expect(parsed?.tools).toEqual([{ id: 'call_1', name: 'shell', label: parsed?.activity?.text }]);
     });
 
     it('mapeia evento de toolUse shell com testes', () => {
@@ -207,6 +210,8 @@ describe('Kiro integration', () => {
           office,
           sessionsDir: tmp,
           now: () => Date.now(),
+          // o PID do lock é o do próprio vitest (não é um kiro-cli): só o kill(pid, 0)
+          checkPid: true,
         });
 
         // Executa uma varredura

@@ -614,6 +614,21 @@ terminal com streaming ao vivo e histórico. O chip da conta do Kiro leva o selo
 - **Zero configuração:** o Habblaud detecta sessões ativas do Kiro CLI automaticamente lendo as travas de sessão em
   `~/.kiro/sessions/cli/*.lock` (e `KIRO_HOME` ou `KIRO_SESSIONS_DIR`). A pasta do projeto (`cwd`) é determinada a partir do
   arquivo de trava e o status do processo.
+- **Sessão aberta = processo do Kiro vivo:** o PID da trava tem de ser mesmo um Kiro (`/proc` no Linux, `tasklist` no
+  Windows, `ps` no macOS); trava esquecida com PID reaproveitado por outro programa não vira personagem. No Docker, ou sem
+  como listar processos, vale a trava, o `.json` ou o `.jsonl` mexido nas últimas 12 h (`HABBLAUD_KIRO_LIVENESS=pid|mtime`
+  força um método).
+- **WSL e Windows juntos:** rodando no WSL, o Habblaud também mostra as sessões do Kiro no Windows
+  (`/mnt/c/Users/<você>/.kiro`, conta **Kiro (Windows)**, vivas pelo `tasklist.exe`). `HABBLAUD_KIRO_WINDOWS=0` desliga;
+  `HABBLAUD_KIRO_DIRS` (lista separada por vírgula) escolhe as pastas.
+- **Esperando aprovação:** no Linux/WSL, ferramenta pendente com o processo do Kiro parado (sem I/O e sem processo novo
+  debaixo dele) vira "Precisa de você: aprovar uma permissão". `HABBLAUD_KIRO_APPROVAL=0` desliga. No Windows nativo e no
+  macOS não há esse aviso.
+- **Horários e Kiro Crew:** a releitura usa o horário dos prompts e dos turnos do `.json` (o `.jsonl` não tem horário por
+  linha) e não repete o histórico no feed ao vivo; o contexto que o Kiro Crew injeta no prompt
+  (`[AGENT SYSTEM PROMPT] …`) sai do título e do balão.
+- **Limite:** o Kiro grava o transcript por resposta do modelo (o pedido aparece junto com a primeira resposta). Por isso
+  o personagem só começa a trabalhar quando chega a primeira resposta.
 - **Terminal ao vivo e histórico:** o Habblaud acompanha `~/.kiro/sessions/cli/<sessionId>.jsonl` para reconstruir
   prompts, uso de ferramentas (comandos de shell, edições de arquivos, git, testes), pensamentos do modelo e respostas em
   tempo real via Server-Sent Events.
