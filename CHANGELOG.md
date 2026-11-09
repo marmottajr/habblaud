@@ -13,6 +13,18 @@ do meio (0.**3**.0).
 ### Adicionado
 
 - **Suporte ao Kiro CLI:** o Habblaud agora detecta e acompanha sessões do Kiro (`~/.kiro/sessions/cli/` ou `KIRO_HOME`), exibindo o agente no escritório com seu papel, status em tempo real, atividades transmitidas via `.jsonl` e sala do projeto correspondente. Inclui histórico de sessões (`KiroHistory`) na gaveta e no terminal, integração com índice de entregas, exibição do plano da conta (`HABBLAUD_KIRO_PLAN`, `KIRO_PLAN` ou `~/.kiro/plan`), cartão de uso orientando consulta com `/usage`, suporte a montagem de volume no container Docker (`KIRO_HOME`), seção dedicada na ajuda e desligamento opcional via `HABBLAUD_KIRO=0`.
+- **Hook do Kiro CLI (2.x e 3.x):** `mod/habblaud-kiro/hook.mjs` manda ao escritório, ao vivo, o que a sessão faz (AgentSpawn, UserPromptSubmit, PreToolUse, PostToolUse, Stop), sem esperar o transcript ser escrito. O instalador `npm run kiro:install` (e `kiro:status` / `kiro:uninstall`) registra o hook nos agentes (2.x, menos os do Kiro Crew, com backup) ou em `hooks/habblaud.json` (3.x); opções `--formato v2|v3`, `--agente`, `--pasta`, `--port` e `--dry-run`. O hook só observa, nunca bloqueia a ferramenta (`|| true` / `& exit /b 0` no PreToolUse), só fala com `127.0.0.1` e sai sem atrapalhar o Kiro quando o Habblaud está fora do ar.
+- **Sessões vivas pelo processo:** a sessão só abre se o PID da trava for mesmo um Kiro vivo (`/proc` no Linux, `tasklist` no Windows e no WSL lendo as sessões do Windows, `ps` no macOS); PID reaproveitado não vira personagem. `HABBLAUD_KIRO_LIVENESS=pid|mtime` força o método.
+- **Status "esperando aprovação":** ferramenta pendente com o processo do Kiro parado (sem I/O e sem processo filho novo) vira "Precisa de você: aprovar uma permissão" (Linux/WSL; com o hook, ferramenta rápida parada vira aprovação em qualquer sistema). `HABBLAUD_KIRO_APPROVAL=0` desliga.
+- **Windows no WSL:** rodando no WSL, o Habblaud também mostra as sessões do Kiro no Windows (`/mnt/c/Users/*/.kiro`, conta "Kiro (Windows)"). `HABBLAUD_KIRO_WINDOWS=0` desliga; `HABBLAUD_KIRO_DIRS` (lista separada por vírgula) escolhe as pastas.
+
+### Corrigido
+
+- **Fim de turno do Kiro:** `AssistantMessage` sem `toolUse` fecha o turno (antes a sessão ficava "Pensando" para sempre); turno cancelado, recusado ou com erro fecha pelo `.json`.
+- **Horários reais na releitura:** a reconstrução do transcript usa os horários dos prompts (`meta.timestamp`) e dos turnos (`user_turn_metadatas`), sem feed ao vivo nem avisos durante o boot.
+- **Contexto do Kiro Crew:** título e balão sem o prompt do agente injetado (`[AGENT SYSTEM PROMPT]`, `[REPLY FORMAT RULES]`…) nas sessões abertas por ACP.
+- **Terminal do Kiro:** prompt limpo e resultados no formato real (`toolResult`, incluindo `stdout`/`stderr`/`exit_status`), com segredos mascarados.
+- **`KIRO_SESSIONS_DIR`:** variável respeitada na descoberta das pastas.
 
 ## [1.0.3] - 2026-10-16
 
