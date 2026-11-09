@@ -42,6 +42,9 @@
     "codex:uninstall": "tsx scripts/codex-install.ts uninstall",
     "codex:status": "tsx scripts/codex-install.ts status",
     "codex:bridge": "tsx scripts/codex-bridge.ts",
+    "kiro:install": "node mod/habblaud-kiro/install.mjs install",
+    "kiro:uninstall": "node mod/habblaud-kiro/install.mjs uninstall",
+    "kiro:status": "node mod/habblaud-kiro/install.mjs status",
     "remote:setup": "tsx scripts/remote-setup.ts",
     "remote:mdns": "tsx scripts/remote-mdns.ts",
     "release": "tsx scripts/release.ts"

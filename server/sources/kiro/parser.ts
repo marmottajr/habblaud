@@ -5,6 +5,7 @@
 // As descrições reaproveitam as do Claude Code (shared/activity.ts): mesmo texto, mesmo ícone e segredos mascarados.
 import type { Activity, AgentStatus } from '../../../shared/types';
 import {
+  basename,
   describeCommand,
   describePrompt,
   describeTool,
@@ -22,7 +23,15 @@ const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /** Ferramentas de shell (nomes do Kiro CLI 2.x/3.x e os antigos do Amazon Q). */
-export const KIRO_SHELL_TOOLS: ReadonlySet<string> = new Set(['shell', 'execute_bash', 'execute_cmd', 'bash', 'execute']);
+export const KIRO_SHELL_TOOLS: ReadonlySet<string> = new Set(['shell', 'execute_bash', 'execute_cmd', 'execute_pwsh', 'bash', 'execute']);
+
+/** Mesma ferramenta com nomes diferentes (2.x no transcript e no hook, 3.x no hook). */
+export function sameKiroTool(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (KIRO_SHELL_TOOLS.has(a) && KIRO_SHELL_TOOLS.has(b)) return true;
+  const group = (n: string) => (/^(read|fs_read|read_file)$/.test(n) ? 'read' : /^(write|fs_write|write_file)$/.test(n) ? 'write' : n);
+  return group(a) === group(b);
+}
 const GITHUB_TOOL = /pull_request|issue|repositor|branch|commit|push_files|file_contents|create_or_update_file|search_code|gist|workflow|release/;
 
 export interface KiroToolUse {
@@ -191,15 +200,29 @@ export function describeKiroTool(name: string, rawInput: unknown = {}, mcpServer
     case 'fs_write':
     case 'write_file':
     case 'edit':
+    case 'str_replace':
+    case 'fs_append':
     case 'replace_file_content': {
       const file_path = str(input.path) || str(input.file);
-      d = describeTool(str(input.command) === 'create' || name === 'write_file' ? 'Write' : 'Edit', { file_path });
+      // 3.x: fs_write cria (path + text); 2.x: write com command create|strReplace.
+      const create = str(input.command) === 'create' || name === 'write_file' || (name === 'fs_write' && !input.command && input.text !== undefined);
+      d = describeTool(create ? 'Write' : 'Edit', { file_path });
       break;
     }
+    case 'delete_file': {
+      const file = str(input.path);
+      d = mk('edit', '🗑️', file ? tr('Apagando {0}', [basename(file)]) : tr('Apagando um arquivo'), file);
+      break;
+    }
+    case 'list_directory':
+      d = describeTool('LS', { path: str(input.path) });
+      break;
     case 'glob':
-      d = describeTool('Glob', { pattern: str(input.pattern) });
+    case 'file_search':
+      d = describeTool('Glob', { pattern: str(input.pattern) || str(input.query) });
       break;
     case 'grep':
+    case 'grep_search':
     case 'search':
     case 'find':
       d = describeTool('Grep', { pattern: str(input.pattern) || str(input.query) });
@@ -208,6 +231,7 @@ export function describeKiroTool(name: string, rawInput: unknown = {}, mcpServer
       d = describeTool('WebFetch', { url: str(input.url) });
       break;
     case 'web_search':
+    case 'remote_web_search':
       d = describeTool('WebSearch', { query: str(input.query) });
       break;
     case 'todo_list':

@@ -627,8 +627,18 @@ terminal com streaming ao vivo e histórico. O chip da conta do Kiro leva o selo
 - **Horários e Kiro Crew:** a releitura usa o horário dos prompts e dos turnos do `.json` (o `.jsonl` não tem horário por
   linha) e não repete o histórico no feed ao vivo; o contexto que o Kiro Crew injeta no prompt
   (`[AGENT SYSTEM PROMPT] …`) sai do título e do balão.
-- **Limite:** o Kiro grava o transcript por resposta do modelo (o pedido aparece junto com a primeira resposta). Por isso
-  o personagem só começa a trabalhar quando chega a primeira resposta.
+- **Sem o hook:** o Kiro grava o transcript por resposta do modelo (o pedido aparece junto com a primeira resposta), então
+  o personagem só começa a trabalhar quando ela chega; e as sessões do Kiro CLI 3.x (`~/.kiro/sessions/<hash>/sess_*`)
+  não aparecem.
+- **Hook do Kiro (opcional):** `npm run kiro:install` copia `mod/habblaud-kiro/hook.mjs` para `~/.habblaud/kiro-hook.mjs`
+  e o registra no Kiro CLI: no 2.x, nos seus agentes em `~/.kiro/agents/*.json` (os do Kiro Crew ficam de fora; o agente
+  embutido `kiro_default` não aceita hooks); no 3.x, em `~/.kiro/hooks/habblaud.json`. Com ele o personagem trabalha
+  assim que você manda o pedido, cada ferramenta fecha no `PostToolUse` (o "aprovar uma permissão" das ferramentas
+  rápidas vale em qualquer sistema) e as sessões do 3.x aparecem (só pelo hook: sem PID, saem depois de 30 min sem
+  eventos). O hook só observa, sai sempre com 0 e o comando leva `|| true` (`& exit /b 0` no Windows): Habblaud fora do
+  ar não atrapalha o Kiro. `npm run kiro:status` mostra onde está; `npm run kiro:uninstall` tira (backup antes de
+  mexer em cada agente). Opções: `--formato v2|v3`, `--agente a,b`, `--pasta <projeto>`, `--port <n>`, `--dry-run`. No
+  Windows, rode o instalador com o Node do Windows (`node <Habblaud>\mod\habblaud-kiro\install.mjs install`).
 - **Terminal ao vivo e histórico:** o Habblaud acompanha `~/.kiro/sessions/cli/<sessionId>.jsonl` para reconstruir
   prompts, uso de ferramentas (comandos de shell, edições de arquivos, git, testes), pensamentos do modelo e respostas em
   tempo real via Server-Sent Events.

@@ -11,13 +11,14 @@
 import { existsSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import type { Activity, AgentStats, AgentStatus } from '../../../shared/types';
-import { SPECIAL, truncate } from '../../../shared/activity';
+import { describePrompt, SPECIAL, truncate } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
 import { errMsg, log } from '../../log';
 import type { Office } from '../../model/office';
 import { FileTail } from '../tail';
 import { chooseLivenessMode, createLiveness, pidAlive, type KiroLiveness, type KiroLivenessMode } from './liveness';
-import { cleanKiroTitle, KIRO_SHELL_TOOLS, parseKiroJsonlLine, type KiroParsedLine, type KiroToolUse } from './parser';
+import type { KiroHookPayload } from './live';
+import { cleanKiroPrompt, cleanKiroTitle, KIRO_SHELL_TOOLS, parseKiroJsonlLine, sameKiroTool, type KiroParsedLine, type KiroToolUse } from './parser';
 
 export { pidAlive };
 
@@ -188,7 +189,28 @@ interface ActiveKiroSession {
   mcpServers: Map<string, string>;
   stats: AgentStats;
   model?: string;
+  /** A sessão manda eventos do hook (mod/habblaud-kiro): o PostToolUse diz quando cada ferramenta terminou. */
+  hooks: boolean;
+  hookSeq: number;
+  /** O pedido já entrou pelo UserPromptSubmit: o Prompt do transcript não vira outra atividade. */
+  hookPrompt: boolean;
+  /** toolUseIds que o PostToolUse já fechou (o ToolResults só vem com a resposta seguinte). */
+  finished: Set<string>;
+  /** PostToolUse que chegou antes de a linha do toolUse ser lida (nome da ferramenta). */
+  doneEarly: string[];
+  /** Stop do hook: se a resposta final não aparecer no transcript logo, fecha o turno assim mesmo. */
+  stopAt?: number;
 }
+
+/** Ferramentas que rodam dentro do Kiro em milissegundos: paradas sem PostToolUse = esperando aprovação. */
+export const QUICK_TOOLS: ReadonlySet<string> = new Set([
+  'read', 'fs_read', 'read_file', 'write', 'fs_write', 'write_file', 'str_replace', 'fs_append', 'delete_file', 'glob', 'grep', 'file_search',
+  'grep_search', 'list_directory', 'todo_list', 'introspect', 'knowledge', 'summary',
+]);
+/** Ferramenta rápida sem PostToolUse por este tempo = pedido de aprovação na tela. */
+export const HOOK_QUICK_GRACE_MS = 2_500;
+/** Depois do Stop, quanto esperar a resposta final no transcript antes de fechar o turno pelo hook. */
+const STOP_GRACE_MS = 1_500;
 
 function freshest(p: Paths): number {
   let best = 0;
@@ -376,9 +398,21 @@ export class KiroWatcher {
   private note(s: ActiveKiroSession, p: KiroParsedLine, at: number): Activity[] {
     const extra: Activity[] = [];
     if (p.messageId) s.lastMessageId = p.messageId;
-    if (p.kind === 'Prompt' || p.turnEnd) s.pending.clear();
+    if (p.kind === 'Prompt' || p.turnEnd) {
+      s.pending.clear();
+      s.finished.clear();
+      if (p.turnEnd) s.doneEarly = [];
+    }
+    if (p.turnEnd) s.stopAt = undefined;
     if (p.tools?.length) {
-      for (const t of p.tools) s.pending.set(t.id, t);
+      for (const t of p.tools) {
+        s.pending.set(t.id, t);
+        const early = s.doneEarly.findIndex((n) => sameKiroTool(n, t.name));
+        if (early >= 0) {
+          s.doneEarly.splice(early, 1);
+          s.finished.add(t.id);
+        }
+      }
       s.pendingSince = at;
       s.stats.toolCalls += p.tools.length;
       s.stats.subagents += p.tools.filter((t) => SUBAGENT_TOOLS.has(t.name)).length;
@@ -386,6 +420,7 @@ export class KiroWatcher {
     for (const r of p.results ?? []) {
       const t = s.pending.get(r.id);
       s.pending.delete(r.id);
+      s.finished.delete(r.id);
       if (r.error) extra.push({ id: `${s.sessionId}#${r.id}:err`, at, ...SPECIAL.error(t?.name), error: true });
     }
     if (!s.pending.size) s.pendingSince = undefined;
@@ -426,6 +461,11 @@ export class KiroWatcher {
       status: 'idle',
       mcpServers: meta.mcpServers,
       stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 },
+      hooks: false,
+      hookSeq: 0,
+      hookPrompt: false,
+      finished: new Set(),
+      doneEarly: [],
     };
 
     // Releitura com os horários dos turnos; o status sai da última linha (ou do turno fechado no .json).
@@ -527,15 +567,76 @@ export class KiroWatcher {
           const extra = this.note(s, p, now);
           if (p.status) s.approvalWait = false;
           if (!s.title && p.promptText) s.title = truncate(p.promptText, 90);
-          for (const a of [...p.activities, ...extra]) this.office.addActivity(s.sessionId, a, true);
-          if (p.status) this.setStatus(s, p.status, p.waitingFor);
+          // O pedido que o UserPromptSubmit já mostrou não entra de novo.
+          const fromHook = p.kind === 'Prompt' && s.hookPrompt;
+          if (fromHook) s.hookPrompt = false;
+          for (const a of [...p.activities, ...extra]) if (!(fromHook && a.kind === 'prompt')) this.office.addActivity(s.sessionId, a, true);
+          if (p.status && !(fromHook && s.status === 'working')) this.setStatus(s, p.status, p.waitingFor);
         }
         if (!res.more) break;
       }
       if (s.stats.toolCalls !== calls) this.publish(s);
     }
     this.refreshMeta(s);
+    if (s.stopAt !== undefined && s.status !== 'idle' && this.now() - s.stopAt >= STOP_GRACE_MS) this.endTurn(s);
     this.checkApproval(s);
+  }
+
+  private endTurn(s: ActiveKiroSession): void {
+    s.pending.clear();
+    s.finished.clear();
+    s.doneEarly = [];
+    s.pendingSince = undefined;
+    s.approvalWait = false;
+    s.stopAt = undefined;
+    this.setStatus(s, 'idle');
+  }
+
+  /**
+   * Evento do hook (mod/habblaud-kiro) de uma sessão que este watcher acompanha. O transcript continua sendo a fonte
+   * das atividades; o hook adianta o começo do turno (o Kiro só grava o pedido junto com a primeira resposta), diz quando
+   * cada ferramenta terminou e fecha o turno no Stop. false = sessão desconhecida.
+   */
+  applyHook(sessionId: string, e: KiroHookPayload): boolean {
+    const s = this.active.get(sessionId);
+    if (!s) return false;
+    s.hooks = true;
+    this.pump(s);
+    const now = this.now();
+    switch (e.hook_event_name) {
+      case 'UserPromptSubmit': {
+        const text = cleanKiroPrompt(e.prompt ?? '');
+        s.pending.clear();
+        s.finished.clear();
+        s.doneEarly = [];
+        s.pendingSince = undefined;
+        s.approvalWait = false;
+        s.stopAt = undefined;
+        s.hookPrompt = true;
+        if (!s.title && text) {
+          s.title = truncate(text, 90);
+          this.publish(s);
+        }
+        const d = text ? describePrompt(text) : { kind: 'prompt' as const, icon: '📨', text: tr('Recebeu um pedido') };
+        this.office.addActivity(sessionId, { id: `${sessionId}#hp${++s.hookSeq}`, at: now, ...d }, true);
+        this.setStatus(s, 'working');
+        break;
+      }
+      case 'PostToolUse': {
+        const name = e.tool_name ?? '';
+        const t = [...s.pending.values()].find((x) => !s.finished.has(x.id) && sameKiroTool(x.name, name));
+        if (t) s.finished.add(t.id);
+        else if (name) s.doneEarly.push(name);
+        this.checkApproval(s);
+        break;
+      }
+      case 'Stop':
+        if (s.status !== 'idle') s.stopAt = now;
+        break;
+      default:
+        break; // AgentSpawn e PreToolUse: o transcript já mostra
+    }
+    return true;
   }
 
   /** O .json mudou: tokens, modelo e título novos; um turno fechado sem resposta final encerra o trabalho. */
@@ -569,17 +670,36 @@ export class KiroWatcher {
    * shell calado (sleep) não faz I/O no Kiro, mas aparece como processo novo debaixo dele. Só com /proc (Linux/WSL).
    */
   private checkApproval(s: ActiveKiroSession): void {
-    if (!this.approval || !this.liveness.io || !s.pending.size || s.pendingSince === undefined) return;
+    if (!this.approval || !s.pending.size || s.pendingSince === undefined) return;
     if (s.status !== 'working' && !(s.status === 'waiting' && s.approvalWait)) return;
+    const now = this.now();
+    const tools = [...s.pending.values()].filter((t) => !s.finished.has(t.id));
+    if (s.hooks) {
+      // Com o hook não há dúvida entre "a ferramenta já rodou e o modelo está pensando" e "esperando você": o
+      // PostToolUse fecha cada uma. Ferramenta rápida sem PostToolUse = pedido de aprovação (em qualquer sistema).
+      if (!tools.length) {
+        if (s.approvalWait) {
+          s.approvalWait = false;
+          this.setStatus(s, 'working');
+        }
+        return;
+      }
+      if (tools.every((t) => QUICK_TOOLS.has(t.name))) {
+        if (!s.approvalWait && now - s.pendingSince >= HOOK_QUICK_GRACE_MS) {
+          s.approvalWait = true;
+          this.setStatus(s, 'waiting', tr('aprovar uma permissão'));
+        }
+        return;
+      }
+    }
+    if (!this.liveness.io) return;
     const io = this.liveness.io(s.pid);
     if (!io) return;
-    const now = this.now();
     const moved = s.io ? io.r - s.io.r + (io.w - s.io.w) : 0;
     if (!s.io || moved > 0) s.ioChangedAt = now; // a primeira leitura conta como mudança
     if (moved > 0) s.ioBusySince ??= now;
     else s.ioBusySince = undefined;
     s.io = io;
-    const tools = [...s.pending.values()];
     // Para sair da espera, o I/O tem de continuar mexendo (o modelo de volta, o spinner): um surto solto durante o
     // pedido de aprovação (telemetria, tela redesenhada) não tira dela.
     let running = s.ioBusySince !== undefined && now - s.ioBusySince >= IO_BUSY_MS;

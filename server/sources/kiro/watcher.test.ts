@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Office } from '../../model/office';
 import { NameStore } from '../../model/names';
+import type { KiroHookPayload } from './live';
 import type { KiroLiveness } from './liveness';
 import { KiroWatcher, kiroRole } from './watcher';
 
@@ -341,5 +342,86 @@ describe('KiroWatcher: sessões abertas', () => {
     t.tick(60_000);
     t.watcher.scan();
     expect(t.agent('s12')?.status).toBe('working');
+  });
+});
+
+describe('KiroWatcher: eventos do hook', () => {
+  const hook = (hook_event_name: KiroHookPayload['hook_event_name'], extra: Partial<KiroHookPayload> = {}): KiroHookPayload => ({ hook_event_name, session_id: 'h1', cwd: '/proj/app', ...extra });
+
+  it('UserPromptSubmit põe para trabalhar na hora; o Prompt do transcript não repete o pedido', () => {
+    const t = setup();
+    t.session('h1', {}, []);
+    t.watcher.scan();
+    expect(t.agent('h1')?.status).toBe('idle');
+    expect(t.watcher.applyHook('h1', hook('UserPromptSubmit', { prompt: 'liste os pods' }))).toBe(true);
+    expect(t.agent('h1')?.status).toBe('working');
+    expect(t.agent('h1')?.title).toBe('liste os pods');
+    // primeira resposta do modelo: o Kiro grava o pedido e a ferramenta juntos
+    t.tick(3_000);
+    t.append('h1', prompt('m1', 'liste os pods', t.now() / 1000), assistant('m2', '', tool('t1', 'shell', { command: 'kubectl get pods' })));
+    t.watcher.scan();
+    expect(t.agent('h1')?.recent.map((r) => r.kind)).toEqual(['prompt', 'run']);
+    expect(t.agent('h1')?.status).toBe('working');
+  });
+
+  it('PostToolUse fecha a ferramenta: o modelo pensando depois dela não vira aprovação (mesmo com o processo quieto)', () => {
+    const t = setup();
+    t.session('h1', {}, []);
+    t.watcher.scan();
+    t.watcher.applyHook('h1', hook('UserPromptSubmit', { prompt: 'leia' }));
+    t.append('h1', prompt('m1', 'leia', t.now() / 1000), assistant('m2', '', tool('t1', 'read', { operations: [{ mode: 'Line', path: '/proj/app/a.ts' }] })));
+    t.watcher.scan();
+    t.watcher.applyHook('h1', hook('PostToolUse', { tool_name: 'read' }));
+    t.tick(30_000); // o modelo pensando: o ToolResults só vem com a resposta
+    t.watcher.scan();
+    expect(t.agent('h1')?.status).toBe('working');
+  });
+
+  it('ferramenta rápida sem PostToolUse = aprovação, em qualquer sistema; o PostToolUse tira da espera', () => {
+    const t = setup({ liveness: { mode: 'tasklist', isKiro: () => true } });
+    t.session('h1', {}, []);
+    t.watcher.scan();
+    t.watcher.applyHook('h1', hook('UserPromptSubmit', { prompt: 'edite' }));
+    t.append('h1', prompt('m1', 'edite', t.now() / 1000), assistant('m2', '', tool('t1', 'write', { command: 'create', path: '/proj/app/a.md' })));
+    t.watcher.scan();
+    t.tick(2_000);
+    t.watcher.scan();
+    expect(t.agent('h1')?.status).toBe('working');
+    t.tick(1_000);
+    t.watcher.scan();
+    expect(t.agent('h1')?.status).toBe('waiting');
+    t.watcher.applyHook('h1', hook('PostToolUse', { tool_name: 'write' }));
+    expect(t.agent('h1')?.status).toBe('working');
+  });
+
+  it('PostToolUse antes de a linha do toolUse ser lida também conta', () => {
+    const t = setup();
+    t.session('h1', {}, []);
+    t.watcher.scan();
+    t.watcher.applyHook('h1', hook('UserPromptSubmit', { prompt: 'x' }));
+    t.watcher.applyHook('h1', hook('PostToolUse', { tool_name: 'read' }));
+    t.append('h1', prompt('m1', 'x', t.now() / 1000), assistant('m2', '', tool('t1', 'read', { operations: [{ mode: 'Line', path: '/a' }] })));
+    t.watcher.scan();
+    t.tick(10_000);
+    t.watcher.scan();
+    expect(t.agent('h1')?.status).toBe('working');
+  });
+
+  it('Stop fecha o turno se a resposta final não aparecer no transcript', () => {
+    const t = setup();
+    t.session('h1', {}, []);
+    t.watcher.scan();
+    t.watcher.applyHook('h1', hook('UserPromptSubmit', { prompt: 'oi' }));
+    t.watcher.applyHook('h1', hook('Stop', { assistant_response: 'Olá' }));
+    expect(t.agent('h1')?.status).toBe('working');
+    t.tick(2_000);
+    t.watcher.scan();
+    expect(t.agent('h1')?.status).toBe('idle');
+    expect(t.agent('h1')?.activity?.kind).toBe('done');
+  });
+
+  it('sessão desconhecida: false', () => {
+    const t = setup();
+    expect(t.watcher.applyHook('nada', hook('Stop'))).toBe(false);
   });
 });
