@@ -10,6 +10,16 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **O Claude Code do Windows aparece no escritório quando o Habblaud roda no WSL.** Antes só entravam os agentes
+  abertos dentro do WSL: as sessões do Claude Code instalado no Windows (inclusive o do app de desktop) ficavam de
+  fora. Agora o Habblaud também observa as pastas `.claude*` do perfil do Windows (`/mnt/c/Users/<você>/`), como
+  uma conta a mais, e as salas usam o caminho montado (`/mnt/c/...`). É só para acompanhar: mandar mensagens,
+  responder permissões e o terminal continuam valendo para os agentes do WSL, e os instaladores (`mod:install`,
+  `hooks:install`, `usage:install`) não mexem no Claude Code do Windows. `HABBLAUD_CLAUDE_DIRS` continua
+  substituindo a detecção.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
