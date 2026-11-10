@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { discoverClaudeDirs } from './accounts/detect';
+import { discoverObservedClaudeDirs } from './accounts/detect';
 import { parseAllowedHosts } from './http/guard';
 import { parseRemoteConfig, type RemoteConfig } from './http/remote';
 import { parseGithubRepo } from './updates/checker';
@@ -237,7 +237,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     demo: isTruthy(env.HABBLAUD_DEMO),
     inDocker,
     home,
-    claudeDirs: discoverClaudeDirs(env, home),
+    claudeDirs: discoverObservedClaudeDirs(env, home),
     dataDir: resolve(env.HABBLAUD_DATA_DIR?.trim() || (inDocker ? '/data' : join(home, '.habblaud'))),
     usageDir: resolve(env.HABBLAUD_USAGE_DIR?.trim() || join(home, '.habblaud', 'usage')),
     allowedHosts: parseAllowedHosts(env.HABBLAUD_ALLOWED_HOSTS),

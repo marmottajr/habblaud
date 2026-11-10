@@ -9,9 +9,10 @@
 // contas do Codex: ver sources/codex/accounts.ts). Credenciais nunca são lidas e nada disso vai para o log.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { Provider } from '../../shared/types';
 import { tr } from '../../shared/i18n';
+import { isWsl, WSL_MOUNTS } from '../wsl';
 
 export interface DetectedAccount {
   id: string;
@@ -80,6 +81,17 @@ function isDir(p: string): boolean {
     return statSync(p).isDirectory();
   } catch {
     return false;
+  }
+}
+
+/** Nomes das subpastas (e links) de uma pasta; ilegível ou inexistente = nenhuma. */
+function listDirs(p: string): string[] {
+  try {
+    return readdirSync(p, { withFileTypes: true })
+      .filter((e) => e.isDirectory() || e.isSymbolicLink())
+      .map((e) => e.name);
+  } catch {
+    return [];
   }
 }
 
@@ -162,6 +174,40 @@ export function discoverClaudeDirs(env: NodeJS.ProcessEnv = process.env, home: s
  */
 export function codexDirsRefused(env: NodeJS.ProcessEnv = process.env, home: string = env.HOME || homedir()): string[] {
   return scanClaudeDirs(env, home).codex;
+}
+
+/**
+ * Config dirs do Claude Code do WINDOWS vistos do WSL: `<mounts>/<unidade>/Users/<perfil>/.claude*` com `projects/`
+ * ou `sessions/`. Fora do WSL, nenhum. Só para OBSERVAR: os instaladores (hooks, mod, statusline) usam
+ * discoverClaudeDirs e nunca gravam no Claude Code do Windows.
+ */
+export function discoverWindowsClaudeDirs(env: NodeJS.ProcessEnv = process.env, mounts: string = WSL_MOUNTS): string[] {
+  if (!isWsl(env)) return [];
+  const found: string[] = [];
+  for (const drive of listDirs(mounts).filter((name) => /^[a-z]$/.test(name))) {
+    const users = join(mounts, drive, 'Users');
+    for (const profile of listDirs(users)) {
+      for (const name of listDirs(join(users, profile))) {
+        const p = join(users, profile, name);
+        if (name.startsWith('.claude') && isClaudeDir(p)) found.push(p);
+      }
+    }
+  }
+  return found.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Config dirs que o SERVIDOR observa: os de discoverClaudeDirs e, no WSL, os do Claude Code do Windows
+ * (discoverWindowsClaudeDirs). HABBLAUD_CLAUDE_DIRS continua substituindo tudo.
+ */
+export function discoverObservedClaudeDirs(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = env.HOME || homedir(),
+  mounts: string = WSL_MOUNTS,
+): string[] {
+  const dirs = discoverClaudeDirs(env, home);
+  if (splitList(env.HABBLAUD_CLAUDE_DIRS).length) return dirs;
+  return [...new Set([...dirs, ...discoverWindowsClaudeDirs(env, mounts)])];
 }
 
 function scanClaudeDirs(env: NodeJS.ProcessEnv, home: string): { dirs: string[]; codex: string[] } {
@@ -296,10 +342,11 @@ export function meaningfulOrganization(organization: string | undefined, email: 
 
 /**
  * Lê do config global do Claude Code ($HOME/.claude.json para a conta padrão, <dir>/.claude.json
- * para as demais) apenas a identificação da conta e o cache de uso.
+ * para as demais) apenas a identificação da conta e o cache de uso. A conta padrão de OUTRO perfil (a pasta
+ * `.claude` do Claude Code do Windows, vista do WSL) também guarda o dela ao lado da pasta.
  */
 export function readGlobalConfig(dir: string, home: string): GlobalConfigInfo {
-  const candidates = isDefaultDir(dir, home) ? [join(home, '.claude.json'), join(dir, '.claude.json')] : [join(dir, '.claude.json')];
+  const candidates = basename(dir) === '.claude' ? [join(dirname(dir), '.claude.json'), join(dir, '.claude.json')] : [join(dir, '.claude.json')];
   let fallback: GlobalConfigInfo | undefined;
   for (const file of candidates) {
     if (!existsSync(file)) continue;
