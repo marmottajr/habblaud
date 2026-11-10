@@ -6,7 +6,8 @@
 //
 // O que ele faz ao subir:
 // 1. Descobre os config dirs do Claude Code no host (mesma regra do servidor: ~/.claude*,
-//    CLAUDE_CONFIG_DIR ou HABBLAUD_CLAUDE_DIRS) e lê os metadados das contas com detectAccounts.
+//    CLAUDE_CONFIG_DIR ou HABBLAUD_CLAUDE_DIRS; no WSL, também os do Claude Code do Windows, só para observar)
+//    e lê os metadados das contas com detectAccounts.
 // 2. Gera o docker-compose.override.yml montando SOMENTE <conta>/projects e <conta>/sessions,
 //    somente leitura, em /claude/<conta>/... — nunca a pasta inteira da conta, onde ficam
 //    credenciais e configurações — e a pasta do uso capturado pelo statusline
@@ -38,7 +39,7 @@ import { homedir } from 'node:os';
 import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { AccountInfo, SourceInfo } from '../shared/types';
-import { codexDirsRefused, detectAccounts, discoverClaudeDirs, type DetectedAccount } from '../server/accounts/detect';
+import { codexDirsRefused, detectAccounts, discoverClaudeDirs, discoverObservedClaudeDirs, type DetectedAccount } from '../server/accounts/detect';
 import { detectCodexAccounts, discoverCodexDirs } from '../server/sources/codex/accounts';
 import { describeStateMigration, LEGACY_NAME, legacyEnvWarning, migrateLegacyStateDir } from '../server/legacy';
 import { makeClaudeRunner, MIN_CLAUDE_VERSION, readPackageVersion, updateInstalledMods, type ModUpdateResult } from './mod-install';
@@ -671,7 +672,10 @@ async function up(opts: Options, port: number): Promise<void> {
     );
   }
 
-  const dirs = discoverClaudeDirs(process.env, HOME);
+  // As do Claude Code do Windows (WSL) vêm no fim da lista: são montadas e observadas, mas o mod só é atualizado
+  // nas contas deste lado (ownDirs).
+  const ownDirs = discoverClaudeDirs(process.env, HOME);
+  const dirs = discoverObservedClaudeDirs(process.env, HOME);
   const accounts = detectAccounts(dirs, { home: HOME, env: process.env });
   const mounts = planMounts(dirs, accounts);
   if (!mounts.length) {
@@ -741,7 +745,7 @@ async function up(opts: Options, port: number): Promise<void> {
     const state = src.ok ? plural(src.sessions, tr('sessão aberta'), tr('sessões abertas')) : tr('erro ao ler ({0})', [src.error ?? tr('desconhecido')]);
     say(`  Codex ${m.account.short} (${m.account.id}): ${state}${usage ? ` · ${USAGE_STATUS[usage]}` : ''}`);
   }
-  for (const line of modHint(updateMods(dirs, accounts))) say(line);
+  for (const line of modHint(updateMods(ownDirs, accounts))) say(line);
   // Com a cópia falha, os dados só existem no volume antigo: nada de sugerir apagá-lo.
   if (plan.cleanup.length && !copyFailed) say(tr('  Sobrou do CodeTown; depois de conferir o escritório, apague com: {0}', [plan.cleanup.join(' · ')]));
   say(`  ${worldLine(process.env, readEnvFile())}`);
