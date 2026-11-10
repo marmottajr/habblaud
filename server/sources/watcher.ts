@@ -13,7 +13,7 @@ import type { Activity, AgentStatus, SourceInfo } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { errMsg, log } from '../log';
 import type { Office, TranscriptSummary } from '../model/office';
-import { compareVersions, registryStatus, RegistryReader, SHELL_STATUS_VERSION, type RegistryEntry } from './registry';
+import { compareVersions, isForeignWindowsEntry, registryStatus, RegistryReader, SHELL_STATUS_VERSION, type RegistryEntry } from './registry';
 import { SHELL_FALLBACK_MAX_AGE_MS, ShellTracker, toShellJob, type ShellFinish } from './shells';
 import type { AgentSource } from './source';
 import {
@@ -44,6 +44,7 @@ import {
   type TranscriptState,
 } from './transcript';
 import { tr } from '../../shared/i18n';
+import { windowsPathToWsl } from '../wsl';
 
 export interface WatcherOptions {
   accounts: AccountsService;
@@ -54,8 +55,18 @@ export interface WatcherOptions {
   /** Quanto do fim de cada transcript é lido ao abrir a sessão (padrão 1 MB). */
   tailBytes?: number;
   isAlive?: (pid: number) => boolean;
+  /** PID vivo no Windows (sessões do Claude Code do Windows vistas pelo WSL; testes). */
+  isWindowsAlive?: (pid: number) => boolean;
   /** Desliga o fs.watch (testes). */
   watch?: boolean;
+}
+
+/**
+ * Pasta da sessão como esta máquina a enxerga: a de uma sessão do Claude Code do Windows (`C:\...`) vira o caminho
+ * montado no WSL. O transcript continua na pasta de projects/ do cwd original (encodeCwd).
+ */
+function officeCwd(entry: RegistryEntry): string {
+  return isForeignWindowsEntry(entry) ? windowsPathToWsl(entry.cwd) : entry.cwd;
 }
 
 /** cwd -> nome da pasta em projects/ (todo caractere não alfanumérico vira "-"). */
@@ -268,7 +279,7 @@ export class ClaudeWatcher implements AgentSource {
     for (const acc of this.opts.accounts.entries()) {
       let reader = this.readers.get(acc.dir);
       if (!reader) {
-        reader = new RegistryReader(acc.dir, { checkPid: !this.opts.inDocker, isAlive: this.opts.isAlive });
+        reader = new RegistryReader(acc.dir, { checkPid: !this.opts.inDocker, isAlive: this.opts.isAlive, isWindowsAlive: this.opts.isWindowsAlive });
         this.readers.set(acc.dir, reader);
         this.watchDir(join(acc.dir, 'sessions'));
       }
@@ -312,7 +323,7 @@ export class ClaudeWatcher implements AgentSource {
         id: key,
         account: accountId,
         sessionId: entry.sessionId,
-        cwd: entry.cwd,
+        cwd: officeCwd(entry),
         role: entry.agent ? tr('Agente {0}', [entry.agent]) : tr('Agente principal'),
         startedAt: entry.startedAt ?? this.now(),
         status: st.status ?? 'idle',

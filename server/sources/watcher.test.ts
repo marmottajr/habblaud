@@ -41,7 +41,8 @@ function setup(opts: { tailBytes?: number } = {}) {
   });
   late.office = office;
   const alive = new Set<number>();
-  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes });
+  const windowsAlive = new Set<number>();
+  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, now, isAlive: (pid) => alive.has(pid), isWindowsAlive: (pid) => windowsAlive.has(pid), watch: false, tailBytes: opts.tailBytes });
   const notices: Notice[] = [];
 
   const ctx = {
@@ -49,6 +50,7 @@ function setup(opts: { tailBytes?: number } = {}) {
     dir,
     office,
     watcher,
+    windowsAlive,
     advance(ms: number) {
       clock += ms;
     },
@@ -114,6 +116,25 @@ describe('ClaudeWatcher', () => {
     c.notices.push(...c.office.commit().notices);
     return `.claude:${pid}`;
   }
+
+  it('sessão do Claude Code do Windows (vista pelo WSL): sala no caminho montado e transcript na pasta do Windows', () => {
+    const winCwd = 'C:\\Users\\Fulano\\loja';
+    writeLines(join(c.dir, 'projects', encodeCwd(winCwd), 'sess-w.jsonl'), [L.raw('ai-title', { aiTitle: 'Loja no Windows' })]);
+    c.windowsAlive.add(300);
+    writeFileSync(
+      join(c.dir, 'sessions', '300.json'),
+      JSON.stringify({ pid: 300, sessionId: 'sess-w', cwd: winCwd, startedAt: c.now() - 60_000, status: 'busy', pidDomain: 'win32:fulano' }),
+    );
+    c.watcher.boot();
+    expect(c.agent('.claude:300')).toMatchObject({ kind: 'main', title: 'Loja no Windows', roomId: '/mnt/c/Users/Fulano/loja' });
+    expect(c.office.commit().snapshot.rooms[0]).toMatchObject({ name: 'loja' });
+    c.windowsAlive.delete(300);
+    c.advance(60_000);
+    c.poll();
+    c.advance(60_000);
+    c.poll();
+    expect(c.agent('.claude:300')?.status).toBe('offline');
+  });
 
   it('boot: sessão aberta vira agente principal com sala, título e atividade, sem avisos', () => {
     const id = bootWithSession();

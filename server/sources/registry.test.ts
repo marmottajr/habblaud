@@ -57,6 +57,15 @@ describe('registro de sessões', () => {
     expect(docker.poll().entries.map((e) => e.pid).sort()).toEqual([10, 11]);
   });
 
+  it('sessão do Windows vista pelo WSL: o PID é conferido na lista do Windows, não no Linux', () => {
+    writeFileSync(join(sessions, '30.json'), entry(30, { pidDomain: 'win32:arthur' }));
+    writeFileSync(join(sessions, '31.json'), entry(31, { pidDomain: 'win32:arthur' }));
+    writeFileSync(join(sessions, '32.json'), entry(32, { pidDomain: 'linux:abc:pid:[1]' }));
+    const windows = new Set([30]);
+    const reader = new RegistryReader(tmp.dir, { checkPid: true, isAlive: (pid) => pid === 32, isWindowsAlive: (pid) => windows.has(pid) });
+    expect(reader.poll().entries.map((e) => e.pid).sort()).toEqual([30, 32]);
+  });
+
   it('JSON inválido (gravação em andamento) mantém a última versão boa', () => {
     const file = join(sessions, '20.json');
     writeFileSync(file, entry(20, { status: 'busy' }));
