@@ -4,6 +4,7 @@
 // e a trava da sessão aberta em <kiroDir>/session-leases/<sessionId>.lease ({pid, parentPid, acquiredAt, ...}).
 // O <hash> não é recalculado aqui: procura em cada pasta de sessions/, menos a cli/ do 2.x.
 import { existsSync, readdirSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Id de sessão que pode virar nome de pasta (3.x: cli_<uuid>_<sufixo>, sess_<uuid>): sem barra nem "..". */
@@ -47,4 +48,36 @@ export function kiroV3TranscriptPath(kiroDir: string, sessionId: string, cache?:
 /** Trava da sessão aberta (3.x). */
 export function kiroV3LeasePath(kiroDir: string, sessionId: string): string | undefined {
   return isKiroV3SessionId(sessionId) ? join(kiroDir, 'session-leases', `${sessionId}.lease`) : undefined;
+}
+
+export interface KiroV3SessionRef {
+  sessionId: string;
+  /** Pasta da sessão (<kiroDir>/sessions/<hash>/<sessionId>). */
+  dir: string;
+}
+
+/** Todas as sessões do 3.x de um <kiroDir> (pastas com messages.jsonl), para o histórico. */
+export async function listKiroV3Sessions(kiroDir: string): Promise<KiroV3SessionRef[]> {
+  const root = join(kiroDir, 'sessions');
+  let hashes: string[];
+  try {
+    hashes = (await readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory() && d.name !== 'cli').map((d) => d.name);
+  } catch {
+    return [];
+  }
+  const out: KiroV3SessionRef[] = [];
+  for (const h of hashes) {
+    let names: string[];
+    try {
+      names = (await readdir(join(root, h), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch {
+      continue;
+    }
+    for (const sessionId of names) {
+      if (!isKiroV3SessionId(sessionId)) continue;
+      const dir = join(root, h, sessionId);
+      if (existsSync(join(dir, 'messages.jsonl'))) out.push({ sessionId, dir });
+    }
+  }
+  return out;
 }
