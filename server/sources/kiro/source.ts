@@ -1,7 +1,9 @@
-// Fonte de agentes do Kiro (AgentSource 'kiro', ver sources/source.ts): um KiroWatcher por pasta (accounts.ts),
-// cada pasta é uma conta no AccountsService (no WSL, a do Linux e a do Windows). Também recebe os eventos do hook
-// (KiroLive, POST /api/kiro/events): da sessão que um watcher acompanha vão para ele; das outras (Kiro CLI 3.x, ou
-// arquivos fora do alcance) nasce um personagem só do hook (hooks.ts).
+// Fonte de agentes do Kiro (AgentSource 'kiro', ver sources/source.ts): por pasta (accounts.ts), um KiroWatcher
+// (Kiro CLI 2.x, sessions/cli) e um KiroV3Watcher (3.x, session-leases + sessions/<hash>/<id>), com a mesma lista de
+// processos. Cada pasta é uma conta no AccountsService (no WSL, a do Linux e a do Windows). Também recebe os eventos do
+// hook (KiroLive, POST /api/kiro/events): da sessão que um watcher acompanha vão para ele; das outras (3.x ainda sem
+// transcript, ou arquivos fora do alcance) nasce um personagem só do hook (hooks.ts), que passa para o watcher assim
+// que ele achar a sessão (handOver: o mesmo personagem, sem duplicar).
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Provider, SourceInfo } from '../../../shared/types';
@@ -11,10 +13,11 @@ import type { AgentSource } from '../source';
 import type { TerminalParser } from '../terminal';
 import { detectKiroAccount, discoverKiroDir, kiroDirOf, type KiroDir } from './accounts';
 import { KiroHookSessions } from './hooks';
-import type { KiroHookEvent, KiroLive } from './live';
+import type { KiroHookEvent, KiroHookPayload, KiroLive } from './live';
 import { isWsl } from './liveness';
 import { KiroTerminalParser } from './terminal';
 import { kiroV3TranscriptPath } from './v3paths';
+import { KiroV3Watcher } from './v3watcher';
 import { KiroWatcher } from './watcher';
 
 export interface KiroSourceOptions {
@@ -37,6 +40,14 @@ interface Watched {
   dir: KiroDir;
   account: string;
   watcher: KiroWatcher;
+  v3: KiroV3Watcher;
+}
+
+/** Quem acompanha uma sessão pelos arquivos (2.x ou 3.x). */
+interface SessionOwner {
+  has(sessionId: string): boolean;
+  applyHook(sessionId: string, e: KiroHookPayload): boolean;
+  scan(): void;
 }
 
 /** Mesmo evento repetido (o 3.x lê os hooks do agente e o arquivo de hooks): ignorado por este tempo. */
@@ -116,15 +127,31 @@ export class KiroSource implements AgentSource, KiroLive {
         env: this.env,
         now: this.opts.now,
       });
-      return { dir, account, watcher };
+      const v3 = new KiroV3Watcher({
+        office: this.office,
+        kiroDir: dir.dir,
+        account,
+        liveness: watcher.liveness,
+        pollMs: this.opts.pollMs,
+        env: this.env,
+        now: this.opts.now,
+        onTrack: (id) => this.hookSessions.handOver(id),
+      });
+      return { dir, account, watcher, v3 };
     });
-    for (const w of this.watched) w.watcher.start();
+    for (const w of this.watched) {
+      w.watcher.start();
+      w.v3.start();
+    }
     this.sweepTimer = setInterval(() => this.sweep(), SWEEP_MS);
     this.sweepTimer.unref();
   }
 
   stop(): void {
-    for (const w of this.watched) w.watcher.stop();
+    for (const w of this.watched) {
+      w.watcher.stop();
+      w.v3.stop();
+    }
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = undefined;
     this.hookSessions.clear();
@@ -146,12 +173,12 @@ export class KiroSource implements AgentSource, KiroLive {
   }
 
   sources(): SourceInfo[] {
-    const list = this.watched.length ? this.watched : this.dirs.map((dir) => ({ dir, account: dir.windows ? '.kiro-windows' : '.kiro', watcher: undefined }));
+    const list = this.watched.length ? this.watched : this.dirs.map((dir) => ({ dir, account: dir.windows ? '.kiro-windows' : '.kiro', watcher: undefined, v3: undefined }));
     return list.map((w, i) => ({
       label: w.account,
       provider: 'kiro',
       path: w.dir.dir,
-      sessions: (w.watcher?.sessionCount() ?? 0) + (i === 0 ? this.hookSessions.size() : 0),
+      sessions: (w.watcher?.sessionCount() ?? 0) + (w.v3?.sessionCount() ?? 0) + (i === 0 ? this.hookSessions.size() : 0),
       ok: existsSync(w.dir.dir),
     }));
   }
@@ -162,8 +189,12 @@ export class KiroSource implements AgentSource, KiroLive {
     return (hit ?? this.watched[0])?.account ?? '.kiro';
   }
 
-  private ownerOf(sessionId: string): KiroWatcher | undefined {
-    return this.watched.find((w) => w.watcher.has(sessionId))?.watcher;
+  private ownerOf(sessionId: string): SessionOwner | undefined {
+    for (const w of this.watched) {
+      if (w.watcher.has(sessionId)) return w.watcher;
+      if (w.v3.has(sessionId)) return w.v3;
+    }
+    return undefined;
   }
 
   applyHookEvent(e: KiroHookEvent): boolean {
@@ -175,10 +206,11 @@ export class KiroSource implements AgentSource, KiroLive {
     this.recentEvents.set(key, now);
 
     let owner = this.ownerOf(ev.session_id);
-    if (!owner && CLI_SESSION_ID.test(ev.session_id) && now - this.lastForcedScan > 500) {
+    if (!owner && now - this.lastForcedScan > 500) {
       // A trava pode ter acabado de aparecer: lê as pastas antes de criar um personagem só do hook.
       this.lastForcedScan = now;
-      for (const w of this.watched) w.watcher.scan();
+      const v2 = CLI_SESSION_ID.test(ev.session_id);
+      for (const w of this.watched) (v2 ? w.watcher : w.v3).scan();
       owner = this.ownerOf(ev.session_id);
     }
     if (owner) {
@@ -189,6 +221,10 @@ export class KiroSource implements AgentSource, KiroLive {
   }
 
   transcriptPathOf(agentId: string): string | undefined {
+    for (const w of this.watched) {
+      const live = w.v3.transcriptPathOf(agentId);
+      if (live) return live;
+    }
     const owner = this.watched.find((w) => w.watcher.has(agentId));
     const v2 = (owner ?? this.watched[0])?.watcher.transcriptPathOf(agentId);
     if (v2) return v2;

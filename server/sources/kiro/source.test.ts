@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectKiroAccount, discoverKiroDir } from './accounts';
 import { describeKiroTool, parseKiroJsonlLine } from './parser';
+import { KiroSource } from './source';
 import { KiroWatcher, pidAlive } from './watcher';
+import type { AccountsService } from '../../accounts/service';
 import { Office } from '../../model/office';
 import { NameStore } from '../../model/names';
 
@@ -291,5 +293,63 @@ describe('Kiro integration', () => {
         rmSync(tmp, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('KiroSource + Kiro CLI 3.x', () => {
+  it('personagem só do hook passa para o KiroV3Watcher quando a trava e o transcript aparecem (sem duplicar)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'kiro-v3-src-'));
+    let now = Date.parse('2030-01-02T12:00:00.000Z');
+    const names = new NameStore(join(root, 'names.json'));
+    names.load();
+    const office = new Office({ names, version: 't', startedAt: now, accounts: () => [], sources: () => [], accountName: () => 'Kiro', now: () => now });
+    const kiro = join(root, '.kiro');
+    mkdirSync(join(kiro, 'sessions', 'cli'), { recursive: true });
+    const accounts = {
+      setProviderAccounts: (_p: string, list: Array<{ dir: string; detected: { id: string } }>) => list.map((x) => ({ id: x.detected.id, provider: 'kiro', dir: x.dir, detected: x.detected })),
+      entriesOf: () => [],
+    } as unknown as AccountsService;
+    const src = new KiroSource({ accounts, office, dirs: [{ dir: kiro, sessionsDir: join(kiro, 'sessions', 'cli') }], checkPid: true, pollMs: 3_600_000, now: () => now, wsl: false });
+    const sid = 'cli_00000000-aaaa-bbbb-cccc-000000000002_x1';
+    const ev = (hook_event_name: 'UserPromptSubmit' | 'PreToolUse', extra: Record<string, unknown> = {}) => ({
+      pids: [],
+      kiroHome: kiro,
+      event: { hook_event_name, session_id: sid, cwd: '/proj/v3', ...extra },
+    });
+    src.start();
+    try {
+      // sem transcript ainda: nasce só do hook
+      expect(src.applyHookEvent(ev('UserPromptSubmit', { prompt: 'oi' }))).toBe(true);
+      expect(office.get(sid)?.status).toBe('working');
+
+      // o Kiro 3.x grava a trava e o transcript
+      mkdirSync(join(kiro, 'session-leases'), { recursive: true });
+      const dir = join(kiro, 'sessions', 'h4sh', sid);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(kiro, 'session-leases', `${sid}.lease`), JSON.stringify({ v: 1, pid: process.pid, parentPid: 1, acquiredAt: new Date(now - 10_000).toISOString(), token: 't' }));
+      writeFileSync(join(dir, 'session.json'), JSON.stringify({ id: sid, title: 'Sessão 3.x', agentMode: 'kiro_default', workspacePaths: ['/proj/v3'], modelId: 'm' }));
+      const at = new Date(now - 5_000).toISOString();
+      writeFileSync(
+        join(dir, 'messages.jsonl'),
+        [
+          { id: '1', timestamp: at, payload: { type: 'user', content: 'oi' } },
+          { id: '2', timestamp: at, payload: { type: 'tool_call', toolCallId: 'c1', toolName: 'fs_read', args: { path: '/proj/v3/a' } } },
+        ]
+          .map((r) => JSON.stringify(r) + '\n')
+          .join(''),
+      );
+
+      // o próximo evento acha a sessão no watcher (força a leitura) e não cria outro personagem
+      now += 1_000;
+      expect(src.applyHookEvent(ev('PreToolUse', { tool_name: 'fs_read', tool_input: { path: '/proj/v3/a' } }))).toBe(true);
+      const mine = office.commit().snapshot.agents.filter((a) => a.sessionId === sid);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]).toMatchObject({ title: 'Sessão 3.x', status: 'working', stats: { toolCalls: 1 } });
+      expect(src.sources()[0].sessions).toBe(1);
+      expect(src.transcriptPathOf(sid)).toBe(join(dir, 'messages.jsonl'));
+    } finally {
+      src.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
