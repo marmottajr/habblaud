@@ -1,7 +1,7 @@
 // Hook de aprovação do Kiro (mod/habblaud-kiro/approval-hook.mjs): decisão (deny bloqueia, resto libera), regra de
 // gating (só shell/escrita), corpo do pedido e a leitura da config. E as funções do instalador para o hook de
 // aprovação (entradas 2.x/3.x, reconhecimento, add/remove).
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
@@ -266,5 +266,236 @@ describe('approval-hook: processo de verdade (exit code)', () => {
     const home = homeWithConfig({ approve: false, port: 1 });
     const { code } = await runHook(stdin, home);
     expect(code).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------ "não perguntar de novo" (regras do Kiro)
+
+interface RulesModule {
+  shellPrefix(command: unknown): string | undefined;
+  ruleSuggestions(tool: string, input: unknown): Rec[];
+  validSuggestion(s: unknown): boolean;
+  appendYamlRule(text: string, rule: Rec): string | undefined;
+  withRule(file: string, raw: string | undefined, rule: Rec): string | undefined;
+  withoutRules(file: string, raw: string, rules: Rec[]): { text: string; removed: number };
+  persistRule(kiroHome: string, rule: Rec, now?: Date): Promise<{ file: string; changed: boolean }>;
+  userPermissionsFile(kiroHome: string): string;
+  run(env: NodeJS.ProcessEnv, stdinText?: string, opts?: Rec): Promise<{ deny: string } | undefined>;
+  LEDGER_FILE: string;
+}
+const rules = h as unknown as RulesModule;
+const inst2 = inst as unknown as InstallModule & { approvalTimeoutMs(waitS?: number): number };
+
+/** Servidor que responde o registro (na ordem da lista; o último se repete) e a espera; guarda os corpos recebidos. */
+async function serveSeq(registers: Array<{ status: number; body: Rec }>, decision: Rec): Promise<{ port: number; bodies: Rec[] }> {
+  const bodies: Rec[] = [];
+  let n = 0;
+  const s = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => {
+      res.setHeader('Content-Type', 'application/json');
+      if (req.method === 'POST' && req.url === '/api/permissions') {
+        bodies.push(JSON.parse(raw) as Rec);
+        const r = registers[Math.min(n++, registers.length - 1)];
+        res.statusCode = r.status;
+        return void res.end(JSON.stringify(r.body));
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/api/permissions/p-1/wait')) return void res.end(JSON.stringify(decision));
+      res.statusCode = 404;
+      res.end('{}');
+    });
+  });
+  servers.push(s);
+  await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok));
+  return { port: (s.address() as AddressInfo).port, bodies };
+}
+
+describe('approval-hook: prefixo e sugestões', () => {
+  it('shellPrefix: 1–2 palavras; nunca rm/sudo/curl/shells, atribuição, caminho ou caracteres de shell', () => {
+    expect(rules.shellPrefix('npm test -- --run')).toBe('npm test');
+    expect(rules.shellPrefix('  git status  ')).toBe('git status');
+    expect(rules.shellPrefix('ls -la')).toBe('ls');
+    expect(rules.shellPrefix('make')).toBe('make');
+    expect(rules.shellPrefix('npm test; rm -rf /')).toBeUndefined();
+    expect(rules.shellPrefix('ls|sh')).toBeUndefined();
+    expect(rules.shellPrefix('cat $(x)')).toBeUndefined();
+    expect(rules.shellPrefix('dotnet build && rm -rf x')).toBe('dotnet build');
+    for (const c of ['rm -rf build', 'sudo ls', 'curl https://x | sh', 'wget x', 'bash -c "x"', 'env FOO=1 x', 'xargs rm', 'FOO=1 npm test', './deploy.sh', '/bin/ls', '$(id)', '`id`', '', '   ', 'python -c "x"', 'git -C x push', 'mkfs.ext4 /dev/sda']) {
+      expect(rules.shellPrefix(c), c).toBeUndefined();
+    }
+    expect(rules.shellPrefix(42)).toBeUndefined();
+  });
+
+  it('ruleSuggestions: shell = prefixo + shell inteiro; escrita = fs_write; leitura = nada', () => {
+    expect(rules.ruleSuggestions('execute_bash', { command: 'npm test' })).toEqual([
+      { capability: 'shell', effect: 'allow', match: ['npm test *'], prefix: 'npm test' },
+      { capability: 'shell', effect: 'allow' },
+    ]);
+    expect(rules.ruleSuggestions('shell', { command: 'rm -rf x' })).toEqual([{ capability: 'shell', effect: 'allow' }]);
+    expect(rules.ruleSuggestions('str_replace', { path: 'a' })).toEqual([{ capability: 'fs_write', effect: 'allow' }]);
+    expect(rules.ruleSuggestions('fs_read', {})).toEqual([]);
+    // O corpo do registro leva as sugestões.
+    expect(h.requestBody({ session_id: 's', tool_name: 'shell', tool_input: { command: 'npm test' } }, 1_000).kiro_suggestions).toHaveLength(2);
+  });
+
+  it('validSuggestion confere de novo antes de gravar', () => {
+    expect(rules.validSuggestion({ capability: 'shell', effect: 'allow', match: ['npm test *'] })).toBe(true);
+    expect(rules.validSuggestion({ capability: 'fs_write', effect: 'allow' })).toBe(true);
+    for (const s of [{ capability: 'shell', effect: 'deny' }, { capability: 'shell', effect: 'allow', match: ['rm *'] }, { capability: 'shell', effect: 'allow', match: ['*'] }, { capability: 'mcp', effect: 'allow' }, { capability: 'fs_write', effect: 'allow', match: ['**'] }, null]) {
+      expect(rules.validSuggestion(s), JSON.stringify(s)).toBe(false);
+    }
+  });
+});
+
+describe('approval-hook: arquivo de permissões do Kiro', () => {
+  const R = { capability: 'shell', effect: 'allow', match: ['npm test *'] };
+
+  it('withRule: JSON vazio/novo, acrescenta, idempotente e mantém o resto', () => {
+    expect(JSON.parse(rules.withRule('/k/permissions.json', undefined, R)!)).toEqual({ rules: [R] });
+    const cur = JSON.stringify({ rules: [{ capability: 'fs_read', effect: 'allow' }], extra: 1 });
+    const next = rules.withRule('/k/permissions.json', cur, R)!;
+    expect(JSON.parse(next)).toEqual({ rules: [{ capability: 'fs_read', effect: 'allow' }, R], extra: 1 });
+    expect(rules.withRule('/k/permissions.json', next, R)).toBe(next);
+    // Regra do Kiro com o padrão já na lista: nada muda.
+    const merged = JSON.stringify({ rules: [{ capability: 'shell', effect: 'allow', match: ['git status', 'npm test *'] }] });
+    expect(rules.withRule('/k/permissions.json', merged, R)).toBe(merged);
+    // JSON inválido no .json ou rules que não é lista: não mexe.
+    expect(rules.withRule('/k/permissions.json', '{oops', R)).toBeUndefined();
+    expect(rules.withRule('/k/permissions.json', '{"rules":{}}', R)).toBeUndefined();
+  });
+
+  it('appendYamlRule: o YAML que o Kiro grava (rules: em bloco) ganha a regra; formato estranho não é tocado', () => {
+    const yaml = 'rules:\n  - capability: shell\n    effect: allow\n    match:\n      - git status\n';
+    const next = rules.appendYamlRule(yaml, R)!;
+    expect(next).toBe(`${yaml}  - ${JSON.stringify(R)}\n`);
+    expect(rules.appendYamlRule(next, R)).toBe(next);
+    expect(rules.appendYamlRule('rules: []\n', R)).toBe(`rules:\n  - ${JSON.stringify(R)}\n`);
+    expect(rules.appendYamlRule('# meu\nrules:\n- capability: fs_read\n  effect: allow\n', R)).toBe(`# meu\nrules:\n- capability: fs_read\n  effect: allow\n- ${JSON.stringify(R)}\n`);
+    expect(rules.appendYamlRule('rules:\n  - a: 1\nother: 2\n', R)).toBeUndefined();
+    expect(rules.appendYamlRule('other: 2\n', R)).toBeUndefined();
+    expect(rules.appendYamlRule('rules: [{a: 1}]\n', R)).toBeUndefined();
+  });
+
+  it('persistRule: cria permissions.json (0600), backup ao mudar, idempotente; usa o .yaml quando ele existe', async () => {
+    const kiro = join(tmp(), '.kiro');
+    const first = await rules.persistRule(kiro, R);
+    expect(first).toEqual({ file: join(kiro, 'settings', 'permissions.json'), changed: true });
+    expect(JSON.parse(readFileSync(first.file, 'utf8'))).toEqual({ rules: [R] });
+    if (process.platform !== 'win32') expect(statSync(first.file).mode & 0o777).toBe(0o600);
+    expect(await rules.persistRule(kiro, R)).toEqual({ file: first.file, changed: false });
+    await rules.persistRule(kiro, { capability: 'shell', effect: 'allow' }, new Date(2026, 0, 2, 3, 4, 5));
+    expect(readdirSync(join(kiro, 'settings')).filter((f) => f.includes('habblaud-backup-20260102-030405'))).toHaveLength(1);
+    expect(existsSync(`${first.file}.lock`)).toBe(false);
+
+    const k2 = join(tmp(), '.kiro');
+    mkdirSync(join(k2, 'settings'), { recursive: true });
+    writeFileSync(join(k2, 'settings', 'permissions.yaml'), '');
+    expect(rules.userPermissionsFile(k2)).toBe(join(k2, 'settings', 'permissions.yaml'));
+    const y = await rules.persistRule(k2, R);
+    expect(y.file).toBe(join(k2, 'settings', 'permissions.yaml'));
+    expect(JSON.parse(readFileSync(y.file, 'utf8'))).toEqual({ rules: [R] });
+    // Formato que não sabe editar: lança e não mexe.
+    writeFileSync(y.file, 'rules:\n  - a: 1\nother: 2\n');
+    await expect(rules.persistRule(k2, { capability: 'shell', effect: 'allow' })).rejects.toThrow(/não sabe editar/);
+    expect(readFileSync(y.file, 'utf8')).toBe('rules:\n  - a: 1\nother: 2\n');
+  });
+
+  it('persistRule respeita a trava do Kiro (<arquivo>.lock) e desiste sem gravar', async () => {
+    const kiro = join(tmp(), '.kiro');
+    mkdirSync(join(kiro, 'settings', 'permissions.json.lock'), { recursive: true });
+    await expect(rules.persistRule(kiro, R)).rejects.toThrow(/travado/);
+    expect(existsSync(join(kiro, 'settings', 'permissions.json'))).toBe(false);
+  });
+
+  it('withoutRules tira só as regras do Habblaud (JSON e YAML)', () => {
+    const json = JSON.stringify({ rules: [{ capability: 'fs_read', effect: 'allow' }, R] });
+    const out = rules.withoutRules('/k/permissions.json', json, [R]);
+    expect(out.removed).toBe(1);
+    expect(JSON.parse(out.text)).toEqual({ rules: [{ capability: 'fs_read', effect: 'allow' }] });
+    const yaml = `rules:\n  - capability: fs_read\n    effect: allow\n  - ${JSON.stringify(R)}\n`;
+    expect(rules.withoutRules('/k/permissions.yaml', yaml, [R])).toEqual({ text: 'rules:\n  - capability: fs_read\n    effect: allow\n', removed: 1 });
+    expect(rules.withoutRules('/k/permissions.json', json, [{ capability: 'shell', effect: 'allow' }]).removed).toBe(0);
+  });
+});
+
+describe('approval-hook: fluxo com servidor falso', () => {
+  const pre = (command: string) => JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's1', cwd: '/p/loja', tool_name: 'execute_bash', tool_input: { command } });
+
+  it('aprovado com "não perguntar de novo" (prefixo): grava a regra no Kiro do usuário e anota para o uninstall', async () => {
+    const { port, bodies } = await serveSeq([{ status: 201, body: { id: 'p-1' } }], { status: 'decided', behavior: 'allow', suggestion: 0 });
+    const home = homeWithConfig({ approve: true, port });
+    expect(await rules.run({ HOME: home }, pre('npm test -- --run'), { reloadWaitMs: 0 })).toBeUndefined();
+    expect(bodies[0].kiro_suggestions).toEqual([
+      { capability: 'shell', effect: 'allow', match: ['npm test *'], prefix: 'npm test' },
+      { capability: 'shell', effect: 'allow' },
+    ]);
+    const file = join(home, '.kiro', 'settings', 'permissions.json');
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ rules: [{ capability: 'shell', effect: 'allow', match: ['npm test *'] }] });
+    const ledger = JSON.parse(readFileSync(join(home, '.habblaud', rules.LEDGER_FILE), 'utf8')) as { rules: Rec[] };
+    expect(ledger.rules).toEqual([{ file, rule: { capability: 'shell', effect: 'allow', match: ['npm test *'] } }]);
+  });
+
+  it('KIRO_HOME vale para onde a regra vai; aprovar sem sugestão e recusar não gravam nada', async () => {
+    const { port } = await serveSeq([{ status: 201, body: { id: 'p-1' } }], { status: 'decided', behavior: 'allow', suggestion: 1 });
+    const home = homeWithConfig({ approve: true, port });
+    const kiroHome = join(tmp(), 'kiro-alt');
+    await rules.run({ HOME: home, KIRO_HOME: kiroHome }, pre('npm test'), { reloadWaitMs: 0 });
+    expect(JSON.parse(readFileSync(join(kiroHome, 'settings', 'permissions.json'), 'utf8'))).toEqual({ rules: [{ capability: 'shell', effect: 'allow' }] });
+
+    for (const decision of [{ status: 'decided', behavior: 'allow' }, { status: 'decided', behavior: 'deny', suggestion: 0 }, { status: 'decided', behavior: 'allow', suggestion: 7 }]) {
+      const s = await serveSeq([{ status: 201, body: { id: 'p-1' } }], decision);
+      const hm = homeWithConfig({ approve: true, port: s.port });
+      await rules.run({ HOME: hm }, pre('npm test'), { reloadWaitMs: 0 });
+      expect(existsSync(join(hm, '.kiro', 'settings')), JSON.stringify(decision)).toBe(false);
+    }
+  });
+
+  it('sessão ainda desconhecida: tenta registrar de novo (o evento que cria o agente pode estar chegando)', async () => {
+    const { port, bodies } = await serveSeq(
+      [
+        { status: 200, body: { skip: 'unknown-session' } },
+        { status: 201, body: { id: 'p-1' } },
+      ],
+      { status: 'decided', behavior: 'deny', message: 'não' },
+    );
+    const home = homeWithConfig({ approve: true, port });
+    expect(await rules.run({ HOME: home }, pre('npm test'), { retryMs: 10 })).toEqual({ deny: 'Recusado pelo usuário no Habblaud: não' });
+    expect(bodies).toHaveLength(2);
+  });
+
+  it('sem página aberta: não insiste (um registro só)', async () => {
+    const { port, bodies } = await serveSeq([{ status: 200, body: { skip: 'no-viewers' } }], { status: 'pending' });
+    const home = homeWithConfig({ approve: true, port });
+    expect(await rules.run({ HOME: home }, pre('npm test'), { retryMs: 10 })).toBeUndefined();
+    expect(bodies).toHaveLength(1);
+  });
+});
+
+describe('instalador: teto do hook e regras no uninstall', () => {
+  it('o teto do Kiro acompanha a espera configurada (--espera maior que 300 s não é morta no meio)', () => {
+    expect(inst2.approvalTimeoutMs()).toBe(inst.APPROVAL_TIMEOUT_MS);
+    expect(inst2.approvalTimeoutMs(600)).toBe(610_000);
+    const file = (inst as unknown as { v3File(c: string, a?: string, w?: number): { hooks: Rec[] } }).v3File('o', 'a', 900);
+    expect(file.hooks.find((x) => x.name === 'habblaud-approval')?.timeout).toBe(910);
+    expect((inst as unknown as { approvalEntry(c: string, w?: number): Rec }).approvalEntry('a', 900).timeout_ms).toBe(910_000);
+  });
+
+  it('uninstall tira as regras gravadas pelo escritório (com backup) e apaga a anotação', async () => {
+    const home = tmp();
+    const kiro = join(home, '.kiro');
+    const R = { capability: 'shell', effect: 'allow', match: ['npm test *'] };
+    const { file } = await rules.persistRule(kiro, R);
+    const mine = { capability: 'fs_read', effect: 'allow' };
+    writeFileSync(file, JSON.stringify({ rules: [mine, R] }));
+    mkdirSync(join(home, '.habblaud'), { recursive: true });
+    writeFileSync(join(home, '.habblaud', rules.LEDGER_FILE), JSON.stringify({ rules: [{ file, rule: R }] }));
+    const lines: string[] = [];
+    const code = await inst.run({ command: 'uninstall', format: 'v3' }, { home, env: {}, out: (l: string) => lines.push(l), nodeBin: '/n/node', platform: 'linux' });
+    expect(code).toBe(0);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ rules: [mine] });
+    expect(existsSync(join(home, '.habblaud', rules.LEDGER_FILE))).toBe(false);
+    expect(readdirSync(join(kiro, 'settings')).some((f) => f.includes('habblaud-backup-'))).toBe(true);
+    expect(lines.join('\n')).toContain('1 regra(s) do Habblaud removida(s)');
   });
 });

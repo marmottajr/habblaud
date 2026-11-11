@@ -7,7 +7,7 @@ import { handleCodexEvent } from '../codex/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
-import { handleKiroEvent } from '../kiro/http';
+import { handleKiroEvent, type KiroPermissionsLike } from '../kiro/http';
 import type { KiroLive } from '../sources/kiro/live';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
@@ -67,6 +67,8 @@ export interface ApiDeps {
   codexLive?: CodexLive;
   /** Fonte do Kiro ao vivo: recebe os eventos do hook do Kiro (POST /api/kiro/events, server/kiro/http.ts). */
   kiroLive?: KiroLive;
+  /** Registro dos pedidos de permissão: o PostToolUse/Stop do Kiro solta o cartão que ficou para trás (server/kiro/http.ts). */
+  kiroPermissions?: KiroPermissionsLike;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -499,7 +501,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Kiro só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
-      } else handleKiroEvent(req, res, { live: deps.kiroLive }).catch((err) => fail(res, err));
+      } else handleKiroEvent(req, res, { live: deps.kiroLive, permissions: deps.kiroPermissions }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

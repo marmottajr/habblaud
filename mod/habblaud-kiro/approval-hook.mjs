@@ -18,6 +18,16 @@
 // registra este hook SEM `|| true` (o código de saída e o stderr precisam chegar ao Kiro). Timeout do hook, erro ou
 // Habblaud fora do ar: exit 0 sem nada.
 //
+// "Aprovar e não perguntar de novo" (a ferramenta inteira ou, no shell, os comandos que começam com um prefixo): o
+// hook grava uma regra `allow` no arquivo de permissões do USUÁRIO do Kiro (<kiro>/settings/permissions.yaml ou
+// .json, o mesmo em que o "Always allow" do Kiro grava; formato {rules:[{capability, effect, match?}]}), com backup,
+// trava compatível com a do Kiro (<arquivo>.lock) e gravação atômica, e espera um pouco antes de sair: o Kiro vigia
+// esse arquivo (releitura ~300 ms depois da mudança) e o PreToolUse roda ANTES da avaliação de permissão da
+// ferramenta, então a chamada atual em geral já passa sem o [y/n/t] (se o Kiro ainda não tiver relido, ele pergunta
+// esta última vez). Conferido no acp-server.js do Kiro CLI 3.2.0 e 2.16.2 (addRuleToFile, PolicySession.startWatching,
+// buildPreToolUseGate). Quem sugere a regra é este hook (o servidor só mostra e devolve a posição escolhida); regras
+// gravadas ficam anotadas em ~/.habblaud/kiro-rules.json, para o `kiro:uninstall` tirá-las.
+//
 // O hook:
 // 1. só age se ~/.habblaud/kiro-hook.json tiver {approve:true} (opt-in) e se a ferramenta precisar de aprovação
 //    (shell e escrita de arquivo; leitura/busca passam direto);
@@ -29,9 +39,9 @@
 //
 // Regras: Node puro (22+), só `node:*`; nunca escreve no stdout (vira contexto do modelo); só fala com 127.0.0.1.
 // HABBLAUD_HOOK_DEBUG=1 escreve o que acontece no stderr (só com debug; fora disso, o stderr só sai na recusa).
-import { readFileSync, realpathSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_PORT = 4747;
@@ -79,6 +89,262 @@ export function needsApproval(toolName) {
   return typeof toolName === 'string' && APPROVAL_TOOLS.has(toolName);
 }
 
+// ------------------------------------------------------------------ "não perguntar de novo" (regras do Kiro)
+
+const SHELL_TOOLS = new Set(['shell', 'execute_bash', 'execute_cmd', 'execute_pwsh', 'bash', 'execute']);
+/** Arquivo onde o hook anota as regras que gravou (o kiro:uninstall as tira). */
+export const LEDGER_FILE = 'kiro-rules.json';
+/** Espera depois de gravar a regra: o Kiro relê o arquivo ~300 ms depois da mudança (debounce do ConfigFileWatcher). */
+export const RELOAD_WAIT_MS = 1_200;
+const LOCK_TRIES = 20;
+const LOCK_STEP_MS = 100;
+/**
+ * Comandos que nunca viram prefixo "não perguntar de novo": rodam qualquer outro comando (sudo, env, xargs, shells,
+ * eval), apagam ou mudam permissões (rm, dd, chmod...) ou baixam e rodam coisas (curl, wget).
+ */
+export const NEVER_PREFIX = new Set([
+  'rm', 'rmdir', 'unlink', 'shred', 'dd', 'mkfs', 'fdisk', 'mount', 'umount', 'chmod', 'chown', 'chgrp', 'chattr',
+  'sudo', 'su', 'doas', 'pkexec', 'runas', 'env', 'xargs', 'nohup', 'nice', 'ionice', 'time', 'timeout', 'watch',
+  'command', 'builtin', 'exec', 'eval', 'source', 'sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh',
+  'powershell', 'cmd', 'curl', 'wget', 'ssh', 'scp', 'rsync', 'nc', 'ncat', 'socat', 'kill', 'killall', 'pkill',
+  'reboot', 'shutdown', 'halt', 'poweroff', 'systemctl', 'crontab', 'at',
+]);
+/** Interpretadores: só com um subcomando (ex.: "npx vitest", "bun test"), nunca sozinhos ("python *" roda qualquer coisa). */
+export const NEEDS_SUBCOMMAND = new Set(['python', 'python3', 'python2', 'node', 'nodejs', 'deno', 'bun', 'perl', 'ruby', 'php', 'lua', 'npx', 'pnpx', 'bunx', 'uvx', 'osascript', 'awk', 'sed', 'find', 'git', 'docker', 'kubectl']);
+const FIRST_TOKEN = /^[A-Za-z0-9][\w.+-]{0,63}$/;
+const SUB_TOKEN = /^[A-Za-z0-9][\w:.+-]{0,63}$/;
+const SHELL_META = /[;|&`$()<>'"\\{}*?!#~]/;
+
+/** Capability das regras do Kiro para a ferramenta: "shell", "fs_write" ou undefined. */
+export function capabilityOf(toolName) {
+  if (SHELL_TOOLS.has(toolName)) return 'shell';
+  if (toolName === 'fs_write' || toolName === 'write' || toolName === 'write_file' || toolName === 'str_replace') return 'fs_write';
+  return undefined;
+}
+
+/**
+ * Prefixo seguro de um comando (as 1–2 primeiras palavras, como as sugestões do Claude Code), ou undefined. Sem
+ * prefixo: comando vazio, atribuição de variável, caminho, caractere especial de shell (; | & ` $ ( ) < > aspas) na
+ * parte usada, ou comando da lista NEVER_PREFIX. Mesmo assim o Kiro avalia cada subcomando (a && b, a; b) contra as
+ * regras, então o prefixo nunca libera o que vem depois de um separador.
+ */
+export function shellPrefix(command) {
+  if (typeof command !== 'string') return undefined;
+  const line = command.trim().split('\n')[0];
+  const words = line.split(/\s+/).filter(Boolean);
+  const [first, second] = words;
+  if (!first || !FIRST_TOKEN.test(first)) return undefined;
+  const name = first.toLowerCase();
+  if (NEVER_PREFIX.has(name) || /^mkfs/.test(name)) return undefined;
+  if (second && SUB_TOKEN.test(second)) return `${first} ${second}`;
+  // Caractere de shell logo na 2ª palavra ("npm test;", "ls|x"): sem prefixo (encolher para 1 palavra alargaria a regra).
+  if (second && SHELL_META.test(second)) return undefined;
+  return NEEDS_SUBCOMMAND.has(name) ? undefined : first;
+}
+
+/**
+ * Regras "não perguntar de novo" que o hook oferece ao escritório (na ordem em que aparecem): no shell, os comandos
+ * que começam com o prefixo (`<prefixo> *`: o Kiro casa o prefixo sozinho e com argumentos) e o shell inteiro; na
+ * escrita, a ferramenta inteira.
+ */
+export function ruleSuggestions(toolName, toolInput) {
+  const capability = capabilityOf(toolName);
+  if (!capability) return [];
+  const out = [];
+  if (capability === 'shell') {
+    const prefix = shellPrefix(isObject(toolInput) ? toolInput.command : undefined);
+    if (prefix) out.push({ capability, effect: 'allow', match: [`${prefix} *`], prefix });
+  }
+  out.push({ capability, effect: 'allow' });
+  return out;
+}
+
+/** A regra que vai para o arquivo do Kiro (sem o `prefix`, que é só para mostrar). */
+function kiroRule(s) {
+  return { capability: s.capability, effect: 'allow', ...(s.match ? { match: [...s.match] } : {}) };
+}
+
+/** A sugestão é uma das que este hook gera (confere de novo antes de gravar). */
+export function validSuggestion(s) {
+  if (!isObject(s) || (s.capability !== 'shell' && s.capability !== 'fs_write') || s.effect !== 'allow') return false;
+  if (s.match === undefined) return true;
+  if (s.capability !== 'shell' || !Array.isArray(s.match) || s.match.length !== 1 || typeof s.match[0] !== 'string') return false;
+  const m = /^(.+) \*$/.exec(s.match[0]);
+  return !!m && shellPrefix(m[1]) === m[1];
+}
+
+/** Já existe regra que libera isso (mesma capability, allow, sem exclude e: sem match / com o padrão)? */
+function hasRule(rules, rule) {
+  return rules.some((r) => {
+    if (!isObject(r) || r.capability !== rule.capability || r.effect !== 'allow' || (Array.isArray(r.exclude) && r.exclude.length)) return false;
+    if (!rule.match) return r.match === undefined || (Array.isArray(r.match) && r.match.length === 0);
+    return Array.isArray(r.match) && r.match.includes(rule.match[0]);
+  });
+}
+
+/** Linha YAML (flow) da regra: JSON é YAML válido. */
+export function yamlRuleLine(rule) {
+  return `- ${JSON.stringify(rule)}`;
+}
+
+/**
+ * Acrescenta a regra a um permissions.yaml de verdade (o que o Kiro grava: `rules:` como única chave do topo, lista em
+ * bloco). Devolve o texto novo, o mesmo texto (já estava) ou undefined (formato que o hook não sabe editar sem um
+ * parser de YAML: não mexe).
+ */
+export function appendYamlRule(text, rule) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const line = yamlRuleLine(rule);
+  if (lines.some((l) => l.trim() === line)) return text;
+  let rulesAt = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l.trim() || /^\s*#/.test(l) || /^---\s*$/.test(l)) continue;
+    if (/^\s/.test(l) || (rulesAt >= 0 && l.startsWith('-'))) continue;
+    if (rulesAt >= 0 || !/^rules:\s*(\[\s*\])?\s*$/.test(l)) return undefined;
+    rulesAt = i;
+  }
+  if (rulesAt < 0) return undefined;
+  const indent = lines.slice(rulesAt + 1).map((l) => /^(\s*)- /.exec(l)?.[1]).find((x) => x !== undefined) ?? '  ';
+  lines[rulesAt] = 'rules:';
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  lines.push(`${indent}${line}`);
+  return `${lines.join('\n')}\n`;
+}
+
+/** Arquivo de permissões do usuário do Kiro, pela mesma regra dele (yaml se existir; senão json; senão json novo). */
+export function userPermissionsFile(kiroHome) {
+  const dir = join(kiroHome, 'settings');
+  const yaml = join(dir, 'permissions.yaml');
+  // O Kiro carrega o .yaml se ele EXISTIR (mesmo vazio) e só então o .json: gravar no .json com um .yaml presente não valeria.
+  if (existsSync(yaml)) return yaml;
+  return join(dir, 'permissions.json');
+}
+
+function stamp(now = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+}
+
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+
+/** Trava do arquivo compatível com a do Kiro (proper-lockfile: o diretório <arquivo>.lock). */
+async function withLock(file, fn) {
+  const lock = `${file}.lock`;
+  for (let i = 0; ; i++) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (err) {
+      if (err?.code !== 'EEXIST' || i >= LOCK_TRIES) throw new Error(`arquivo travado: ${lock}`);
+      await sleep(LOCK_STEP_MS);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      rmdirSync(lock);
+    } catch {
+      // já saiu
+    }
+  }
+}
+
+/** Texto novo do arquivo com a regra, o mesmo (já estava) ou undefined (não dá para editar com segurança). */
+export function withRule(file, raw, rule) {
+  const text = (raw ?? '').replace(/^\uFEFF/, '');
+  if (!text.trim()) return `${JSON.stringify({ rules: [rule] }, null, 2)}\n`;
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    // YAML de verdade (o Kiro grava assim): só o formato simples que ele mesmo gera.
+    return file.endsWith('.yaml') ? appendYamlRule(text, rule) : undefined;
+  }
+  if (!isObject(doc) || (doc.rules !== undefined && !Array.isArray(doc.rules))) return undefined;
+  const rules = doc.rules ?? [];
+  if (hasRule(rules, rule)) return text;
+  return `${JSON.stringify({ ...doc, rules: [...rules, rule] }, null, 2)}\n`;
+}
+
+/**
+ * Grava a regra no arquivo de permissões do usuário do Kiro: backup (<arquivo>.habblaud-backup-<data>), trava,
+ * gravação atômica (arquivo temporário + rename) e idempotente. Devolve {file, changed} ou lança.
+ */
+export async function persistRule(kiroHome, rule, now = new Date()) {
+  const file = userPermissionsFile(kiroHome);
+  mkdirSync(join(kiroHome, 'settings'), { recursive: true, mode: 0o700 });
+  return withLock(file, () => {
+    const exists = existsSync(file);
+    const raw = exists ? readFileSync(file, 'utf8') : undefined;
+    const next = withRule(file, raw, rule);
+    if (next === undefined) throw new Error(`formato que o Habblaud não sabe editar: ${file}`);
+    if (exists && next === raw) return { file, changed: false };
+    const mode = exists ? statSync(file).mode & 0o777 : 0o600;
+    if (exists) copyFileSync(file, `${file}.habblaud-backup-${stamp(now)}`);
+    const tmp = `${file}.habblaud-tmp-${process.pid}`;
+    writeFileSync(tmp, next, { mode });
+    try {
+      renameSync(tmp, file);
+    } catch (err) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // nada
+      }
+      throw err;
+    }
+    return { file, changed: true };
+  });
+}
+
+/** Anota a regra gravada em ~/.habblaud/kiro-rules.json (para o kiro:uninstall). */
+export function recordRule(habblaudDir, file, rule) {
+  const ledger = join(habblaudDir, LEDGER_FILE);
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(ledger, 'utf8'));
+  } catch {
+    doc = undefined;
+  }
+  const rules = isObject(doc) && Array.isArray(doc.rules) ? doc.rules : [];
+  const key = JSON.stringify({ file, rule });
+  if (rules.some((r) => JSON.stringify({ file: r?.file, rule: r?.rule }) === key)) return;
+  mkdirSync(habblaudDir, { recursive: true });
+  const tmp = `${ledger}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify({ rules: [...rules, { file, rule }] }, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, ledger);
+}
+
+/**
+ * Tira de um arquivo de permissões as regras gravadas pelo Habblaud (kiro:uninstall). Devolve o texto novo e quantas
+ * saíram (o Kiro pode ter regravado o arquivo e juntado a regra a outra: essas ficam, e o instalador avisa).
+ */
+export function withoutRules(file, raw, rules) {
+  const text = raw.replace(/^\uFEFF/, '');
+  const sigs = new Set(rules.map((r) => JSON.stringify(kiroRule(r))));
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    if (!file.endsWith('.yaml')) return { text, removed: 0 };
+    const lines = new Set(rules.map((r) => yamlRuleLine(kiroRule(r))));
+    const kept = text.split('\n').filter((l) => !lines.has(l.trim()));
+    return { text: kept.join('\n'), removed: text.split('\n').length - kept.length };
+  }
+  if (!isObject(doc) || !Array.isArray(doc.rules)) return { text, removed: 0 };
+  const kept = doc.rules.filter((r) => !(isObject(r) && sigs.has(JSON.stringify(kiroRule(r))) && !r.exclude));
+  const removed = doc.rules.length - kept.length;
+  return { text: removed ? `${JSON.stringify({ ...doc, rules: kept }, null, 2)}\n` : text, removed };
+}
+
+/** Pasta do Kiro desta sessão: KIRO_HOME ou ~/.kiro. */
+export function kiroHomeOf(env = process.env) {
+  const custom = typeof env.KIRO_HOME === 'string' ? env.KIRO_HOME.trim() : '';
+  return resolve(custom || join(env.HOME || env.USERPROFILE || homedir(), '.kiro'));
+}
+
 /** Corta textos longos dos argumentos. */
 export function trimInput(v, max = MAX_STRING, depth = 0) {
   if (typeof v === 'string') return v.length > max ? v.slice(0, max) : v;
@@ -89,10 +355,11 @@ export function trimInput(v, max = MAX_STRING, depth = 0) {
   return out;
 }
 
-/** Corpo mandado ao Habblaud: só o que ele usa (provider:"kiro"). */
-export function requestBody(input, timeoutMs) {
+/** Corpo mandado ao Habblaud: só o que ele usa (provider:"kiro") e as regras "não perguntar de novo" oferecidas. */
+export function requestBody(input, timeoutMs, suggestions = ruleSuggestions(input.tool_name, input.tool_input)) {
   const body = { provider: 'kiro', session_id: typeof input.session_id === 'string' ? input.session_id : '', tool_name: input.tool_name, tool_input: {}, timeout_ms: timeoutMs };
   if (typeof input.cwd === 'string') body.cwd = input.cwd;
+  if (suggestions.length) body.kiro_suggestions = suggestions;
   for (const max of [MAX_STRING, 1_000, 200]) {
     body.tool_input = trimInput(input.tool_input ?? {}, max);
     if (JSON.stringify(body).length <= MAX_BODY) break;
@@ -153,10 +420,37 @@ async function call(base, method, path, body, timeoutMs) {
 }
 
 /**
+ * Aprovado com "não perguntar de novo": grava a regra escolhida (a ORIGINAL que este hook sugeriu, conferida de novo)
+ * e espera o Kiro reler o arquivo. Falha ao gravar: só avisa no debug (a aprovação vale do mesmo jeito).
+ */
+export async function applySuggestion(result, suggestions, env = process.env, opts = {}) {
+  if (!result || result.status !== 'decided' || result.behavior !== 'allow' || !Number.isInteger(result.suggestion)) return undefined;
+  const s = suggestions[result.suggestion];
+  if (!validSuggestion(s)) return undefined;
+  const rule = kiroRule(s);
+  try {
+    const home = env.HOME || env.USERPROFILE || homedir();
+    const r = await persistRule(kiroHomeOf(env), rule);
+    recordRule(join(home, '.habblaud'), r.file, rule);
+    debug(`regra ${r.changed ? 'gravada' : 'já estava'} em ${r.file}: ${JSON.stringify(rule)}`);
+    // O Kiro relê o arquivo de permissões ~300 ms depois da mudança: esperar faz a chamada atual já passar sem o [y/n/t].
+    if (r.changed) await sleep(opts.reloadWaitMs ?? RELOAD_WAIT_MS);
+    return r;
+  } catch (err) {
+    debug(`não gravei a regra: ${err?.message ?? err}`);
+    return undefined;
+  }
+}
+
+/** Sessão ainda desconhecida: o evento PreToolUse do hook de observar (que cria o agente) pode estar chegando junto. */
+const REGISTER_RETRIES = 3;
+const REGISTER_RETRY_MS = 400;
+
+/**
  * Decide o pedido (ou não). Devolve {deny:<motivo>} para bloquear, ou undefined para deixar o terminal decidir.
  * Nunca lança.
  */
-export async function run(env = process.env, stdinText) {
+export async function run(env = process.env, stdinText, opts = {}) {
   try {
     const cfg = readConfig(env);
     if (!cfg.approve) return undefined; // opt-in: sem {approve:true}, não age.
@@ -174,7 +468,14 @@ export async function run(env = process.env, stdinText) {
 
     const base = `http://127.0.0.1:${cfg.port}`;
     const deadline = Date.now() + cfg.waitMs;
-    const reg = await call(base, 'POST', '/api/permissions', requestBody(input, cfg.waitMs), REGISTER_TIMEOUT_MS);
+    const suggestions = ruleSuggestions(input.tool_name, input.tool_input);
+    const body = requestBody(input, cfg.waitMs, suggestions);
+    let reg;
+    for (let i = 0; ; i++) {
+      reg = await call(base, 'POST', '/api/permissions', body, REGISTER_TIMEOUT_MS);
+      if (reg?.status !== 200 || reg.json?.skip !== 'unknown-session' || i >= REGISTER_RETRIES) break;
+      await sleep(opts.retryMs ?? REGISTER_RETRY_MS);
+    }
     if (!reg || reg.status !== 201 || typeof reg.json?.id !== 'string') {
       debug(`sem desvio (${reg ? `${reg.status} ${JSON.stringify(reg.json ?? null)}` : 'Habblaud fora do ar'})`);
       return undefined;
@@ -192,6 +493,7 @@ export async function run(env = process.env, stdinText) {
       const status = r.json?.status;
       if (status === 'pending') continue;
       debug(`resposta: ${JSON.stringify(r.json)}`);
+      await applySuggestion(r.json, suggestions, env, opts);
       return decisionOutput(r.json);
     }
   } catch (err) {

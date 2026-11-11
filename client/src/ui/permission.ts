@@ -66,9 +66,10 @@ export interface PermissionOptions {
 
 export function permissionOptions(p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'>, agent: Pick<AgentInfo, 'kind' | 'background'>): PermissionOptions {
   if (p.provider === 'codex') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: CODEX_PERMISSION_NOTE };
-  // Kiro: o hook só aprova (libera o terminal) ou recusa com motivo (bloqueia a ferramenta); sem "sempre permitir"
-  // nem "interromper", e o prazo é longo (minutos), como o do Claude Code.
-  if (p.provider === 'kiro') return { always: false, interrupt: false, reasonRequired: false, seconds: false, note: KIRO_PERMISSION_NOTE };
+  // Kiro: o hook aprova (libera o terminal) ou recusa com motivo (bloqueia a ferramenta); "não perguntar de novo" grava
+  // uma regra allow nas permissões do usuário do Kiro (o hook sugere: o shell inteiro, os comandos com um prefixo ou a
+  // escrita de arquivos). Sem "interromper", e o prazo é longo (minutos), como o do Claude Code.
+  if (p.provider === 'kiro') return { always: !!p.suggestions?.length, interrupt: false, reasonRequired: false, seconds: false, note: KIRO_PERMISSION_NOTE };
   // Subagente em segundo plano: o Claude Code só mostra o diálogo depois que o hook responde.
   const blocking = agent.kind === 'sub' && !!agent.background;
   return {

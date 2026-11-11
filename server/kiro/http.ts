@@ -50,8 +50,16 @@ export function parseKiroEvent(raw: unknown): KiroHookEvent {
   return out;
 }
 
-/** Trata POST /api/kiro/events (método e Host já conferidos). `ok` = a fonte do Kiro aproveitou o evento. */
-export async function handleKiroEvent(req: IncomingMessage, res: ServerResponse, deps: { live?: KiroLive }): Promise<void> {
+/** O que a rota usa do registro de pedidos de permissão (PermissionRegistry.kiroHookEvent). */
+export interface KiroPermissionsLike {
+  kiroHookEvent(ev: KiroHookPayload): number;
+}
+
+/**
+ * Trata POST /api/kiro/events (método e Host já conferidos). `ok` = a fonte do Kiro aproveitou o evento. PostToolUse e
+ * Stop também soltam o cartão de aprovação do escritório que ficou para trás (a ferramenta já rodou ou a vez acabou).
+ */
+export async function handleKiroEvent(req: IncomingMessage, res: ServerResponse, deps: { live?: KiroLive; permissions?: KiroPermissionsLike }): Promise<void> {
   const body = parseKiroEvent(await readJson(req));
   let ok = false;
   if (deps.live) {
@@ -60,6 +68,11 @@ export async function handleKiroEvent(req: IncomingMessage, res: ServerResponse,
     } catch (err) {
       log.warnOnce(`kiro-event:${errMsg(err)}`, tr('Eventos do Kiro: falha ao aplicar um evento ({0}).', [errMsg(err)]));
     }
+  }
+  try {
+    deps.permissions?.kiroHookEvent(body.event);
+  } catch (err) {
+    log.warnOnce(`kiro-event-perm:${errMsg(err)}`, tr('Eventos do Kiro: falha ao soltar um pedido de permissão ({0}).', [errMsg(err)]));
   }
   sendJson(res, 200, { ok });
 }

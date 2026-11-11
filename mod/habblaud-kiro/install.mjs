@@ -22,6 +22,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { LEDGER_FILE, withoutRules } from './approval-hook.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const HOOK_SOURCE = join(HERE, 'hook.mjs');
@@ -98,15 +99,24 @@ export function v2Entry(event, command) {
 }
 
 /** Entrada do hook de aprovação (só no preToolUse, com teto grande para a espera não ser morta). */
-export function approvalEntry(command) {
-  return { matcher: '*', command, timeout_ms: APPROVAL_TIMEOUT_MS };
+export function approvalEntry(command, waitS = DEFAULT_WAIT_S) {
+  return { matcher: '*', command, timeout_ms: approvalTimeoutMs(waitS) };
+}
+
+/**
+ * Teto do Kiro para o hook de aprovação: acima da espera configurada (`--espera`), com folga para gravar a regra "não
+ * perguntar de novo". Com o teto fixo de 310 s, uma espera maior era morta pelo Kiro no meio (e o cartão ficava órfão).
+ */
+export function approvalTimeoutMs(waitS = DEFAULT_WAIT_S) {
+  const w = Number.isFinite(waitS) ? waitS : DEFAULT_WAIT_S;
+  return Math.max(APPROVAL_TIMEOUT_MS, Math.ceil(w) * 1_000 + 10_000);
 }
 
 /**
  * Agente com as entradas do Habblaud (troca as antigas no mesmo lugar; acrescenta no fim as que faltam). Com
  * `approvalCommand`, acrescenta/mantém a entrada de aprovação no preToolUse; sem ele, tira a de aprovação.
  */
-export function addV2(agent, command, approvalCommand) {
+export function addV2(agent, command, approvalCommand, waitS = DEFAULT_WAIT_S) {
   const hooks = isObject(agent.hooks) ? { ...agent.hooks } : {};
   for (const [event] of EVENTS) {
     let list = Array.isArray(hooks[event]) ? [...hooks[event]] : [];
@@ -117,7 +127,7 @@ export function addV2(agent, command, approvalCommand) {
     list = list.filter((e, k) => !isOurs(e) || k === (i >= 0 ? i : list.indexOf(entry)));
     if (event === 'preToolUse') {
       list = list.filter((e) => !isApproval(e));
-      if (approvalCommand) list.push(approvalEntry(approvalCommand));
+      if (approvalCommand) list.push(approvalEntry(approvalCommand, waitS));
     }
     hooks[event] = list;
   }
@@ -175,7 +185,7 @@ export const APPROVAL_MATCHER = '^(execute_bash|execute_pwsh|shell|fs_write|str_
  * gatilhos em PascalCase (AgentSpawn é SessionStart no 3.x), `timeout` em SEGUNDOS (o 3.x ignora `timeout_ms`; sem
  * ele valem 60 s e a espera da aprovação morreria) e sem `matcher` quando é para todas as ferramentas.
  */
-export function v3Entries(command, approvalCommand) {
+export function v3Entries(command, approvalCommand, waitS = DEFAULT_WAIT_S) {
   const hooks = EVENTS.map(([v2, trigger]) => ({
     name: `habblaud-${v2}`,
     description: 'Habblaud: mostra a sessão no escritório (só observa, nunca bloqueia)',
@@ -189,7 +199,7 @@ export function v3Entries(command, approvalCommand) {
       description: 'Habblaud: aprovar/recusar permissões pelo escritório (recusar bloqueia a ferramenta)',
       trigger: 'PreToolUse',
       matcher: APPROVAL_MATCHER,
-      timeout: Math.ceil(APPROVAL_TIMEOUT_MS / 1_000),
+      timeout: Math.ceil(approvalTimeoutMs(waitS) / 1_000),
       action: { type: 'command', command: approvalCommand },
     });
   }
@@ -197,8 +207,8 @@ export function v3Entries(command, approvalCommand) {
 }
 
 /** Arquivo de hooks do 3.x (só do Habblaud). Com `approvalCommand`, acrescenta o hook de aprovação (PreToolUse). */
-export function v3File(command, approvalCommand) {
-  return { version: 'v1', hooks: v3Entries(command, approvalCommand) };
+export function v3File(command, approvalCommand, waitS = DEFAULT_WAIT_S) {
+  return { version: 'v1', hooks: v3Entries(command, approvalCommand, waitS) };
 }
 
 /** Major do Kiro CLI em `kiro-cli --version` ("kiro-cli 2.16.2" -> 2). */
@@ -347,7 +357,8 @@ export async function run(opts, ctx = {}) {
     if (approve) {
       out(`✓ aprovação pelo escritório LIGADA · hook em ${approvalPath} · espera ${waitS}s${tag}`);
       out(`  comando: ${approvalCommand}`);
-      out('  recusar pelo escritório bloqueia a ferramenta; aprovar libera o prompt do terminal.');
+      out('  recusar pelo escritório bloqueia a ferramenta; aprovar libera o prompt do terminal;');
+      out('  "não perguntar de novo" grava uma regra allow em <kiro>/settings/permissions.yaml|json (o uninstall tira).');
     } else out('  aprovação pelo escritório: desligada (use --aprovar para ligar)');
   }
 
@@ -368,7 +379,7 @@ export async function run(opts, ctx = {}) {
         failures++;
         continue;
       }
-      const { agent, changed } = addV2(r.value, command, approvalCommand);
+      const { agent, changed } = addV2(r.value, command, approvalCommand, waitS);
       if (!changed) out(`= ${basename(f)}: já tem o hook`);
       else if (opts.dryRun) out(`~ ${basename(f)}: entraria o hook${tag}`);
       else {
@@ -408,7 +419,7 @@ export async function run(opts, ctx = {}) {
   const v3 = join(kiroBase, 'hooks', V3_FILE);
   if (opts.command === 'install' && format === 'v3') {
     const cur = readJson(v3);
-    const next = v3File(command, approvalCommand);
+    const next = v3File(command, approvalCommand, waitS);
     if (!cur.error && !cur.value.hooks?.some?.(isOurs)) {
       out(`✗ ${v3} existe e não é do Habblaud; não mexi`);
       failures++;
@@ -431,6 +442,42 @@ export async function run(opts, ctx = {}) {
   if (opts.command === 'uninstall' && existsSync(approvalPath)) {
     if (!opts.dryRun) unlinkSync(approvalPath);
     out(`✓ ${approvalPath}: removido${tag}`);
+  }
+
+  // Regras "não perguntar de novo" que o hook de aprovação gravou no Kiro (anotadas em ~/.habblaud/kiro-rules.json).
+  const ledgerPath = join(habblaudDir, LEDGER_FILE);
+  if (opts.command === 'uninstall' && existsSync(ledgerPath)) {
+    const ledger = readJson(ledgerPath);
+    const entries = !ledger.error && Array.isArray(ledger.value.rules) ? ledger.value.rules.filter((e) => isObject(e) && typeof e.file === 'string' && isObject(e.rule)) : [];
+    const byFile = new Map();
+    for (const e of entries) byFile.set(e.file, [...(byFile.get(e.file) ?? []), e.rule]);
+    let left = false;
+    for (const [file, rules] of byFile) {
+      if (!existsSync(file)) continue;
+      const raw = readFileSync(file, 'utf8');
+      const { text, removed } = withoutRules(file, raw, rules);
+      if (removed < rules.length) {
+        left = true;
+        out(`! ${file}: ${rules.length - removed} regra(s) do Habblaud não achada(s) do jeito que foram gravadas (o Kiro pode ter juntado a outra); confira à mão`);
+      }
+      if (!removed) continue;
+      if (opts.dryRun) out(`~ ${file}: sairiam ${removed} regra(s) do Habblaud${tag}`);
+      else {
+        try {
+          const backup = `${file}.habblaud-backup-${stamp(now)}`;
+          copyFileSync(file, backup);
+          const tmp = `${file}.habblaud-tmp-${process.pid}`;
+          writeFileSync(tmp, text, { mode: statSync(file).mode & 0o777 });
+          renameSync(tmp, file);
+          out(`✓ ${file}: ${removed} regra(s) do Habblaud removida(s) · backup ${basename(backup)}`);
+        } catch (err) {
+          out(`✗ ${file}: ${err.message}`);
+          failures++;
+          left = true;
+        }
+      }
+    }
+    if (!opts.dryRun && !left) unlinkSync(ledgerPath);
   }
 
   if (opts.command === 'status') {
@@ -469,7 +516,8 @@ export async function run(opts, ctx = {}) {
 const USAGE = `Uso: node mod/habblaud-kiro/install.mjs <install|uninstall|status> [opções]
 
   install     copia o hook para ~/.habblaud e o registra no Kiro CLI (2.x: nos agentes; 3.x: em hooks/habblaud.json)
-  uninstall   tira o hook do Habblaud dos agentes e apaga hooks/habblaud.json (os seus hooks ficam)
+  uninstall   tira o hook do Habblaud dos agentes, apaga hooks/habblaud.json (os seus hooks ficam) e tira as regras
+              "não perguntar de novo" que o escritório gravou em <kiro>/settings/permissions.yaml|json
   status      mostra onde o hook está e se o Habblaud está recebendo
 
 Opções:

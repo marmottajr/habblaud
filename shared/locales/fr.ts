@@ -3326,4 +3326,8 @@ export const FR: Readonly<Record<string, string>> = {
   "Carimbo deixado na portaria: {0}": "Tampon laissé à l'accueil : {0}",
   "Entre no prédio ou chegue mais perto da porta para carimbar.": "Entrez dans l'immeuble ou approchez-vous de la porte pour tamponner.",
   "O carimbo não foi deixado. Tente de novo.": "Le tampon n'a pas été laissé. Réessayez.",
+  "Eventos do Kiro: falha ao soltar um pedido de permissão ({0}).": "Événements de Kiro : échec de la libération d'une demande d’autorisation ({0}).",
+  "qualquer comando no shell": "n'importe quelle commande dans le shell",
+  "qualquer escrita de arquivo": "n'importe quelle écriture de fichier",
+  "comandos que começam com “{0}”": "commandes qui commencent par « {0} »",
 };

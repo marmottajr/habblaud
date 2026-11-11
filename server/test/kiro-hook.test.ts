@@ -246,3 +246,32 @@ describe('install.mjs: run em pastas temporárias', () => {
     expect(c.lines.join('\n')).toMatch(/--formato/);
   });
 });
+
+describe('PostToolUse do hook de observar solta o cartão de aprovação (rota de verdade)', () => {
+  it('o hook.mjs manda o PostToolUse e o cartão do mesmo comando some na hora; o long-poll do hook de aprovação sai', async () => {
+    const { handleKiroEvent } = await import('../kiro/http');
+    const { PermissionRegistry } = await import('../permissions/registry');
+    const { Office } = await import('../model/office');
+    const { NameStore } = await import('../model/names');
+    const { setQuiet } = await import('../log');
+    setQuiet(true);
+    let registry: InstanceType<typeof PermissionRegistry> | undefined;
+    const office = new Office({ names: new NameStore(null), version: 't', startedAt: 0, accounts: () => [], sources: () => [], accountName: () => undefined, permissions: () => registry?.snapshot() ?? new Map() });
+    office.addMain({ id: 'kiro-s1', provider: 'kiro', account: '.kiro', sessionId: 'kiro-s1', cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'working' });
+    registry = new PermissionRegistry({ office, viewers: () => 1 });
+    const reg = registry.register({ provider: 'kiro', session_id: 'kiro-s1', cwd: '/p/loja', tool_name: 'execute_bash', tool_input: { command: 'npm test' }, timeout_ms: 300_000 });
+    if ('skip' in reg) throw new Error(reg.skip);
+    const wait = registry.wait(reg.id, 20_000)!;
+
+    const s = createServer((req, res) => void handleKiroEvent(req, res, { permissions: registry }).catch(() => res.writeHead(500).end()));
+    servers.push(s);
+    await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok));
+    const port = (s.address() as AddressInfo).port;
+    const home = tmp();
+    const post = JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 'kiro-s1', cwd: '/p/loja', tool_name: 'execute_bash', tool_input: { command: 'npm test' }, tool_response: { success: true } });
+    const r = await runHook(post, { ...process.env, HOME: home, USERPROFILE: home, HABBLAUD_PORT: String(port) });
+    expect(r.code).toBe(0);
+    expect(await wait.result).toEqual({ status: 'released', reason: 'answered' });
+    expect(office.commit().snapshot.agents.find((a) => a.id === 'kiro-s1')?.permission).toBeUndefined();
+  });
+});
