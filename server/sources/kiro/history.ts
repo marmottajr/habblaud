@@ -1,6 +1,6 @@
 // Histórico do terminal do Kiro (o HistoryProvider 'kiro', ver sources/source.ts): as conversas recentes
-// de cada conta do Kiro (abertas ou já encerradas), listadas a partir de ~/.kiro/sessions/cli/*.json e *.jsonl
-// modificados nos últimos 7 dias.
+// de cada conta do Kiro (abertas ou já encerradas), listadas a partir de ~/.kiro/sessions/cli/*.json e *.jsonl (2.x)
+// e de ~/.kiro/sessions/<hash>/<sessionId>/session.json + messages.jsonl (3.x), modificados nos últimos 7 dias.
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
@@ -10,6 +10,7 @@ import type { HistoryProvider, HistoryResolveResult } from '../source';
 import { encodeCwd } from '../watcher';
 import { KiroTerminalParser } from './terminal';
 import { cleanKiroPrompt, cleanKiroTitle } from './parser';
+import { kiroV3TranscriptPath, listKiroV3Sessions } from './v3paths';
 import { tr } from '../../../shared/i18n';
 
 const READ_CONCURRENCY = 8;
@@ -44,7 +45,9 @@ export interface KiroSessionSummary {
 interface Candidate {
   account: string;
   sessionId: string;
+  /** 2.x: <id>.json; 3.x: session.json. */
   jsonPath: string;
+  /** 2.x: <id>.jsonl; 3.x: messages.jsonl. */
   jsonlPath?: string;
   dir: string;
   mtimeMs: number;
@@ -75,7 +78,7 @@ export class KiroHistory implements HistoryProvider {
     const list = accs.length ? accs : [{ id: '.kiro', dir: this.opts.dir ?? join(process.env.HOME || '', '.kiro') }];
     const all: Candidate[] = [];
     for (const acc of list) {
-      all.push(...(await this.candidates(acc, now)));
+      all.push(...(await this.candidates(acc, now)), ...(await this.candidatesV3(acc, now)));
     }
     all.sort((a, b) => b.mtimeMs - a.mtimeMs);
     const picked = all.slice(0, this.limit);
@@ -110,19 +113,37 @@ export class KiroHistory implements HistoryProvider {
     if (!isKiroSessionId(sessionId)) return { status: 400, error: tr('id de sessão inválido') };
     if (!this.hasAccount(account)) return { status: 404, error: tr('conta desconhecida') };
     const acc = this.opts.accounts().find((a) => a.id === account) ?? { id: account, dir: this.opts.dir ?? join(process.env.HOME || '', '.kiro') };
+    return this.resolveV2(acc, sessionId) ?? this.resolveV3(acc, sessionId) ?? { status: 404, error: tr('sessão não encontrada') };
+  }
+
+  /** 3.x: o messages.jsonl de <kiroDir>/sessions/<hash>/<sessionId>/, sem sair de <kiroDir>/sessions. */
+  private resolveV3(acc: { dir: string }, sessionId: string): HistoryResolveResult | undefined {
+    const path = kiroV3TranscriptPath(acc.dir, sessionId);
+    if (!path) return undefined;
+    try {
+      const root = realpathSync(join(acc.dir, 'sessions'));
+      const real = realpathSync(path);
+      if (!real.startsWith(root + sep) || !statSync(real).isFile()) return undefined;
+      return { path: real, createParser: () => new KiroTerminalParser() };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private resolveV2(acc: { dir: string }, sessionId: string): HistoryResolveResult | undefined {
     const dir = this.sessionsDirOf(acc);
     let root: string;
     try {
       root = realpathSync(dir);
     } catch {
-      return { status: 404, error: tr('sessão não encontrada') };
+      return undefined;
     }
 
     const jsonl = join(dir, `${sessionId}.jsonl`);
     if (existsSync(jsonl)) {
       try {
         const real = realpathSync(jsonl);
-        if (!real.startsWith(root + sep)) return { status: 404, error: tr('sessão não encontrada') };
+        if (!real.startsWith(root + sep)) return undefined;
         if (statSync(real).isFile()) {
           return { path: real, createParser: () => new KiroTerminalParser() };
         }
@@ -135,7 +156,7 @@ export class KiroHistory implements HistoryProvider {
     if (existsSync(json)) {
       try {
         const real = realpathSync(json);
-        if (!real.startsWith(root + sep)) return { status: 404, error: tr('sessão não encontrada') };
+        if (!real.startsWith(root + sep)) return undefined;
         if (statSync(real).isFile()) {
           return { path: real, createParser: () => new KiroTerminalParser() };
         }
@@ -144,7 +165,7 @@ export class KiroHistory implements HistoryProvider {
       }
     }
 
-    return { status: 404, error: tr('sessão não encontrada') };
+    return undefined;
   }
 
   private sessionsDirOf(acc?: { dir: string }): string {
@@ -200,6 +221,23 @@ export class KiroHistory implements HistoryProvider {
     return out;
   }
 
+  /** Sessões do 3.x da conta (a data é a do messages.jsonl). */
+  private async candidatesV3(acc: KiroHistoryAccount, now: number): Promise<Candidate[]> {
+    const out: Candidate[] = [];
+    for (const ref of await listKiroV3Sessions(acc.dir)) {
+      if (!isKiroSessionId(ref.sessionId)) continue;
+      const jsonlPath = join(ref.dir, 'messages.jsonl');
+      try {
+        const st = await stat(jsonlPath);
+        if (!st.isFile() || now - st.mtimeMs > this.maxAgeMs) continue;
+        out.push({ account: acc.id, sessionId: ref.sessionId, jsonPath: join(ref.dir, 'session.json'), jsonlPath, dir: ref.dir, mtimeMs: st.mtimeMs, size: st.size });
+      } catch {
+        // sumiu
+      }
+    }
+    return out;
+  }
+
   private async summaryOf(c: Candidate): Promise<KiroSessionSummary> {
     const cached = this.cache.get(c.jsonPath);
     if (cached && cached.mtimeMs === c.mtimeMs && cached.size === c.size) {
@@ -215,8 +253,13 @@ export class KiroHistory implements HistoryProvider {
       const raw = await readFile(c.jsonPath, 'utf8');
       const meta = JSON.parse(raw) as Record<string, unknown>;
       if (typeof meta.cwd === 'string') cwd = meta.cwd;
+      // 3.x: pasta de trabalho = workspacePaths[0]; criação = createdAt.
+      else if (Array.isArray(meta.workspacePaths) && typeof meta.workspacePaths[0] === 'string') cwd = meta.workspacePaths[0];
       if (typeof meta.title === 'string') title = cleanKiroTitle(meta.title);
-      if (typeof meta.started_at === 'string') {
+      if (typeof meta.createdAt === 'string') {
+        const ms = Date.parse(meta.createdAt);
+        if (!Number.isNaN(ms)) firstAt = ms;
+      } else if (typeof meta.started_at === 'string') {
         const ms = Date.parse(meta.started_at);
         if (!Number.isNaN(ms)) firstAt = ms;
       } else if (typeof meta.created_at === 'string') {
@@ -242,7 +285,17 @@ export class KiroHistory implements HistoryProvider {
           for (const line of lines) {
             if (!line.trim()) continue;
             try {
-              const p = JSON.parse(line) as { kind?: string; data?: { content?: Array<{ kind: string; data: unknown }> } };
+              const p = JSON.parse(line) as {
+                kind?: string;
+                data?: { content?: Array<{ kind: string; data: unknown }> };
+                payload?: { type?: string; content?: unknown };
+              };
+              // 3.x: o primeiro {payload: {type: 'user', content}}.
+              if (p.payload?.type === 'user') {
+                const text = typeof p.payload.content === 'string' ? cleanKiroPrompt(p.payload.content) : '';
+                if (text) title = text.slice(0, 90);
+                break;
+              }
               if (p.kind === 'Prompt') {
                 const contents = p.data?.content || [];
                 const textPart = contents.find((x) => x.kind === 'text');
