@@ -77,7 +77,7 @@ describe('responder pelo escritório (peças puras)', () => {
       seconds: false,
       note: KIRO_PERMISSION_NOTE,
     });
-    expect(KIRO_PERMISSION_NOTE).toBe('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente); aprovar libera o pedido para você confirmar no terminal.');
+    expect(KIRO_PERMISSION_NOTE).toBe('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente). Aprovar libera o pedido: se o Kiro já confia na ferramenta, ela roda direto; senão, confirme no terminal.');
     // Kiro nunca pergunta (AskUserQuestion).
     expect(isQuestionRequest({ provider: 'kiro', tool: 'AskUserQuestion', questions: [{ index: 0, question: 'q', options: [] }] })).toBe(false);
   });

@@ -1,10 +1,10 @@
 // Hook de aprovação do Kiro (mod/habblaud-kiro/approval-hook.mjs): decisão (deny bloqueia, resto libera), regra de
 // gating (só shell/escrita), corpo do pedido e a leitura da config. E as funções do instalador para o hook de
 // aprovação (entradas 2.x/3.x, reconhecimento, add/remove).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -31,6 +31,9 @@ interface InstallModule {
   addV2(agent: Rec, command: string, approvalCommand?: string): { agent: Rec; changed: boolean };
   removeV2(agent: Rec): { agent: Rec; changed: boolean };
   hasApprovalV2(agent: Rec): boolean;
+  hasAnyHabblaud(agent: Rec): boolean;
+  hookCommand(node: string, hook: string, platform: string, opts?: { strict?: boolean }): string;
+  run(opts: Rec, ctx: Rec): Promise<number>;
   v3File(command: string, approvalCommand?: string): { version: string; hooks: Rec[] };
   APPROVAL_TIMEOUT_MS: number;
 }
@@ -173,10 +176,68 @@ describe('instalador: hook de aprovação', () => {
     expect(clean.hooks).toBeUndefined();
   });
 
+  it('removeV2 entende o agente migrado para o 3.x (hooks em lista) e mantém os hooks dos outros', () => {
+    const mine = { name: 'guard', trigger: 'preToolUse', action: { type: 'command', command: 'guard.sh' } };
+    const migrated = {
+      name: 'a',
+      hooks: [
+        { name: 'agentSpawn-0', trigger: 'agentSpawn', action: { type: 'command', command: OBS }, timeout: 3 },
+        { name: 'preToolUse-1', trigger: 'preToolUse', matcher: '*', action: { type: 'command', command: APP }, timeout: 310 },
+        mine,
+      ],
+    };
+    const { agent, changed } = inst.removeV2(migrated);
+    expect(changed).toBe(true);
+    expect(agent.hooks).toEqual([mine]);
+    expect(inst.hasAnyHabblaud(migrated)).toBe(true);
+    expect(inst.hasAnyHabblaud(agent)).toBe(false);
+  });
+
+  it('comando de aprovação instalado: a recusa (exit 2 + motivo) chega ao Kiro; o de observar segue engolindo erros', () => {
+    if (process.platform === 'win32') return;
+    const d = tmp();
+    const fake = join(d, 'kiro-approval-hook.mjs');
+    writeFileSync(fake, 'process.stderr.write("Recusado pelo usuário no Habblaud."); process.exitCode = 2;\n');
+    const sh = (cmd: string) => spawnSync('sh', ['-c', cmd], { encoding: 'utf8' });
+    const strict = sh(inst.hookCommand(process.execPath, fake, 'linux', { strict: true }));
+    expect(strict.status).toBe(2);
+    expect(strict.stderr).toContain('Recusado pelo usuário no Habblaud.');
+    // O de observar nunca pode bloquear: `|| true` vira 0 (e foi esse comando que, usado na aprovação, apagava a recusa).
+    expect(sh(inst.hookCommand(process.execPath, fake, 'linux')).status).toBe(0);
+    expect(inst.hookCommand('node', 'C:\\h\\kiro-approval-hook.mjs', 'win32', { strict: true })).toBe('node C:\\h\\kiro-approval-hook.mjs');
+  });
+
+  it('install --aprovar no 3.x: grava hooks/habblaud.json e tira as entradas antigas dos agentes (sem duplicar)', async () => {
+    const home = tmp();
+    const agents = join(home, '.kiro', 'agents');
+    mkdirSync(agents, { recursive: true });
+    const old2 = inst.addV2({ name: 'velho' }, '/n/node /h/.habblaud/kiro-hook.mjs 2>/dev/null || true', '/n/node /h/.habblaud/kiro-approval-hook.mjs 2>/dev/null || true').agent;
+    writeFileSync(join(agents, 'velho.json'), JSON.stringify(old2));
+    writeFileSync(join(agents, 'migrado.json'), JSON.stringify({ name: 'migrado', hooks: [{ name: 'x', trigger: 'stop', action: { type: 'command', command: '/n/node /h/.habblaud/kiro-hook.mjs || true' } }] }));
+    const src = tmp();
+    writeFileSync(join(src, 'hook.mjs'), '');
+    writeFileSync(join(src, 'approval.mjs'), '');
+    const lines: string[] = [];
+    const code = await inst.run(
+      { command: 'install', format: 'v3', approve: true },
+      { home, env: {}, out: (l: string) => lines.push(l), nodeBin: '/n/node', platform: 'linux', hookSource: join(src, 'hook.mjs'), approvalSource: join(src, 'approval.mjs') },
+    );
+    expect(code).toBe(0);
+    const file = JSON.parse(readFileSync(join(home, '.kiro', 'hooks', 'habblaud.json'), 'utf8')) as { hooks: Rec[] };
+    const approval = file.hooks.find((x) => x.name === 'habblaud-approval') as Rec;
+    expect((approval.action as Rec).command).not.toContain('|| true');
+    for (const n of ['velho', 'migrado']) expect(inst.hasAnyHabblaud(JSON.parse(readFileSync(join(agents, `${n}.json`), 'utf8')) as Rec)).toBe(false);
+  });
+
   it('v3File com approvalCommand acrescenta o hook habblaud-approval (PreToolUse, timeout grande)', () => {
     const file = inst.v3File(OBS, APP);
     const approval = file.hooks.find((hk) => hk.name === 'habblaud-approval');
-    expect(approval).toMatchObject({ trigger: 'PreToolUse', matcher: '*', timeout_ms: inst.APPROVAL_TIMEOUT_MS, action: { type: 'command', command: APP } });
+    // `*` sozinho é regex inválida no 3.x (o hook seria descartado); `timeout` em segundos (o 3.x ignora timeout_ms).
+    expect(approval).toMatchObject({ trigger: 'PreToolUse', timeout: Math.ceil(inst.APPROVAL_TIMEOUT_MS / 1_000), action: { type: 'command', command: APP } });
+    expect('timeout_ms' in (approval as Rec)).toBe(false);
+    const re = new RegExp(String((approval as Rec).matcher));
+    for (const t of ['execute_bash', 'execute_pwsh', 'shell', 'fs_write', 'str_replace', 'write']) expect(re.test(t)).toBe(true);
+    for (const t of ['fs_read', 'grep', 'glob', 'execute_bash_x']) expect(re.test(t)).toBe(false);
     // Sem o comando: não aparece.
     expect(inst.v3File(OBS).hooks.find((hk) => hk.name === 'habblaud-approval')).toBeUndefined();
   });

@@ -48,7 +48,7 @@ export function expiryText(expiresAt: number, now: number, seconds = false): str
 export const CODEX_PERMISSION_NOTE = tr('No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.');
 
 /** Aviso do cartão de um pedido do Kiro. */
-export const KIRO_PERMISSION_NOTE = tr('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente); aprovar libera o pedido para você confirmar no terminal.');
+export const KIRO_PERMISSION_NOTE = tr('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente). Aprovar libera o pedido: se o Kiro já confia na ferramenta, ela roda direto; senão, confirme no terminal.');
 
 /** O que o cartão oferece para um pedido (muda com a ferramenta). */
 export interface PermissionOptions {

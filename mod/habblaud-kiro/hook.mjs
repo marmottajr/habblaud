@@ -24,8 +24,8 @@ import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_PORT = 4747;
 export const CONFIG_FILE = 'kiro-hook.json';
-/** Nome canônico (3.x) de cada evento; o 2.x manda em camelCase. */
-export const EVENTS = { agentspawn: 'AgentSpawn', userpromptsubmit: 'UserPromptSubmit', pretooluse: 'PreToolUse', posttooluse: 'PostToolUse', stop: 'Stop' };
+/** Nome canônico (3.x) de cada evento; o 2.x manda em camelCase. O 3.x chama o início da sessão de SessionStart. */
+export const EVENTS = { agentspawn: 'AgentSpawn', sessionstart: 'AgentSpawn', userpromptsubmit: 'UserPromptSubmit', pretooluse: 'PreToolUse', posttooluse: 'PostToolUse', stop: 'Stop' };
 /** O Kiro espera o hook terminar antes de seguir: o envio tem prazo curto. */
 const EVENT_TIMEOUT_MS = 800;
 const STDIN_TIMEOUT_MS = 2_000;

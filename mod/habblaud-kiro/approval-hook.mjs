@@ -7,13 +7,16 @@
 // ~/.habblaud/kiro-hook.json com {approve:true, wait:<s>} e registra uma entrada PreToolUse com um timeout_ms grande
 // (para o Kiro não matar a espera).
 //
-// Em qual mecanismo isto se apoia (Kiro CLI 2.16.2, testado): o `{permissionDecision:allow|deny}` do stdout é de 3.x
-// e é IGNORADO no 2.x. O que vale no 2.x é o código de saída:
+// Em qual mecanismo isto se apoia (conferido no executor de hooks do Kiro CLI 2.16.2 e do 3.2.0): o PreToolUse só
+// sabe BLOQUEAR (exit 2) ou PEDIR confirmação ({permissionDecision:"ask"} no stdout); não existe `allow` por hook em
+// nenhuma das duas versões. Por isso:
 //   - exit 2  -> BLOQUEIA a ferramenta; o STDERR vira o motivo entregue ao modelo;
-//   - exit 0 sem stderr -> fluxo normal (o terminal ainda mostra o [y/n/t] para você confirmar).
-// Por isso: RECUSAR pelo escritório = exit 2 + motivo no stderr (funciona por inteiro). APROVAR pelo escritório = exit 0
-// (o Kiro não tem auto-allow por hook no 2.x: a ferramenta ainda passa pelo prompt do terminal). Timeout do hook,
-// erro ou Habblaud fora do ar: exit 0 sem nada (o terminal decide).
+//   - exit 0 sem nada -> fluxo normal: ferramenta que o Kiro já confia roda direto; as outras ainda passam pelo
+//     [y/n/t] do terminal.
+// RECUSAR pelo escritório = exit 2 + motivo no stderr (funciona por inteiro). APROVAR pelo escritório = exit 0: para a
+// aprovação do escritório ser a única, confie a ferramenta no Kiro (o escritório vira o porteiro). O instalador
+// registra este hook SEM `|| true` (o código de saída e o stderr precisam chegar ao Kiro). Timeout do hook, erro ou
+// Habblaud fora do ar: exit 0 sem nada.
 //
 // O hook:
 // 1. só age se ~/.habblaud/kiro-hook.json tiver {approve:true} (opt-in) e se a ferramenta precisar de aprovação
@@ -44,8 +47,8 @@ const STDIN_TIMEOUT_MS = 5_000;
 const MAX_STDIN = 8 * 1024 * 1024;
 const MAX_STRING = 8_000;
 const MAX_BODY = 200_000;
-/** Ferramentas do Kiro que pedem aprovação (shell e escrita); leitura/busca passam direto. */
-export const APPROVAL_TOOLS = new Set(['shell', 'execute_bash', 'execute_cmd', 'execute_pwsh', 'bash', 'execute', 'fs_write', 'write', 'write_file']);
+/** Ferramentas do Kiro que pedem aprovação (shell e escrita; 3.x: execute_bash/execute_pwsh, fs_write e str_replace); leitura/busca passam direto. */
+export const APPROVAL_TOOLS = new Set(['shell', 'execute_bash', 'execute_cmd', 'execute_pwsh', 'bash', 'execute', 'fs_write', 'write', 'write_file', 'str_replace']);
 
 const debug = process.env.HABBLAUD_HOOK_DEBUG === '1' ? (msg) => process.stderr.write(`[habblaud-kiro-approval] ${msg}\n`) : () => {};
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);

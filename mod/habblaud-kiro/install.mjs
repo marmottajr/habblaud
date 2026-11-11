@@ -62,12 +62,15 @@ function shQuote(p) {
  * Comando do hook. Nunca deixa o Kiro ver um erro: no PreToolUse, hook que falha bloqueia a ferramenta.
  * Windows (cmd.exe): `node C:\...\kiro-hook.mjs 2>nul & exit /b 0` (aspas só no Node, e só com espaço no caminho).
  */
-export function hookCommand(nodeBin, hookPath, platform = process.platform) {
+export function hookCommand(nodeBin, hookPath, platform = process.platform, opts = {}) {
+  // `strict` (hook de aprovação): o código de saída e o stderr chegam ao Kiro como estão. Recusar É o `exit 2` + o motivo
+  // no stderr; com `|| true` / `exit /b 0` o Kiro nunca veria a recusa. Só o `exit 2` bloqueia (qualquer outro código,
+  // inclusive node/arquivo sumido, é falha silenciosa que não bloqueia: conferido no executor de hooks do 2.16 e do 3.2).
   if (platform === 'win32') {
     const q = (p) => (/\s/.test(p) ? `"${p}"` : p);
-    return `${q(nodeBin)} ${q(hookPath)} 2>nul & exit /b 0`;
+    return opts.strict ? `${q(nodeBin)} ${q(hookPath)}` : `${q(nodeBin)} ${q(hookPath)} 2>nul & exit /b 0`;
   }
-  return `${shQuote(nodeBin)} ${shQuote(hookPath)} 2>/dev/null || true`;
+  return opts.strict ? `${shQuote(nodeBin)} ${shQuote(hookPath)}` : `${shQuote(nodeBin)} ${shQuote(hookPath)} 2>/dev/null || true`;
 }
 
 export function isOurs(entry) {
@@ -124,6 +127,15 @@ export function addV2(agent, command, approvalCommand) {
 
 /** Agente sem as entradas do Habblaud (observar e aprovar; listas que ficam vazias saem; `hooks` vazio sai). */
 export function removeV2(agent) {
+  // Agente migrado para o 3.x (`/upgrade-agent`): `hooks` é uma lista de {name, trigger, action:{command}}.
+  if (Array.isArray(agent.hooks)) {
+    const kept = agent.hooks.filter((e) => !isOurs(e) && !isApproval(e));
+    if (kept.length === agent.hooks.length) return { agent, changed: false };
+    const next = { ...agent };
+    if (kept.length) next.hooks = kept;
+    else delete next.hooks;
+    return { agent: next, changed: true };
+  }
   if (!isObject(agent.hooks)) return { agent, changed: false };
   const hooks = {};
   for (const [k, v] of Object.entries(agent.hooks)) {
@@ -144,19 +156,31 @@ export function hasV2(agent) {
   return isObject(agent.hooks) && EVENTS.every(([e]) => Array.isArray(agent.hooks[e]) && agent.hooks[e].some(isOurs));
 }
 
+/** Agente (2.x ou já migrado para o 3.x) com alguma entrada do Habblaud. */
+export function hasAnyHabblaud(agent) {
+  if (Array.isArray(agent.hooks)) return agent.hooks.some((e) => isOurs(e) || isApproval(e));
+  return isObject(agent.hooks) && Object.values(agent.hooks).some((v) => Array.isArray(v) && v.some((e) => isOurs(e) || isApproval(e)));
+}
+
 /** O agente tem a entrada de aprovação (no preToolUse). */
 export function hasApprovalV2(agent) {
   return isObject(agent.hooks) && Array.isArray(agent.hooks.preToolUse) && agent.hooks.preToolUse.some(isApproval);
 }
 
-/** Arquivo de hooks do 3.x (só do Habblaud). Com `approvalCommand`, acrescenta o hook de aprovação (PreToolUse). */
-export function v3File(command, approvalCommand) {
+/** Ferramentas do Kiro que o hook de aprovação trata (regex do `matcher` do 3.x: `*` sozinho é regex inválida e o 3.x descarta o hook). */
+export const APPROVAL_MATCHER = '^(execute_bash|execute_pwsh|shell|fs_write|str_replace|write)$';
+
+/**
+ * Entradas de hook no formato do 3.x (arquivo hooks/habblaud.json e agentes já migrados, onde `hooks` é uma lista):
+ * gatilhos em PascalCase (AgentSpawn é SessionStart no 3.x), `timeout` em SEGUNDOS (o 3.x ignora `timeout_ms`; sem
+ * ele valem 60 s e a espera da aprovação morreria) e sem `matcher` quando é para todas as ferramentas.
+ */
+export function v3Entries(command, approvalCommand) {
   const hooks = EVENTS.map(([v2, trigger]) => ({
     name: `habblaud-${v2}`,
     description: 'Habblaud: mostra a sessão no escritório (só observa, nunca bloqueia)',
-    trigger,
-    ...(TOOL_EVENTS.has(v2) ? { matcher: '*' } : {}),
-    timeout_ms: TIMEOUT_MS,
+    trigger: trigger === 'AgentSpawn' ? 'SessionStart' : trigger,
+    timeout: Math.ceil(TIMEOUT_MS / 1_000),
     action: { type: 'command', command },
   }));
   if (approvalCommand) {
@@ -164,12 +188,17 @@ export function v3File(command, approvalCommand) {
       name: 'habblaud-approval',
       description: 'Habblaud: aprovar/recusar permissões pelo escritório (recusar bloqueia a ferramenta)',
       trigger: 'PreToolUse',
-      matcher: '*',
-      timeout_ms: APPROVAL_TIMEOUT_MS,
+      matcher: APPROVAL_MATCHER,
+      timeout: Math.ceil(APPROVAL_TIMEOUT_MS / 1_000),
       action: { type: 'command', command: approvalCommand },
     });
   }
-  return { version: 'v1', hooks };
+  return hooks;
+}
+
+/** Arquivo de hooks do 3.x (só do Habblaud). Com `approvalCommand`, acrescenta o hook de aprovação (PreToolUse). */
+export function v3File(command, approvalCommand) {
+  return { version: 'v1', hooks: v3Entries(command, approvalCommand) };
 }
 
 /** Major do Kiro CLI em `kiro-cli --version` ("kiro-cli 2.16.2" -> 2). */
@@ -302,7 +331,7 @@ export async function run(opts, ctx = {}) {
   const command = hookCommand(ctx.nodeBin ?? chooseNode(), hookPath, ctx.platform ?? process.platform);
   const approvalPath = join(habblaudDir, APPROVAL_HOOK_NAME);
   const approve = opts.approve === true;
-  const approvalCommand = approve ? hookCommand(ctx.nodeBin ?? chooseNode(), approvalPath, ctx.platform ?? process.platform) : undefined;
+  const approvalCommand = approve ? hookCommand(ctx.nodeBin ?? chooseNode(), approvalPath, ctx.platform ?? process.platform, { strict: true }) : undefined;
   const port = opts.port ?? (Number.parseInt(env.HABBLAUD_PORT ?? '', 10) || DEFAULT_PORT);
   const waitS = opts.waitS ?? DEFAULT_WAIT_S;
 
@@ -353,17 +382,20 @@ export async function run(opts, ctx = {}) {
       }
     }
   }
-  if (opts.command === 'uninstall') {
+  if (opts.command === 'uninstall' || (opts.command === 'install' && format === 'v3')) {
+    // 3.x: o arquivo hooks/habblaud.json vale para todos os agentes; as entradas antigas nos agentes (2.x ou migradas
+    // pelo /upgrade-agent) fariam cada evento rodar duas vezes (e dois cartões de aprovação): saem.
     for (const f of files) {
+      if (opts.command === 'install' && isManagedAgent(f)) continue;
       const r = readJson(f);
       if (r.error) continue;
       const { agent, changed } = removeV2(r.value);
       if (!changed) continue;
-      if (opts.dryRun) out(`~ ${basename(f)}: sairia o hook${tag}`);
+      if (opts.dryRun) out(`~ ${basename(f)}: sairia o hook${opts.command === 'install' ? ' (fica só o hooks/habblaud.json)' : ''}${tag}`);
       else {
         try {
           const b = writeJson(f, agent, r.raw, now);
-          out(`✓ ${basename(f)}: hook removido · backup ${basename(b)}`);
+          out(`✓ ${basename(f)}: hook removido${opts.command === 'install' ? ' (fica só o hooks/habblaud.json)' : ''} · backup ${basename(b)}`);
         } catch (err) {
           out(`✗ ${basename(f)}: ${err.message}`);
           failures++;
@@ -404,9 +436,9 @@ export async function run(opts, ctx = {}) {
   if (opts.command === 'status') {
     const withHook = files.filter((f) => {
       const r = readJson(f);
-      return !r.error && hasV2(r.value);
+      return !r.error && hasAnyHabblaud(r.value);
     });
-    out(`Agentes com o hook (2.x): ${withHook.length ? withHook.map((f) => basename(f, '.json')).join(', ') : 'nenhum'}`);
+    out(`Agentes com o hook: ${withHook.length ? withHook.map((f) => basename(f, '.json')).join(', ') : 'nenhum'}${format === 'v3' && withHook.length ? ' (no 3.x isto duplica o hooks/habblaud.json: rode kiro:install de novo)' : ''}`);
     const withApproval = files.filter((f) => {
       const r = readJson(f);
       return !r.error && hasApprovalV2(r.value);

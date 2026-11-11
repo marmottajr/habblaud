@@ -27,6 +27,8 @@ function str(v: unknown): string | undefined {
 /** Nome de ferramenta do Claude Code equivalente, para reaproveitar o toolView (título + prévia). */
 function claudeName(tool: string, input: Rec): string | undefined {
   if (KIRO_SHELL_TOOLS.has(tool)) return 'Bash';
+  // 3.x: str_replace {path, old_str, new_str} = edição (diff do trecho).
+  if (tool === 'str_replace') return 'Edit';
   // Edição/escrita de arquivo (2.x: write com command create|strReplace; 3.x: fs_write com path+text).
   if (/^(write|fs_write|write_file)$/.test(tool)) return 'Write';
   if (/^(read|fs_read|read_file)$/.test(tool)) return 'Read';
@@ -52,6 +54,10 @@ export function kiroToolView(tool: string, input: Rec, cwd?: string): KiroToolVi
       if (mapped.content === undefined) mapped.content = str(input.text) ?? str(input.file_text) ?? str(input.new_str) ?? str(input.command);
     } else if (name === 'Read') {
       if (mapped.file_path === undefined) mapped.file_path = input.path;
+    } else if (name === 'Edit') {
+      if (mapped.file_path === undefined) mapped.file_path = input.path;
+      if (mapped.old_string === undefined) mapped.old_string = str(input.old_str) ?? '';
+      if (mapped.new_string === undefined) mapped.new_string = str(input.new_str) ?? '';
     }
     const view = toolView(name, mapped, cwd);
     return { title: view.title, text: desc.text, icon: desc.icon, ...(view.input ? { input: view.input, inputKind: view.inputKind } : {}) };

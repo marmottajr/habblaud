@@ -5,6 +5,8 @@ export type KiroHookName = 'AgentSpawn' | 'UserPromptSubmit' | 'PreToolUse' | 'P
 
 const NAMES: Record<string, KiroHookName> = {
   agentspawn: 'AgentSpawn',
+  // Kiro CLI 3.x: o início da sessão é SessionStart.
+  sessionstart: 'AgentSpawn',
   userpromptsubmit: 'UserPromptSubmit',
   pretooluse: 'PreToolUse',
   posttooluse: 'PostToolUse',

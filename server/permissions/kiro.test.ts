@@ -26,6 +26,14 @@ describe('kiroToolView', () => {
     expect(v.input).toContain('x = 1');
   });
 
+  it('str_replace (3.x): {path, old_str, new_str} vira diff do trecho editado', () => {
+    const v = kiroToolView('str_replace', { path: '/p/loja/x.ts', old_str: 'const x = 1;', new_str: 'const x = 2;' });
+    expect(v.title).toMatch(/^Edit\(/);
+    expect(v.inputKind).toBe('diff');
+    expect(v.input).toContain('x = 1');
+    expect(v.input).toContain('x = 2');
+  });
+
   it('read passa pelo genérico sem quebrar', () => {
     const v = kiroToolView('read', { operations: [{ mode: 'Line', path: '/a.ts' }] });
     expect(v.title).toBeTruthy();

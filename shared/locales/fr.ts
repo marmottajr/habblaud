@@ -497,7 +497,7 @@ export const FR: Readonly<Record<string, string>> = {
   "volta ao terminal em menos de 1 min": "retour au terminal dans moins d'1 min",
   "volta ao terminal em {0}": "retour au terminal dans {0}",
   "No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.": "Dans Codex, la validation n'apparaît dans le terminal qu'une fois que vous avez répondu ici ou que le délai est écoulé.",
-  "No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente); aprovar libera o pedido para você confirmar no terminal.": "Dans Kiro, refuser ici bloque l'outil (le motif est transmis à l'agent) ; approuver libère la demande pour que vous la confirmiez dans le terminal.",
+  "No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente). Aprovar libera o pedido: se o Kiro já confia na ferramenta, ela roda direto; senão, confirme no terminal.": "Dans Kiro, refuser ici bloque l'outil (la raison est transmise à l'agent). Approuver libère la demande : si Kiro fait déjà confiance à l'outil, il s'exécute directement ; sinon, confirmez-la dans le terminal.",
   "Este subagente roda em segundo plano: o terminal só mostra o pedido depois que você responder aqui ou escolher “Responder no terminal”.": "Ce sous-agent tourne en arrière-plan : le terminal n'affiche la demande qu'une fois que vous avez répondu ici ou choisi « Répondre dans le terminal ».",
   "recolher": "replier",
   "Aprovado": "Validé",

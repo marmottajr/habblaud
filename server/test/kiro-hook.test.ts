@@ -173,8 +173,10 @@ describe('install.mjs: funções', () => {
     expect(inst.kiroMajor('kiro-cli 3.0.0')).toBe(3);
     const f = inst.v3File('node /h/kiro-hook.mjs');
     expect(f.version).toBe('v1');
-    expect(f.hooks.map((h) => h.trigger)).toEqual(['AgentSpawn', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']);
+    // 3.x: o início da sessão é SessionStart (AgentSpawn não é reconhecido) e o prazo é `timeout` em segundos.
+    expect(f.hooks.map((h) => h.trigger)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']);
     expect(f.hooks.every((h) => inst.isOurs(h))).toBe(true);
+    expect(f.hooks.every((h) => h.timeout === 3 && !('timeout_ms' in h) && !('matcher' in h))).toBe(true);
     expect(inst.parseArgs(['install', '--formato', 'v3', '--agente', 'a, b', '--port', '4800'])).toMatchObject({ command: 'install', format: 'v3', agents: ['a', 'b'], port: 4800 });
     expect(inst.parseArgs(['nada'])).toBe('help');
     expect(() => inst.parseArgs(['install', '--formato', 'v9'])).toThrow();
@@ -210,7 +212,7 @@ describe('install.mjs: run em pastas temporárias', () => {
 
     const c3 = ctx(home);
     await inst.run({ command: 'status' }, { ...c3.ctx, detectFormat: () => undefined });
-    expect(c3.lines.join('\n')).toMatch(/Agentes com o hook \(2\.x\): dev/);
+    expect(c3.lines.join('\n')).toMatch(/Agentes com o hook: dev/);
     expect(c3.lines.join('\n')).toMatch(/recebendo os eventos do Kiro/);
 
     expect(await inst.run({ command: 'uninstall', format: 'v2' }, ctx(home).ctx)).toBe(0);

@@ -643,9 +643,10 @@ terminal with live streaming, and history. The Kiro account chip carries the **K
 - **Approve Kiro permissions from the office (optional, opt-in):** `npm run kiro:install -- --aprovar` (option
   `--espera <s>`, 5 to 86400, default 300) adds a separate `PreToolUse` hook that lets you **approve or deny** the Kiro's
   permission requests (shell and file writes) right from the office, in the same "Asks for permission" card as Claude Code
-  and Codex — same safeguard (local access, local JSON origin). On Kiro CLI 2.x, denying from the office blocks the tool
-  (the reason goes to the model); approving releases the request so you confirm it in the terminal's `[y/n/t]` prompt
-  (2.x has no hook-driven auto-allow — that is 3.x only). With no page open, Habblaud down or the wait timed out, the hook
+  and Codex — same safeguard (local access, local JSON origin). Denying from the office blocks the tool (the reason goes
+  to the model). Approving releases the request: a tool Kiro already trusts runs right away, others still go through the
+  terminal's `[y/n/t]` prompt — Kiro hooks can only block or ask, never auto-allow (checked on Kiro CLI 2.16 and 3.2).
+  To make the office the only approver, trust the tool in Kiro. With no page open, Habblaud down or the wait timed out, the hook
   exits without deciding and the terminal decides. There is no "always allow", no "interrupt" and no answering questions.
   It comes **off**: `npm run kiro:status` shows the state and `npm run kiro:uninstall` removes it.
 - **Live Terminal & History:** Habblaud tails `~/.kiro/sessions/cli/<sessionId>.jsonl` to reconstruct prompts, tool usage
