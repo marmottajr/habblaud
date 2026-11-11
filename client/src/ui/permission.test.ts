@@ -68,15 +68,17 @@ describe('responder pelo escritório (peças puras)', () => {
     expect(permissionOptions({}, { kind: 'sub', background: true }).note).toMatch(/^Este subagente roda em segundo plano/);
   });
 
-  it('cartão do Kiro: sem "sempre permitir" nem "interromper", recusa opcional e o aviso do Kiro', () => {
-    const suggestions = [{ index: 0, rules: ['Bash(npm test:*)'], destination: 'localSettings' }];
+  it('cartão do Kiro: "não perguntar de novo" só com as sugestões do hook, sem "interromper", recusa opcional e o aviso do Kiro', () => {
+    const suggestions = [{ index: 0, rules: ['comandos que começam com “npm test”'], destination: 'userSettings' }];
     expect(permissionOptions({ provider: 'kiro', suggestions }, { kind: 'main' })).toEqual({
-      always: false,
+      always: true,
       interrupt: false,
       reasonRequired: false,
       seconds: false,
       note: KIRO_PERMISSION_NOTE,
     });
+    // Sem sugestões (hook antigo ou ferramenta sem regra): sem os botões.
+    expect(permissionOptions({ provider: 'kiro' }, { kind: 'main' }).always).toBe(false);
     expect(KIRO_PERMISSION_NOTE).toBe('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente). Aprovar libera o pedido: se o Kiro já confia na ferramenta, ela roda direto; senão, confirme no terminal.');
     // Kiro nunca pergunta (AskUserQuestion).
     expect(isQuestionRequest({ provider: 'kiro', tool: 'AskUserQuestion', questions: [{ index: 0, question: 'q', options: [] }] })).toBe(false);

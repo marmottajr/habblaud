@@ -3311,4 +3311,8 @@ export const ES: Readonly<Record<string, string>> = {
   "Entre no prédio ou chegue mais perto da porta para carimbar.": "Entra al edificio o acércate más a la puerta para sellar.",
   "O carimbo não foi deixado. Tente de novo.": "El sello no se dejó. Inténtalo de nuevo.",
   "Esperando aprovação": "Esperando aprobación",
+  "Eventos do Kiro: falha ao soltar um pedido de permissão ({0}).": "Eventos de Kiro: no se pudo liberar una solicitud de permiso ({0}).",
+  "qualquer comando no shell": "cualquier comando en el shell",
+  "qualquer escrita de arquivo": "cualquier escritura de archivo",
+  "comandos que começam com “{0}”": "comandos que empiezan con “{0}”",
 };

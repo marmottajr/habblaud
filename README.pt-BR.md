@@ -645,9 +645,17 @@ terminal com streaming ao vivo e histórico. O chip da conta do Kiro leva o selo
   Claude Code e do Codex — com a mesma trava (acesso local, origem JSON local). Recusar pelo escritório bloqueia a
   ferramenta (o motivo vai ao modelo). Aprovar libera o pedido: ferramenta que o Kiro já confia roda direto; as outras
   ainda passam pelo `[y/n/t]` do terminal — hook do Kiro só bloqueia ou pede confirmação, nunca aprova sozinho
-  (conferido no Kiro CLI 2.16 e 3.2). Para o escritório ser o único aprovador, confie a ferramenta no Kiro. Sem página aberta, com o Habblaud fora do ar ou com o tempo
-  esgotado, o hook sai sem decidir e o terminal decide. Não há "sempre permitir", "interromper" nem responder perguntas.
-  Vem **desligado**: `npm run kiro:status` mostra o estado e `npm run kiro:uninstall` remove.
+  (conferido no Kiro CLI 2.16 e 3.2). Para o terminal deixar de perguntar, use **"Aprovar e não perguntar de novo"** no
+  cartão: no shell, *comandos que começam com `<prefixo>`* (as 1–2 primeiras palavras; nunca `rm`, `sudo`, `curl`, shells
+  nem nada com `;`, `|`, `&`, `` ` ``, `$(`) ou *qualquer comando no shell*; na escrita, *qualquer escrita de arquivo*. O
+  hook grava uma regra `allow` no arquivo de permissões do **usuário** do Kiro (`<kiro>/settings/permissions.yaml` ou
+  `.json`, o mesmo do "Always allow" do próprio Kiro; com backup, trava e gravação atômica). O Kiro relê esse arquivo
+  sozinho e confere cada subcomando (`a && b`) contra as regras, então o prefixo nunca libera o que vem depois de um
+  separador; regras `deny` continuam valendo. O PreToolUse roda antes da checagem de permissão do Kiro, então a chamada
+  atual em geral também passa sem o `[y/n/t]`. Sem página aberta, com o Habblaud fora do ar ou com o tempo esgotado, o
+  hook sai sem decidir e o terminal decide. Se a ferramenta rodar mesmo assim (hook morto, Ctrl+C), o `PostToolUse` tira
+  o cartão na hora. Não há "interromper" nem responder perguntas. Vem **desligado**: `npm run kiro:status` mostra o
+  estado e `npm run kiro:uninstall` remove (inclusive as regras que o escritório gravou).
 - **Terminal ao vivo e histórico:** o Habblaud acompanha `~/.kiro/sessions/cli/<sessionId>.jsonl` para reconstruir
   prompts, uso de ferramentas (comandos de shell, edições de arquivos, git, testes), pensamentos do modelo e respostas em
   tempo real via Server-Sent Events.

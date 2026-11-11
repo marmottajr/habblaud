@@ -646,9 +646,16 @@ terminal with live streaming, and history. The Kiro account chip carries the **K
   and Codex — same safeguard (local access, local JSON origin). Denying from the office blocks the tool (the reason goes
   to the model). Approving releases the request: a tool Kiro already trusts runs right away, others still go through the
   terminal's `[y/n/t]` prompt — Kiro hooks can only block or ask, never auto-allow (checked on Kiro CLI 2.16 and 3.2).
-  To make the office the only approver, trust the tool in Kiro. With no page open, Habblaud down or the wait timed out, the hook
-  exits without deciding and the terminal decides. There is no "always allow", no "interrupt" and no answering questions.
-  It comes **off**: `npm run kiro:status` shows the state and `npm run kiro:uninstall` removes it.
+  To stop the terminal from asking, use **"Approve and don't ask again"** on the card: for shell, *commands starting with
+  `<prefix>`* (the first 1–2 words, never `rm`, `sudo`, `curl`, shells or anything with `;`, `|`, `&`, `` ` ``, `$(`) or
+  *any shell command*; for file writes, *any file write*. The hook writes an `allow` rule to Kiro's **user** permissions
+  file (`<kiro>/settings/permissions.yaml` or `.json`, the same one Kiro's own "Always allow" uses; backup, lock and atomic
+  write). Kiro reloads that file on its own and checks each sub-command (`a && b`) against the rules, so the prefix never
+  allows what comes after a separator; deny rules still win. The PreToolUse hook runs before Kiro's permission check, so the
+  current call usually goes through without `[y/n/t]` too. With no page open, Habblaud down or the wait timed out, the hook
+  exits without deciding and the terminal decides. When the tool runs anyway (hook killed, Ctrl+C), the `PostToolUse`
+  event clears the card right away. There is no "interrupt" and no answering questions. It comes **off**:
+  `npm run kiro:status` shows the state and `npm run kiro:uninstall` removes it (including the rules the office wrote).
 - **Live Terminal & History:** Habblaud tails `~/.kiro/sessions/cli/<sessionId>.jsonl` to reconstruct prompts, tool usage
   (shell commands, file edits, git, test execution), model thinking, and outputs in real time via Server-Sent Events.
 - **Account & Plan:** Habblaud discovers plan metadata automatically from local files (`plan`, `plan.txt`,

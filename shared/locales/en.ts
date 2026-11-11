@@ -3310,4 +3310,8 @@ export const EN: Readonly<Record<string, string>> = {
   "Entre no prédio ou chegue mais perto da porta para carimbar.": "Go into the building or get closer to the door to stamp.",
   "O carimbo não foi deixado. Tente de novo.": "The stamp wasn't left. Try again.",
   "Esperando aprovação": "Waiting for approval",
+  "Eventos do Kiro: falha ao soltar um pedido de permissão ({0}).": "Kiro events: failed to release a permission request ({0}).",
+  "qualquer comando no shell": "any shell command",
+  "qualquer escrita de arquivo": "any file write",
+  "comandos que começam com “{0}”": "commands starting with “{0}”",
 };
