@@ -202,7 +202,7 @@ describe('install.mjs: run em pastas temporárias', () => {
     expect(readFileSync(join(agents, 'kirocrew-worker.json'), 'utf8')).toBe('{"name":"kirocrew-worker"}');
     expect(readdirSync(agents).filter((f) => f.includes('habblaud-backup'))).toHaveLength(1);
     expect(existsSync(join(home, '.habblaud', 'kiro-hook.mjs'))).toBe(true);
-    expect(JSON.parse(readFileSync(join(home, '.habblaud', 'kiro-hook.json'), 'utf8'))).toEqual({ port: 4747 });
+    expect(JSON.parse(readFileSync(join(home, '.habblaud', 'kiro-hook.json'), 'utf8'))).toEqual({ port: 4747, approve: false, wait: 300 });
 
     const c2 = ctx(home);
     await inst.run({ command: 'install', format: 'v2' }, c2.ctx);

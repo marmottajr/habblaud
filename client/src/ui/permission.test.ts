@@ -8,6 +8,7 @@ import {
   expiryText,
   isLocalHostname,
   isQuestionRequest,
+  KIRO_PERMISSION_NOTE,
   nextPermissionAgent,
   permissionAgents,
   permissionOptions,
@@ -65,6 +66,20 @@ describe('responder pelo escritório (peças puras)', () => {
     expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '' });
     expect(permissionOptions({}, { kind: 'main' }).always).toBe(false);
     expect(permissionOptions({}, { kind: 'sub', background: true }).note).toMatch(/^Este subagente roda em segundo plano/);
+  });
+
+  it('cartão do Kiro: sem "sempre permitir" nem "interromper", recusa opcional e o aviso do Kiro', () => {
+    const suggestions = [{ index: 0, rules: ['Bash(npm test:*)'], destination: 'localSettings' }];
+    expect(permissionOptions({ provider: 'kiro', suggestions }, { kind: 'main' })).toEqual({
+      always: false,
+      interrupt: false,
+      reasonRequired: false,
+      seconds: false,
+      note: KIRO_PERMISSION_NOTE,
+    });
+    expect(KIRO_PERMISSION_NOTE).toBe('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente); aprovar libera o pedido para você confirmar no terminal.');
+    // Kiro nunca pergunta (AskUserQuestion).
+    expect(isQuestionRequest({ provider: 'kiro', tool: 'AskUserQuestion', questions: [{ index: 0, question: 'q', options: [] }] })).toBe(false);
   });
 
   it('destinationLabel', () => {

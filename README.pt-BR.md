@@ -639,6 +639,14 @@ terminal com streaming ao vivo e histórico. O chip da conta do Kiro leva o selo
   ar não atrapalha o Kiro. `npm run kiro:status` mostra onde está; `npm run kiro:uninstall` tira (backup antes de
   mexer em cada agente). Opções: `--formato v2|v3`, `--agente a,b`, `--pasta <projeto>`, `--port <n>`, `--dry-run`. No
   Windows, rode o instalador com o Node do Windows (`node <Habblaud>\mod\habblaud-kiro\install.mjs install`).
+- **Aprovar permissões do Kiro pelo escritório (opcional, opt-in):** `npm run kiro:install -- --aprovar` (opção
+  `--espera <s>`, de 5 a 86400, padrão 300) acrescenta um hook `PreToolUse` à parte que deixa **aprovar ou recusar**
+  pelo escritório os pedidos de permissão do Kiro (shell e escrita de arquivo), no mesmo cartão "Pede permissão" do
+  Claude Code e do Codex — com a mesma trava (acesso local, origem JSON local). No Kiro CLI 2.x, recusar pelo escritório
+  bloqueia a ferramenta (o motivo vai ao modelo); aprovar libera o pedido para você confirmar no `[y/n/t]` do terminal
+  (o 2.x não tem auto-allow por hook — isso é só no 3.x). Sem página aberta, com o Habblaud fora do ar ou com o tempo
+  esgotado, o hook sai sem decidir e o terminal decide. Não há "sempre permitir", "interromper" nem responder perguntas.
+  Vem **desligado**: `npm run kiro:status` mostra o estado e `npm run kiro:uninstall` remove.
 - **Terminal ao vivo e histórico:** o Habblaud acompanha `~/.kiro/sessions/cli/<sessionId>.jsonl` para reconstruir
   prompts, uso de ferramentas (comandos de shell, edições de arquivos, git, testes), pensamentos do modelo e respostas em
   tempo real via Server-Sent Events.

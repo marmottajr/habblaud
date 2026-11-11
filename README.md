@@ -640,6 +640,14 @@ terminal with live streaming, and history. The Kiro account chip carries the **K
   way. `npm run kiro:status` shows where it is; `npm run kiro:uninstall` removes it (backing up each agent first).
   Options: `--formato v2|v3`, `--agente a,b`, `--pasta <project>`, `--port <n>`, `--dry-run`. On Windows, run the
   installer with Windows Node (`node <Habblaud>\mod\habblaud-kiro\install.mjs install`).
+- **Approve Kiro permissions from the office (optional, opt-in):** `npm run kiro:install -- --aprovar` (option
+  `--espera <s>`, 5 to 86400, default 300) adds a separate `PreToolUse` hook that lets you **approve or deny** the Kiro's
+  permission requests (shell and file writes) right from the office, in the same "Asks for permission" card as Claude Code
+  and Codex — same safeguard (local access, local JSON origin). On Kiro CLI 2.x, denying from the office blocks the tool
+  (the reason goes to the model); approving releases the request so you confirm it in the terminal's `[y/n/t]` prompt
+  (2.x has no hook-driven auto-allow — that is 3.x only). With no page open, Habblaud down or the wait timed out, the hook
+  exits without deciding and the terminal decides. There is no "always allow", no "interrupt" and no answering questions.
+  It comes **off**: `npm run kiro:status` shows the state and `npm run kiro:uninstall` removes it.
 - **Live Terminal & History:** Habblaud tails `~/.kiro/sessions/cli/<sessionId>.jsonl` to reconstruct prompts, tool usage
   (shell commands, file edits, git, test execution), model thinking, and outputs in real time via Server-Sent Events.
 - **Account & Plan:** Habblaud discovers plan metadata automatically from local files (`plan`, `plan.txt`,

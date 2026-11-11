@@ -504,6 +504,7 @@ export const EN: Readonly<Record<string, string>> = {
   "volta ao terminal em menos de 1 min": "returns to the terminal in under 1 min",
   "volta ao terminal em {0}": "returns to the terminal in {0}",
   "No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.": "In Codex, the approval only shows up in the terminal after you answer here or the time runs out.",
+  "No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente); aprovar libera o pedido para você confirmar no terminal.": "In Kiro, denying here blocks the tool (the reason goes to the agent); approving releases the request for you to confirm in the terminal.",
   "Este subagente roda em segundo plano: o terminal só mostra o pedido depois que você responder aqui ou escolher “Responder no terminal”.": "This subagent runs in the background: the terminal only shows the request after you answer here or choose “Answer in terminal”.",
   "recolher": "collapse",
   "Aprovado": "Approved",

@@ -21,7 +21,9 @@ import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../s
 import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { toolView } from '../sources/terminal';
+import { normalizeCwd } from '../model/rooms';
 import { codexToolView } from './codex';
+import { kiroToolView } from './kiro';
 import { callSignature, scanToolCall } from './transcript';
 import { tr } from '../../shared/i18n';
 
@@ -130,7 +132,7 @@ interface AskFormat {
 interface Pending {
   /** Versão completa (com `input`): GET /api/permissions/:id. */
   info: PermissionRequestInfo;
-  /** Pedido do Codex (sem a busca da resposta no transcript). */
+  /** Pedido do Codex ou do Kiro (sem a busca da resposta no transcript: o terminal só pede depois do hook). */
   codex?: boolean;
   /** Pergunta (AskUserQuestion): o formato de `tool_input.questions`, por posição (undefined = entrada inválida). */
   askFormat?: Array<AskFormat | undefined>;
@@ -166,14 +168,14 @@ function isIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
-/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; o Codex não as manda pelo hook). */
+/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; Codex e Kiro não as mandam pelo hook). */
 function isQuestion(info: { tool: string; provider?: string }): boolean {
-  return info.tool === ASK_TOOL && info.provider !== 'codex';
+  return info.tool === ASK_TOOL && info.provider !== 'codex' && info.provider !== 'kiro';
 }
 
-/** O Codex não aceita interromper nem "sempre permitir" (o hook dele só aprova ou recusa com motivo). */
-function unsupportedByCodex(info: PermissionRequestInfo, d: PermissionDecision): boolean {
-  return info.provider === 'codex' && (d.interrupt === true || d.suggestion !== undefined);
+/** Codex e Kiro não aceitam interromper nem "sempre permitir" (os hooks deles só aprovam ou recusam com motivo). */
+function unsupportedByProvider(info: PermissionRequestInfo, d: PermissionDecision): boolean {
+  return (info.provider === 'codex' || info.provider === 'kiro') && (d.interrupt === true || d.suggestion !== undefined);
 }
 
 /**
@@ -261,12 +263,14 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
 /**
  * Valida o JSON do hook (o mesmo que o Claude Code entrega no stdin, com `timeout_ms` do hook). O hook do Codex manda
  * também `provider: "codex"`, a conta (`account`, o basename do CODEX_HOME) e o caminho dela (`codexHome`); nele,
- * `agent_id` é o thread do subagente (e `session_id`, o thread raiz).
+ * `agent_id` é o thread do subagente (e `session_id`, o thread raiz). O hook do Kiro manda `provider: "kiro"` e
+ * (opcional) `kiroHome` (a pasta KIRO_HOME, só para desempatar a conta); casa pela sessão, senão pela pasta (cwd).
  */
 export function parseHookInput(raw: unknown): {
-  provider?: 'codex';
+  provider?: 'codex' | 'kiro';
   account?: string;
   codexHome?: string;
+  kiroHome?: string;
   sessionId: string;
   agentId?: string;
   agentType?: string;
@@ -279,18 +283,22 @@ export function parseHookInput(raw: unknown): {
   const r = rec(raw);
   const sessionId = shortStr(r?.session_id, 200);
   const tool = shortStr(r?.tool_name, 200);
-  if (!r || !sessionId || !tool) throw new InvalidRequest(tr('esperado o JSON do hook PermissionRequest (session_id e tool_name)'));
+  const kiro = r?.provider === 'kiro';
+  const cwd = shortStr(r?.cwd, 4_096);
+  // Kiro: o harness antigo não manda session_id; aceita casar pela pasta (cwd). Os outros exigem session_id.
+  if (!r || !tool || (!sessionId && !(kiro && cwd))) throw new InvalidRequest(tr('esperado o JSON do hook PermissionRequest (session_id e tool_name)'));
   const t = typeof r.timeout_ms === 'number' && Number.isFinite(r.timeout_ms) ? r.timeout_ms : DEFAULT_TIMEOUT_MS;
   const codex = r.provider === 'codex';
   return {
     ...(codex ? { provider: 'codex' as const, account: shortStr(r.account, 200), codexHome: shortStr(r.codexHome, 4_096) } : {}),
-    sessionId,
+    ...(kiro ? { provider: 'kiro' as const, kiroHome: shortStr(r.kiroHome, 4_096) } : {}),
+    sessionId: sessionId ?? '',
     agentId: shortStr(r.agent_id, 200),
     agentType: shortStr(r.agent_type, 120),
-    cwd: shortStr(r.cwd, 4_096),
+    cwd,
     tool,
     input: rec(r.tool_input) ?? {},
-    suggestions: codex ? undefined : r.permission_suggestions,
+    suggestions: codex || kiro ? undefined : r.permission_suggestions,
     timeoutMs: Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, t)),
   };
 }
@@ -394,7 +402,8 @@ export class PermissionRegistry {
   register(raw: unknown): RegisterResult {
     const req = parseHookInput(raw);
     const codex = req.provider === 'codex';
-    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
+    const kiro = req.provider === 'kiro';
+    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : kiro ? kiroToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
     // Pergunta: todas precisam aparecer no escritório (o hook só responde se cada uma tiver resposta).
@@ -402,16 +411,19 @@ export class PermissionRegistry {
     if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
     const target = codex
       ? this.resolveCodexAgent(req.sessionId, req.agentId, req.agentType, this.opts.codexAccount?.(req.account, req.codexHome) ?? req.account)
-      : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
+      : kiro
+        ? this.resolveKiroAgent(req.sessionId, req.cwd)
+        : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
     if (!target) return { skip: 'unknown-session' };
     if (this.size >= this.maxPending) return { skip: 'too-many' };
 
     const now = this.now();
     const id = `p-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    // Codex: título, resumo e argumentos pelos nomes de ferramenta dele (permissions/codex.ts).
+    // Codex/Kiro: título, resumo e argumentos pelos nomes de ferramenta deles (permissions/codex.ts, kiro.ts).
     const view = 'title' in desc ? desc : toolView(req.tool, req.input, req.cwd);
     const info: PermissionRequestInfo = { id, tool: req.tool, title: view.title, text: desc.text, icon: desc.icon, createdAt: now, expiresAt: now + req.timeoutMs };
     if (codex) info.provider = 'codex';
+    if (kiro) info.provider = 'kiro';
     if (view.input) info.input = view.input;
     if (view.inputKind) info.inputKind = view.inputKind;
     if (target.subagent) info.subagent = target.subagent;
@@ -423,12 +435,12 @@ export class PermissionRegistry {
       info,
       agentId: target.id,
       sessionId: req.sessionId,
-      signature: codex ? '' : callSignature(req.tool, req.input),
+      signature: codex || kiro ? '' : callSignature(req.tool, req.input),
       lastScanAt: 0,
       waiters: new Set(),
       idleSince: now,
     };
-    if (codex) p.codex = true;
+    if (codex || kiro) p.codex = true;
     if (req.agentId) p.hookAgentId = req.agentId;
     if (ask) p.askFormat = askFormat(req.input.questions);
     this.pending.set(id, p);
@@ -503,12 +515,12 @@ export class PermissionRegistry {
     const p = this.pending.get(id);
     if (!p) {
       const demo = this.opts.demoDetail?.(id);
-      if (demo && unsupportedByCodex(demo, d)) return 'unsupported';
+      if (demo && unsupportedByProvider(demo, d)) return 'unsupported';
       if (demo && (wrongKind(demo, d) || (d.behavior === 'answer' && !checkAnswers(demo.questions ?? [], d.answers)))) return 'invalid-answer';
       return this.opts.demoDecide?.(id, d) ? 'ok' : 'not-found';
     }
     if (p.outcome) return 'conflict';
-    if (unsupportedByCodex(p.info, d)) return 'unsupported';
+    if (unsupportedByProvider(p.info, d)) return 'unsupported';
     if (d.suggestion !== undefined && !p.info.suggestions?.some((s) => s.index === d.suggestion)) return 'invalid';
     if (d.behavior === 'terminal') {
       this.release(p, 'terminal');
@@ -595,6 +607,22 @@ export class PermissionRegistry {
     const main = find(sessionId);
     if (!main) return undefined;
     return sub ? { id: main.id, subagent: agentType ?? tr('subagente') } : { id: main.id };
+  }
+
+  /**
+   * Agente do Kiro de um pedido: o principal da sessão (`session_id` do hook). Sem a sessão (harness antigo, que não
+   * manda session_id), casa pela pasta (o cwd do hook = a sala de um principal do Kiro). O Kiro não mostra subagentes
+   * por este caminho.
+   */
+  private resolveKiroAgent(sessionId: string, cwd: string | undefined): { id: string; subagent?: string } | undefined {
+    const mains = this.opts.office.list().filter((a) => a.kind === 'main' && a.provider === 'kiro' && present(a));
+    const bySession = sessionId ? mains.find((a) => a.sessionId === sessionId) : undefined;
+    if (bySession) return { id: bySession.id };
+    if (!cwd) return undefined;
+    const want = normalizeCwd(cwd);
+    const byCwd = mains.filter((a) => a.roomId === want);
+    // Só desvia quando não há ambiguidade: duas sessões do Kiro na mesma pasta sem session_id não dão para distinguir.
+    return byCwd.length === 1 ? { id: byCwd[0].id } : undefined;
   }
 
   private queueOf(p: Pending): { queued?: number } {
