@@ -14,6 +14,7 @@ import { KiroHookSessions } from './hooks';
 import type { KiroHookEvent, KiroLive } from './live';
 import { isWsl } from './liveness';
 import { KiroTerminalParser } from './terminal';
+import { kiroV3TranscriptPath } from './v3paths';
 import { KiroWatcher } from './watcher';
 
 export interface KiroSourceOptions {
@@ -75,6 +76,8 @@ export class KiroSource implements AgentSource, KiroLive {
   private watched: Watched[] = [];
   private readonly hookSessions: KiroHookSessions;
   private recentEvents = new Map<string, number>();
+  /** Pasta da sessão do 3.x já achada (o hash da pasta de trabalho não muda). */
+  private readonly v3Dirs = new Map<string, string>();
   private lastForcedScan = -Infinity;
   private sweepTimer?: NodeJS.Timeout;
 
@@ -187,7 +190,14 @@ export class KiroSource implements AgentSource, KiroLive {
 
   transcriptPathOf(agentId: string): string | undefined {
     const owner = this.watched.find((w) => w.watcher.has(agentId));
-    return (owner ?? this.watched[0])?.watcher.transcriptPathOf(agentId);
+    const v2 = (owner ?? this.watched[0])?.watcher.transcriptPathOf(agentId);
+    if (v2) return v2;
+    // Kiro CLI 3.x: <pasta>/sessions/<hash>/<sessionId>/messages.jsonl (v3paths.ts).
+    for (const w of this.watched) {
+      const p = kiroV3TranscriptPath(w.dir.dir, agentId, this.v3Dirs);
+      if (p) return p;
+    }
+    return undefined;
   }
 
   terminalParser(_agentId: string): TerminalParser | undefined {

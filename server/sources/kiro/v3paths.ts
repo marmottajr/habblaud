@@ -1,0 +1,50 @@
+// Arquivos de uma sessão do Kiro CLI 3.x: <kiroDir>/sessions/<hash da pasta de trabalho>/<sessionId>/
+//   messages.jsonl  (o transcript: uma linha {id, timestamp, payload:{type, ...}} por evento)
+//   session.json    (título, agente, modelo, pastas de trabalho, criação e última mudança)
+// e a trava da sessão aberta em <kiroDir>/session-leases/<sessionId>.lease ({pid, parentPid, acquiredAt, ...}).
+// O <hash> não é recalculado aqui: procura em cada pasta de sessions/, menos a cli/ do 2.x.
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+/** Id de sessão que pode virar nome de pasta (3.x: cli_<uuid>_<sufixo>, sess_<uuid>): sem barra nem "..". */
+const V3_SESSION_ID = /^[A-Za-z0-9][\w.-]{0,199}$/;
+
+export function isKiroV3SessionId(sessionId: string): boolean {
+  return V3_SESSION_ID.test(sessionId) && !sessionId.includes('..');
+}
+
+/** Pasta da sessão do 3.x (a que tem o messages.jsonl), ou undefined. `cache` guarda o achado. */
+export function kiroV3SessionDir(kiroDir: string, sessionId: string, cache?: Map<string, string>): string | undefined {
+  if (!isKiroV3SessionId(sessionId)) return undefined;
+  const key = `${kiroDir}\0${sessionId}`;
+  const known = cache?.get(key);
+  if (known && existsSync(join(known, 'messages.jsonl'))) return known;
+  const root = join(kiroDir, 'sessions');
+  let dirs: string[];
+  try {
+    dirs = readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name !== 'cli')
+      .map((d) => d.name);
+  } catch {
+    return undefined;
+  }
+  for (const d of dirs) {
+    const dir = join(root, d, sessionId);
+    if (existsSync(join(dir, 'messages.jsonl'))) {
+      cache?.set(key, dir);
+      return dir;
+    }
+  }
+  return undefined;
+}
+
+/** Transcript (messages.jsonl) da sessão do 3.x, ou undefined. */
+export function kiroV3TranscriptPath(kiroDir: string, sessionId: string, cache?: Map<string, string>): string | undefined {
+  const dir = kiroV3SessionDir(kiroDir, sessionId, cache);
+  return dir ? join(dir, 'messages.jsonl') : undefined;
+}
+
+/** Trava da sessão aberta (3.x). */
+export function kiroV3LeasePath(kiroDir: string, sessionId: string): string | undefined {
+  return isKiroV3SessionId(sessionId) ? join(kiroDir, 'session-leases', `${sessionId}.lease`) : undefined;
+}
