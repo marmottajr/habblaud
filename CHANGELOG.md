@@ -18,6 +18,7 @@ do meio (0.**3**.0).
 - **Sessões vivas pelo processo:** a sessão só abre se o PID da trava for mesmo um Kiro vivo (`/proc` no Linux, `tasklist` no Windows e no WSL lendo as sessões do Windows, `ps` no macOS); PID reaproveitado não vira personagem. `HABBLAUD_KIRO_LIVENESS=pid|mtime` força o método.
 - **Status "esperando aprovação":** ferramenta pendente com o processo do Kiro parado (sem I/O e sem processo filho novo) vira "Precisa de você: aprovar uma permissão" (Linux/WSL; com o hook, ferramenta rápida parada vira aprovação em qualquer sistema). `HABBLAUD_KIRO_APPROVAL=0` desliga.
 - **Terminal e histórico do Kiro CLI 3.x:** o terminal do escritório lê o `messages.jsonl` do 3.x (prompts, respostas, pensamentos, ferramentas com a mesma visão do Claude Code, resultados com segredos mascarados, aviso de "Esperando aprovação" e subagentes), com os horários reais de cada linha; a gaveta de histórico lista as sessões do 3.x (`sessions/<hash>/<id>/session.json`) e reabre as já encerradas. O formato 2.x segue igual.
+- **Kiro CLI 3.x ao vivo pelo transcript:** as sessões abertas do 3.x (`session-leases/<id>.lease` com um Kiro vivo) são lidas de `sessions/<hash>/<id>/messages.jsonl`: atividades com os horários reais, tarefas do `todo_list` (criar/concluir), ferramentas, subagentes e linhas mexidas nas estatísticas, shells com o tempo rodando (status "esperando o shell" para os em segundo plano) e "Precisa de você: aprovar uma permissão" pelo pedido de aprovação gravado no transcript. O personagem que nasceu só do hook passa para o transcript sem duplicar; sem transcript, o hook continua valendo. O token da trava nunca é lido para fora.
 - **Windows no WSL:** rodando no WSL, o Habblaud também mostra as sessões do Kiro no Windows (`/mnt/c/Users/*/.kiro`, conta "Kiro (Windows)"). `HABBLAUD_KIRO_WINDOWS=0` desliga; `HABBLAUD_KIRO_DIRS` (lista separada por vírgula) escolhe as pastas.
 
 ### Corrigido
@@ -238,7 +239,6 @@ idiomas.
   respondem, a meta a 80 % e, com `&fireworks=1`, um botão de teste dos fogos). `npm run shots:world` refaz as capturas
   `docs/screenshots/world-predio.png`, `world-enviado.png`, `world-cidade.png`, `world-cartao.png`, `world-visita.png`,
   `world-visita-painel.png`, `world-social.png` e `world-praca.png`.
->>>>>>> upstream/main
 
 ## [0.11.0] - 2026-10-13
 
