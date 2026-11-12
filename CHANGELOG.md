@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Hermes no escritório (modo Node):** sessões CLI recentes aparecem como agentes da conta Hermes, com sala,
+  modelo, estado e nome da última ferramenta, sem ler mensagens ou credenciais. O terminal e as mensagens pelo
+  escritório ainda não estão disponíveis para Hermes, e agentes Hermes não sobem ao Habblaud World.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

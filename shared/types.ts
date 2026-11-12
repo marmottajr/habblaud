@@ -14,8 +14,9 @@ export type AgentKind = 'main' | 'sub';
  * `provider` é opcional e AUSENTE quer dizer 'claude' (tudo o que existia antes do Codex continua igual).
  * - claude: Claude Code;
  * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME).
+ * - hermes: Hermes Agent (sessões CLI locais, observadas via metadados SQLite).
  */
-export type Provider = 'claude' | 'codex';
+export type Provider = 'claude' | 'codex' | 'hermes';
 
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.

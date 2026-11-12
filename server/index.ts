@@ -37,6 +37,7 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { HermesSource } from './sources/hermes/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -138,6 +139,10 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+if (config.hermes) {
+  const hermesDir = process.env.HERMES_HOME?.trim() || join(config.home, '.hermes');
+  agents.add(new HermesSource({ accounts, office, dirs: [hermesDir] }));
+}
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
@@ -165,7 +170,8 @@ const worldUplink =
         locale: () => getLocale() as WorldLocale,
         store: worldStore,
         canAct: () => config.terminal,
-        agents: () => office.list(),
+        // O protocolo remoto do World só admite Claude/Codex; não rotule Hermes como Claude.
+        agents: () => office.list().filter((a) => a.provider !== 'hermes'),
         subscribe: (cb) => office.onChange(cb),
         booting: () => office.isBooting(),
         tokens: () => worldTokens.read(),
