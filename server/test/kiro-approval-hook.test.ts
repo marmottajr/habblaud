@@ -316,7 +316,16 @@ describe('approval-hook: prefixo e sugestões', () => {
     expect(rules.shellPrefix('npm test -- --run')).toBe('npm test');
     expect(rules.shellPrefix('  git status  ')).toBe('git status');
     expect(rules.shellPrefix('ls -la')).toBe('ls');
-    expect(rules.shellPrefix('make')).toBe('make');
+    // make/npm sozinhos rodam qualquer alvo/script: sem prefixo de 1 palavra.
+    expect(rules.shellPrefix('make')).toBeUndefined();
+    expect(rules.shellPrefix('make test')).toBe('make test');
+    expect(rules.shellPrefix('npm run build -- --watch')).toBe('npm run build');
+    expect(rules.shellPrefix('npm run')).toBeUndefined();
+    expect(rules.shellPrefix('kubectl get pods -A')).toBe('kubectl get');
+    // Subcomandos que apagam, aplicam ou abrem shell nunca viram regra.
+    for (const c of ['kubectl delete pod x', 'kubectl apply -f x', 'kubectl exec -it x -- sh', 'terraform apply', 'terraform destroy', 'git push --force', 'git reset --hard', 'git clean -fd', 'helm uninstall x', 'docker run x', 'gh api x', 'az keyvault secret show', 'aws iam create-user', 'npm publish', 'npm exec x']) {
+      expect(rules.shellPrefix(c), c).toBeUndefined();
+    }
     expect(rules.shellPrefix('npm test; rm -rf /')).toBeUndefined();
     expect(rules.shellPrefix('ls|sh')).toBeUndefined();
     expect(rules.shellPrefix('cat $(x)')).toBeUndefined();

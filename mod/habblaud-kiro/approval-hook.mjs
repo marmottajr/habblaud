@@ -111,6 +111,22 @@ export const NEVER_PREFIX = new Set([
 ]);
 /** Interpretadores: só com um subcomando (ex.: "npx vitest", "bun test"), nunca sozinhos ("python *" roda qualquer coisa). */
 export const NEEDS_SUBCOMMAND = new Set(['python', 'python3', 'python2', 'node', 'nodejs', 'deno', 'bun', 'perl', 'ruby', 'php', 'lua', 'npx', 'pnpx', 'bunx', 'uvx', 'osascript', 'awk', 'sed', 'find', 'git', 'docker', 'kubectl']);
+/**
+ * Subcomandos que apagam, aplicam em produção ou abrem um shell: nunca viram "não perguntar de novo", nem com o
+ * prefixo de 2 palavras ("kubectl delete *" liberaria apagar qualquer recurso em qualquer cluster).
+ */
+export const NEVER_PAIR = new Map([
+  ['kubectl', new Set(['delete', 'apply', 'replace', 'patch', 'edit', 'exec', 'drain', 'cordon', 'scale', 'rollout', 'run', 'cp', 'debug', 'create', 'annotate', 'label', 'taint', 'set'])],
+  ['terraform', new Set(['apply', 'destroy', 'import', 'state', 'taint', 'untaint', 'force-unlock', 'workspace'])],
+  ['tofu', new Set(['apply', 'destroy', 'import', 'state', 'taint', 'untaint', 'force-unlock', 'workspace'])],
+  ['helm', new Set(['install', 'upgrade', 'uninstall', 'delete', 'rollback'])],
+  ['git', new Set(['push', 'reset', 'clean', 'rebase', 'filter-branch', 'filter-repo', 'gc', 'prune', 'update-ref', 'reflog', 'checkout', 'restore', 'rm'])],
+  ['gh', new Set(['api', 'repo', 'secret', 'workflow', 'release', 'pr', 'auth'])],
+  ['docker', new Set(['run', 'exec', 'rm', 'rmi', 'system', 'volume', 'compose', 'kill', 'push'])],
+  ['az', new Set(['keyvault', 'role', 'group', 'ad', 'resource', 'aks', 'login', 'account'])],
+  ['aws', new Set(['iam', 'sts', 'secretsmanager', 'ssm', 'kms', 's3', 'ec2', 'eks', 'rds'])],
+  ['npm', new Set(['publish', 'unpublish', 'exec', 'x'])],
+]);
 const FIRST_TOKEN = /^[A-Za-z0-9][\w.+-]{0,63}$/;
 const SUB_TOKEN = /^[A-Za-z0-9][\w:.+-]{0,63}$/;
 const SHELL_META = /[;|&`$()<>'"\\{}*?!#~]/;
@@ -132,15 +148,25 @@ export function shellPrefix(command) {
   if (typeof command !== 'string') return undefined;
   const line = command.trim().split('\n')[0];
   const words = line.split(/\s+/).filter(Boolean);
-  const [first, second] = words;
+  const [first, second, third] = words;
   if (!first || !FIRST_TOKEN.test(first)) return undefined;
   const name = first.toLowerCase();
   if (NEVER_PREFIX.has(name) || /^mkfs/.test(name)) return undefined;
-  if (second && SUB_TOKEN.test(second)) return `${first} ${second}`;
+  if (second && SUB_TOKEN.test(second)) {
+    // Subcomando que apaga, aplica ou abre shell: nunca vira regra (nem "kubectl delete *", "git push *", "terraform apply *").
+    if (NEVER_PAIR.get(name)?.has(second.toLowerCase())) return undefined;
+    // "npm run <script>": o prefixo leva o script ("npm run build *"); "npm run *" liberaria qualquer script do package.json.
+    if (RUNNERS.has(name) && RUN_VERBS.has(second.toLowerCase())) return third && SUB_TOKEN.test(third) ? `${first} ${second} ${third}` : undefined;
+    return `${first} ${second}`;
+  }
   // Caractere de shell logo na 2ª palavra ("npm test;", "ls|x"): sem prefixo (encolher para 1 palavra alargaria a regra).
   if (second && SHELL_META.test(second)) return undefined;
-  return NEEDS_SUBCOMMAND.has(name) ? undefined : first;
+  return NEEDS_SUBCOMMAND.has(name) || NEVER_PAIR.has(name) || RUNNERS.has(name) ? undefined : first;
 }
+
+/** Gerenciadores cujo "run"/"exec" roda um script do projeto: o script entra no prefixo. */
+const RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'deno', 'make', 'just', 'task', 'poetry', 'uv', 'pipenv', 'cargo', 'dotnet', 'go', 'mvn', 'gradle']);
+const RUN_VERBS = new Set(['run', 'run-script', 'exec', 'x', 'dlx']);
 
 /**
  * Regras "não perguntar de novo" que o hook oferece ao escritório (na ordem em que aparecem): no shell, os comandos
