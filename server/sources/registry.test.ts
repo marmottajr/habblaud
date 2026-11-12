@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
-import { compareVersions, parseRegistryEntry, registryStatus, RegistryReader } from './registry';
+import { compareVersions, parseRegistryEntry, registryStatus, RegistryReader, wslPidAlive } from './registry';
 
 const entry = (pid: number, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ pid, sessionId: `s-${pid}`, cwd: '/projetos/app', startedAt: 1, kind: 'interactive', status: 'idle', ...extra });
@@ -68,6 +68,17 @@ describe('registro de sessões', () => {
     expect(reader.poll().entries[0].status).toBe('idle');
     rmSync(file);
     expect(reader.poll().entries).toEqual([]);
+  });
+
+  it('conta no WSL vista do Windows confere o PID no /proc da distro', () => {
+    const vivos = new Set(['//wsl.localhost/Ubuntu-24.04/proc/42', '//wsl$/Debian/proc/7']);
+    const exists = (p: string) => vivos.has(p);
+    const local = wslPidAlive('\\\\wsl.localhost\\Ubuntu-24.04\\home\\eu\\.claude', exists);
+    expect(local?.(42)).toBe(true);
+    expect(local?.(43)).toBe(false);
+    expect(wslPidAlive('//wsl$/Debian/home/eu/.claude', exists)?.(7)).toBe(true);
+    expect(wslPidAlive('C:\\Users\\eu\\.claude', exists)).toBeUndefined();
+    expect(wslPidAlive('/home/eu/.claude', exists)).toBeUndefined();
   });
 
   it('pasta sessions/ ausente é reportada como fonte com problema', () => {
