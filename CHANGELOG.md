@@ -25,6 +25,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- **Kiro: "não perguntar de novo" vale também no escritório:** depois de gravar a regra, o hook de aprovação confere as regras allow do Kiro (`settings/permissions.json`/`.yaml`) e não manda mais cartão para o que já está liberado (antes o cartão voltava a cada chamada). Comando com outra parte que a regra não cobre (`npm test && rm …`), `$( )`/crase, regra deny ou exclude da mesma capability: o cartão volta. E o cartão do Kiro não mostra mais "Responder no terminal" (no Kiro o terminal já pergunta junto, então o botão não mudava nada).
 - **Cartão de aprovação do Kiro preso:** quando a ferramenta roda mesmo assim (hook de aprovação morto, Ctrl+C) ou a vez acaba, o `PostToolUse`/`Stop` do hook de observar tira o cartão na hora, em vez de esperar o tempo limite. Dois hooks de aprovação para a mesma chamada (ex.: `hooks/habblaud.json` e a cópia num projeto) viram um cartão só. Pedido de sessão do Kiro que o escritório ainda não conhece não cai mais em outra sessão aberta na mesma pasta (o hook tenta registrar de novo). Com `--espera` acima de 300 s, o teto do hook no Kiro acompanha a espera (antes o Kiro matava o hook no meio).
 - **Fim de turno do Kiro:** `AssistantMessage` sem `toolUse` fecha o turno (antes a sessão ficava "Pensando" para sempre); turno cancelado, recusado ou com erro fecha pelo `.json`.
 - **Horários reais na releitura:** a reconstrução do transcript usa os horários dos prompts (`meta.timestamp`) e dos turnos (`user_turn_metadatas`), sem feed ao vivo nem avisos durante o boot.

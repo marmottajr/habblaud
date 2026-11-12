@@ -60,10 +60,11 @@ describe('responder pelo escritório (peças puras)', () => {
       reasonRequired: true,
       seconds: true,
       note: CODEX_PERMISSION_NOTE,
+      terminal: true,
     });
     expect(CODEX_PERMISSION_NOTE).toBe('No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.');
     // Claude Code: como antes.
-    expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '' });
+    expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '', terminal: true });
     expect(permissionOptions({}, { kind: 'main' }).always).toBe(false);
     expect(permissionOptions({}, { kind: 'sub', background: true }).note).toMatch(/^Este subagente roda em segundo plano/);
   });
@@ -76,6 +77,7 @@ describe('responder pelo escritório (peças puras)', () => {
       reasonRequired: false,
       seconds: false,
       note: KIRO_PERMISSION_NOTE,
+      terminal: false,
     });
     // Sem sugestões (hook antigo ou ferramenta sem regra): sem os botões.
     expect(permissionOptions({ provider: 'kiro' }, { kind: 'main' }).always).toBe(false);

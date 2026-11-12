@@ -473,6 +473,72 @@ const REGISTER_RETRIES = 3;
 const REGISTER_RETRY_MS = 400;
 
 /**
+ * Regras do arquivo de permissões do usuário do Kiro (o mesmo que persistRule grava). JSON inteiro; YAML só nas linhas
+ * `- {json}` (as que o Habblaud grava) — o resto do YAML fica de fora e, na dúvida, o escritório pergunta.
+ */
+export function readUserRules(kiroHome) {
+  const file = userPermissionsFile(kiroHome);
+  let text;
+  try {
+    text = readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  } catch {
+    return [];
+  }
+  if (file.endsWith('.json')) {
+    try {
+      const doc = JSON.parse(text);
+      return isObject(doc) && Array.isArray(doc.rules) ? doc.rules.filter(isObject) : [];
+    } catch {
+      return [];
+    }
+  }
+  const out = [];
+  for (const line of text.split('\n')) {
+    const m = /^\s*-\s+(\{.*\})\s*$/.exec(line);
+    if (!m) continue;
+    try {
+      const r = JSON.parse(m[1]);
+      if (isObject(r)) out.push(r);
+    } catch {
+      // linha que não é JSON: ignora
+    }
+  }
+  return out;
+}
+
+/** Comandos de um shell (a && b; c | d): cada um precisa casar com uma regra. Com $( ) ou ` ` não dá para saber: undefined. */
+function shellParts(command) {
+  if (typeof command !== 'string' || !command.trim()) return undefined;
+  if (/\$\(|`/.test(command)) return undefined;
+  return command
+    .split(/&&|\|\||[;|\n]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Esta chamada já está liberada por uma regra allow do usuário (sem exclude), e nenhuma regra deny da mesma capability
+ * existe? Capability inteira (sem match) libera tudo; `"<prefixo> *"` libera o comando igual ao prefixo ou que começa
+ * com ele + espaço, em cada parte do comando. Qualquer dúvida = false (o escritório pergunta).
+ */
+export function alreadyAllowed(rules, toolName, toolInput) {
+  const capability = capabilityOf(toolName);
+  if (!capability || !Array.isArray(rules)) return false;
+  const mine = rules.filter((r) => isObject(r) && r.capability === capability);
+  if (mine.some((r) => r.effect !== 'allow' || (Array.isArray(r.exclude) && r.exclude.length))) return false;
+  if (mine.some((r) => r.match === undefined || (Array.isArray(r.match) && !r.match.length))) return true;
+  if (capability !== 'shell') return false;
+  const prefixes = mine
+    .flatMap((r) => (Array.isArray(r.match) ? r.match : []))
+    .map((m) => (typeof m === 'string' ? /^(.+) \*$/.exec(m)?.[1] : undefined))
+    .filter((p) => typeof p === 'string' && p.trim());
+  if (!prefixes.length) return false;
+  const parts = shellParts(isObject(toolInput) ? toolInput.command : undefined);
+  if (!parts?.length) return false;
+  return parts.every((part) => prefixes.some((p) => part === p || part.startsWith(`${p} `)));
+}
+
+/**
  * Decide o pedido (ou não). Devolve {deny:<motivo>} para bloquear, ou undefined para deixar o terminal decidir.
  * Nunca lança.
  */
@@ -491,6 +557,12 @@ export async function run(env = process.env, stdinText, opts = {}) {
     if (!isObject(input) || typeof input.tool_name !== 'string') return undefined;
     if (input.hook_event_name !== undefined && String(input.hook_event_name).toLowerCase() !== 'pretooluse') return undefined;
     if (!needsApproval(input.tool_name)) return undefined;
+    // "Não perguntar de novo" já gravado (por aqui ou pelo "Always allow" do próprio Kiro): o Kiro não pergunta mais, e o
+    // escritório também não. Sem isso o cartão voltava a cada chamada e parecia que a regra não tinha valido.
+    if (alreadyAllowed(readUserRules(kiroHomeOf(env)), input.tool_name, input.tool_input)) {
+      debug('já liberado por uma regra do Kiro: sem cartão');
+      return undefined;
+    }
 
     const base = `http://127.0.0.1:${cfg.port}`;
     const deadline = Date.now() + cfg.waitMs;

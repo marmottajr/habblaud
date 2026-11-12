@@ -281,6 +281,8 @@ interface RulesModule {
   persistRule(kiroHome: string, rule: Rec, now?: Date): Promise<{ file: string; changed: boolean }>;
   userPermissionsFile(kiroHome: string): string;
   run(env: NodeJS.ProcessEnv, stdinText?: string, opts?: Rec): Promise<{ deny: string } | undefined>;
+  alreadyAllowed(rules: Rec[], tool: string, input: unknown): boolean;
+  readUserRules(kiroHome: string): Rec[];
   LEDGER_FILE: string;
 }
 const rules = h as unknown as RulesModule;
@@ -443,6 +445,42 @@ describe('approval-hook: fluxo com servidor falso', () => {
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ rules: [{ capability: 'shell', effect: 'allow', match: ['npm test *'] }] });
     const ledger = JSON.parse(readFileSync(join(home, '.habblaud', rules.LEDGER_FILE), 'utf8')) as { rules: Rec[] };
     expect(ledger.rules).toEqual([{ file, rule: { capability: 'shell', effect: 'allow', match: ['npm test *'] } }]);
+  });
+
+  it('alreadyAllowed: regra gravada libera o pedido seguinte (sem cartão); na dúvida, pergunta', () => {
+    const shellAll = [{ capability: 'shell', effect: 'allow' }];
+    const npmTest = [{ capability: 'shell', effect: 'allow', match: ['npm test *'] }];
+    expect(rules.alreadyAllowed(shellAll, 'execute_bash', { command: 'kubectl get pods' })).toBe(true);
+    expect(rules.alreadyAllowed([{ capability: 'fs_write', effect: 'allow' }], 'str_replace', { path: 'a' })).toBe(true);
+    expect(rules.alreadyAllowed(npmTest, 'shell', { command: 'npm test' })).toBe(true);
+    expect(rules.alreadyAllowed(npmTest, 'shell', { command: 'npm test -- --run' })).toBe(true);
+    expect(rules.alreadyAllowed(npmTest, 'shell', { command: 'npm test && npm test x' })).toBe(true);
+    // Outro comando junto, prefixo parecido, subshell, outra capability, deny ou exclude: o escritório pergunta.
+    for (const c of ['npm test && rm -rf x', 'npm testx', 'npm test $(id)', 'npm test `id`', 'npm install', '']) expect(rules.alreadyAllowed(npmTest, 'shell', { command: c }), c).toBe(false);
+    expect(rules.alreadyAllowed(npmTest, 'fs_write', { path: 'a' })).toBe(false);
+    expect(rules.alreadyAllowed([...shellAll, { capability: 'shell', effect: 'deny', match: ['rm *'] }], 'shell', { command: 'ls' })).toBe(false);
+    expect(rules.alreadyAllowed([{ capability: 'shell', effect: 'allow', exclude: ['rm *'] }], 'shell', { command: 'ls' })).toBe(false);
+    expect(rules.alreadyAllowed([], 'shell', { command: 'ls' })).toBe(false);
+    expect(rules.alreadyAllowed(shellAll, 'fs_read', {})).toBe(false);
+  });
+
+  it('com a regra já no arquivo do Kiro, o hook não manda cartão nenhum ao escritório', async () => {
+    const { port, bodies } = await serveSeq([{ status: 201, body: { id: 'p-1' } }], { status: 'decided', behavior: 'deny' });
+    const home = homeWithConfig({ approve: true, port });
+    mkdirSync(join(home, '.kiro', 'settings'), { recursive: true });
+    writeFileSync(join(home, '.kiro', 'settings', 'permissions.json'), JSON.stringify({ rules: [{ capability: 'shell', effect: 'allow', match: ['npm test *'] }] }));
+    expect(await rules.run({ HOME: home }, pre('npm test'), { reloadWaitMs: 0 })).toBeUndefined();
+    expect(bodies).toHaveLength(0);
+    // Comando que a regra não cobre: o cartão volta (e a recusa vale).
+    expect(await rules.run({ HOME: home }, pre('npm install'), { reloadWaitMs: 0 })).toMatchObject({ deny: expect.any(String) });
+    expect(bodies).toHaveLength(1);
+    // YAML que o Habblaud grava (linhas "- {json}") também vale.
+    const yhome = homeWithConfig({ approve: true, port });
+    mkdirSync(join(yhome, '.kiro', 'settings'), { recursive: true });
+    writeFileSync(join(yhome, '.kiro', 'settings', 'permissions.yaml'), 'rules:\n  - {"capability":"shell","effect":"allow"}\n');
+    expect(rules.readUserRules(join(yhome, '.kiro'))).toEqual([{ capability: 'shell', effect: 'allow' }]);
+    expect(await rules.run({ HOME: yhome }, pre('ls'), { reloadWaitMs: 0 })).toBeUndefined();
+    expect(bodies).toHaveLength(1);
   });
 
   it('KIRO_HOME vale para onde a regra vai; aprovar sem sugestão e recusar não gravam nada', async () => {
