@@ -317,6 +317,13 @@ describe('projeção: regras', () => {
     expect(validate(u)).toEqual([]);
   });
 
+  it('agente Hermes não sobe (nem como claude), e o andar só dele também não', () => {
+    const agents = [agent('m1', '/p/a'), agent('h1', '/p/a', { provider: 'hermes' }), agent('h2', '/p/b', { provider: 'hermes' })];
+    const u = project(input([room('/p/a'), room('/p/b')], agents), new FakeIds(), NOW);
+    expect(agentsOf(u).map((a) => a.provider)).toEqual(['claude']);
+    expect(u.floors).toHaveLength(1);
+  });
+
   it('provider ausente é claude; codex continua codex', () => {
     const u = project(input([room('/p/a')], [agent('m1', '/p/a'), agent('m2', '/p/a', { provider: 'codex' })]), new FakeIds(), NOW);
     expect(agentsOf(u).map((a) => a.provider).sort()).toEqual(['claude', 'codex']);
