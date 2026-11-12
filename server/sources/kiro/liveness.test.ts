@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { chooseLivenessMode, createLiveness, isWindowsMount, parsePs, parseTasklist, pidAlive } from './liveness';
+import { chooseLivenessMode, createLiveness, isKiroBundledRuntime, isWindowsMount, parsePs, parseTasklist, pidAlive } from './liveness';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -123,4 +123,30 @@ it('pidAlive', () => {
   expect(pidAlive(process.pid)).toBe(true);
   expect(pidAlive(0)).toBe(false);
   expect(pidAlive(99999999)).toBe(false);
+});
+
+describe('isKiroBundledRuntime (Kiro CLI 3.x)', () => {
+  it('node/bun dentro da pasta do Kiro conta; um node qualquer não', () => {
+    expect(isKiroBundledRuntime('/home/u/.local/share/kiro-cli/node')).toBe(true);
+    expect(isKiroBundledRuntime('/home/u/.local/share/kiro-cli/bun')).toBe(true);
+    expect(isKiroBundledRuntime('/opt/kiro/bin/node')).toBe(true);
+    expect(isKiroBundledRuntime('/usr/bin/node')).toBe(false);
+    expect(isKiroBundledRuntime('/home/u/.nvm/versions/node/v24/bin/node')).toBe(false);
+    expect(isKiroBundledRuntime('/home/u/projetos/kiro-tools/bin/python')).toBe(false);
+    expect(isKiroBundledRuntime('')).toBe(false);
+  });
+
+  it('proc: processo "node" do runtime do Kiro é Kiro', () => {
+    const root = mkdtempSync(join(tmpdir(), 'kiro-proc-'));
+    mkdirSync(join(root, '77'));
+    writeFileSync(join(root, '77', 'comm'), 'node\n');
+    writeFileSync(join(root, '77', 'cmdline'), '/home/u/.local/share/kiro-cli/node\0--experimental-wasm-modules\0x.js\0');
+    mkdirSync(join(root, '78'));
+    writeFileSync(join(root, '78', 'comm'), 'node\n');
+    writeFileSync(join(root, '78', 'cmdline'), '/usr/bin/node\0server.js\0');
+    const l = createLiveness('proc', { procRoot: root });
+    expect(l.isKiro(77)).toBe(true);
+    expect(l.isKiro(78)).toBe(false);
+    rmSync(root, { recursive: true, force: true });
+  });
 });

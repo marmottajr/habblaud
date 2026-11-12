@@ -27,6 +27,16 @@ export interface KiroLiveness {
 }
 
 const KIRO_NAME = /kiro/i;
+
+/**
+ * Executável do runtime embutido do Kiro CLI 3.x (node/bun dentro da pasta de instalação dele, ex.:
+ * ~/.local/share/kiro-cli/node). Só o node/bun cuja PASTA é do Kiro: um node qualquer não conta.
+ */
+export function isKiroBundledRuntime(exe: string): boolean {
+  const parts = exe.split('/').filter(Boolean);
+  const name = parts.pop() ?? '';
+  return /^(node|bun)$/.test(name) && parts.some((p) => /^kiro(-cli)?$/i.test(p));
+}
 /** tasklist.exe visto do WSL (interop). */
 export const TASKLIST_WSL = '/mnt/c/Windows/System32/tasklist.exe';
 const LIST_TTL_MS = 4_000;
@@ -184,7 +194,8 @@ function procLiveness(root: string): KiroLiveness {
       if (comm === undefined) return false;
       if (KIRO_NAME.test(comm)) return true;
       const exe = (read(`${root}/${pid}/cmdline`) ?? '').split('\0')[0] ?? '';
-      return KIRO_NAME.test(exe.split('/').pop() ?? '');
+      // Kiro CLI 3.x roda com o node/bun embutido (~/.local/share/kiro-cli/node): o nome é "node", a pasta é do Kiro.
+      return KIRO_NAME.test(exe.split('/').pop() ?? '') || isKiroBundledRuntime(exe);
     },
     descendants(pid) {
       let names: string[];
