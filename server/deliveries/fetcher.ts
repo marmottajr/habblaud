@@ -126,12 +126,25 @@ export class FileFetcher {
 
   private remember(path: string, data: Buffer): void {
     if (data.length > CACHE_MAX_BYTES / 4) return;
+    // Reinserir uma chave que já estava no cache primeiro remove a entrada antiga:
+    // o `set` sozinho trocaria o valor e os bytes dela ficariam contados duas vezes.
+    this.forget(path);
     this.cache.set(path, data);
     this.cacheBytes += data.length;
     for (const [k, v] of this.cache) {
       if (this.cacheBytes <= CACHE_MAX_BYTES) break;
       this.cache.delete(k);
+      // Cada entrada removida devolve os bytes dela ao total; sem isso o total só
+      // cresce e o cache passa a expulsar tudo.
       this.cacheBytes -= v.length;
     }
+  }
+
+  /** Remove a entrada (se houver) e devolve os bytes dela ao total. */
+  private forget(path: string): void {
+    const old = this.cache.get(path);
+    if (!old) return;
+    this.cache.delete(path);
+    this.cacheBytes -= old.length;
   }
 }

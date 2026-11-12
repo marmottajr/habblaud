@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Entregas: o cache dos arquivos deixou de expulsar tudo depois de algumas leituras.** Duas leituras do mesmo
+  arquivo ao mesmo tempo (duas abas, ou a mesma imagem em dois lugares) somavam os bytes dele duas vezes no total do
+  cache, sem devolver os da entrada substituída. O total passava do teto de 80 MB sem o cache ter 80 MB e, a partir
+  daí, cada leitura nova descartava os arquivos antigos: a mesma entrega era lida do disco (ou pedida ao auxiliar do
+  computador) outra vez a cada clique. Agora quem remove uma entrada devolve os bytes dela, e o total é sempre a soma
+  real do que está guardado.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
