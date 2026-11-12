@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Windows: as sessões do WSL aparecem no escritório.** Com uma conta do WSL em `HABBLAUD_CLAUDE_DIRS`
+  (`\\wsl.localhost\<distro>\home\<você>\.claude`), as sessões abertas lá não apareciam: o PID delas é do Linux e
+  o Windows não o enxerga. Agora o PID é conferido no `/proc` da distro, pelo mesmo caminho.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

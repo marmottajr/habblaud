@@ -1,7 +1,7 @@
 // Registro de sessões ABERTAS do Claude Code: <configDir>/sessions/<pid>.json.
 // O arquivo existe enquanto o processo vive. Fora do Docker também confirmamos o PID
 // (um arquivo pode sobrar se o processo morrer sem limpar); no Docker os PIDs são do host.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentStatus } from '../../shared/types';
 import { describeWaitingFor } from '../../shared/activity';
@@ -104,6 +104,18 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Conta numa pasta do WSL vista do Windows (\\wsl.localhost\<distro>\... ou \\wsl$\<distro>\...): os PIDs do
+ * registro são do Linux e process.kill no Windows não os enxerga (toda sessão pareceria morta). O /proc da distro é
+ * exposto pelo mesmo caminho, então o PID é conferido em <distro>/proc/<pid>. Fora do WSL, undefined.
+ */
+export function wslPidAlive(configDir: string, exists: (path: string) => boolean = existsSync): ((pid: number) => boolean) | undefined {
+  const m = /^[\\/]{2}(wsl\.localhost|wsl\$)[\\/]([^\\/]+)/i.exec(configDir);
+  if (!m) return undefined;
+  const proc = `//${m[1]}/${m[2]}/proc/`;
+  return (pid) => exists(proc + pid);
+}
+
 export interface RegistryPoll {
   entries: RegistryEntry[];
   ok: boolean;
@@ -126,7 +138,7 @@ export class RegistryReader {
     private readonly opts: { checkPid: boolean; isAlive?: (pid: number) => boolean },
   ) {
     this.sessionsDir = join(configDir, 'sessions');
-    this.isAlive = opts.isAlive ?? pidAlive;
+    this.isAlive = opts.isAlive ?? wslPidAlive(configDir) ?? pidAlive;
   }
 
   poll(): RegistryPoll {
