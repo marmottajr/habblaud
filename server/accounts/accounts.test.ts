@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
-import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, shortcutsByDir } from './detect';
+import { accountIds, codexDirsRefused, discoverClaudeDirs, discoverObservedClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, shortcutsByDir } from './detect';
 import { AccountsService } from './service';
 import { rollover, STALE_AFTER_MS, usageFromCache, usageFromWindows, UsageStore } from './usage';
 
@@ -65,6 +65,31 @@ describe('detecção de contas', () => {
     );
   });
   afterEach(() => tmp.cleanup());
+
+  it('no WSL, o servidor também observa as pastas .claude* dos perfis do Windows', () => {
+    const mounts = join(tmp.dir, 'mnt');
+    const win = join(mounts, 'c', 'Users', 'Fulano', '.claude');
+    mkdirSync(join(win, 'sessions'), { recursive: true });
+    mkdirSync(join(mounts, 'c', 'Users', 'Fulano', '.claude-vazio'), { recursive: true });
+    mkdirSync(join(mounts, 'c', 'Users', 'Public'), { recursive: true });
+    mkdirSync(join(mounts, 'wsl'), { recursive: true });
+    const linux = [join(home, '.claude'), join(home, '.claude-conta2')];
+    const wsl = { WSL_DISTRO_NAME: 'Ubuntu' };
+    expect(discoverObservedClaudeDirs(wsl, home, mounts)).toEqual([...linux, win]);
+    // Fora do WSL não olha os discos montados; HABBLAUD_CLAUDE_DIRS continua substituindo tudo.
+    expect(discoverObservedClaudeDirs({}, home, mounts)).toEqual(linux);
+    expect(discoverObservedClaudeDirs({ ...wsl, HABBLAUD_CLAUDE_DIRS: '/x/a' }, home, mounts)).toEqual([resolve('/x/a')]);
+    // Os instaladores (hooks, mod, statusline) nunca mexem no Claude Code do Windows.
+    expect(discoverClaudeDirs(wsl, home)).toEqual(linux);
+  });
+
+  it('a conta padrão de outro perfil lê o .claude.json ao lado da pasta', () => {
+    const profile = join(tmp.dir, 'mnt', 'c', 'Users', 'Fulano');
+    const win = join(profile, '.claude');
+    mkdirSync(join(win, 'sessions'), { recursive: true });
+    writeFileSync(join(profile, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'fulano@windows.test' } }));
+    expect(detectAccounts([win], { home, env: {} })[0]).toMatchObject({ email: 'fulano@windows.test' });
+  });
 
   it('descobre $HOME/.claude* com projects/ ou sessions/, padrão primeiro', () => {
     expect(discoverClaudeDirs({}, home)).toEqual([join(home, '.claude'), join(home, '.claude-conta2')]);

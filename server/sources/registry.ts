@@ -1,11 +1,13 @@
 // Registro de sessões ABERTAS do Claude Code: <configDir>/sessions/<pid>.json.
 // O arquivo existe enquanto o processo vive. Fora do Docker também confirmamos o PID
 // (um arquivo pode sobrar se o processo morrer sem limpar); no Docker os PIDs são do host.
+// Sessão do Claude Code do Windows vista pelo WSL (`pidDomain` "win32:..."): o PID é conferido no Windows (ver ../wsl.ts).
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentStatus } from '../../shared/types';
 import { describeWaitingFor } from '../../shared/activity';
 import { tr } from '../../shared/i18n';
+import { isWindowsPidDomain, windowsPidAlive } from '../wsl';
 
 export interface RegistryEntry {
   pid: number;
@@ -23,6 +25,8 @@ export interface RegistryEntry {
   agent?: string;
   updatedAt?: number;
   statusUpdatedAt?: number;
+  /** Onde o PID vale: "linux:...", "win32:<usuário>" (versões antigas não têm). */
+  pidDomain?: string;
 }
 
 function str(v: unknown): string | undefined {
@@ -58,6 +62,7 @@ export function parseRegistryEntry(raw: string): RegistryEntry | undefined {
     ['agent', str(j.agent)],
     ['updatedAt', num(j.updatedAt)],
     ['statusUpdatedAt', num(j.statusUpdatedAt)],
+    ['pidDomain', str(j.pidDomain)],
   ];
   for (const [k, v] of optional) if (v !== undefined) (e as unknown as Record<string, unknown>)[k] = v;
   return e;
@@ -104,6 +109,18 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+/** O processo da sessão roda no Windows e nós não (Habblaud no WSL)? Então o PID dela não é um PID daqui. */
+export function isForeignWindowsEntry(e: RegistryEntry, platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32' && isWindowsPidDomain(e.pidDomain);
+}
+
+export interface RegistryReaderOptions {
+  checkPid: boolean;
+  isAlive?: (pid: number) => boolean;
+  /** PID vivo no Windows, para as sessões do Claude Code do Windows vistas pelo WSL. */
+  isWindowsAlive?: (pid: number) => boolean;
+}
+
 export interface RegistryPoll {
   entries: RegistryEntry[];
   ok: boolean;
@@ -120,13 +137,15 @@ export class RegistryReader {
   private cache = new Map<string, Cached>();
   private readonly sessionsDir: string;
   private readonly isAlive: (pid: number) => boolean;
+  private readonly isWindowsAlive: (pid: number) => boolean;
 
   constructor(
     readonly configDir: string,
-    private readonly opts: { checkPid: boolean; isAlive?: (pid: number) => boolean },
+    private readonly opts: RegistryReaderOptions,
   ) {
     this.sessionsDir = join(configDir, 'sessions');
     this.isAlive = opts.isAlive ?? pidAlive;
+    this.isWindowsAlive = opts.isWindowsAlive ?? windowsPidAlive;
   }
 
   poll(): RegistryPoll {
@@ -165,10 +184,14 @@ export class RegistryReader {
       }
       const e = cached.entry;
       if (!e) continue;
-      if (this.opts.checkPid && !this.isAlive(e.pid)) continue;
+      if (this.opts.checkPid && !this.entryAlive(e)) continue;
       entries.push(e);
     }
     for (const file of [...this.cache.keys()]) if (!seen.has(file)) this.cache.delete(file);
     return { entries, ok: true };
+  }
+
+  private entryAlive(e: RegistryEntry): boolean {
+    return isForeignWindowsEntry(e) ? this.isWindowsAlive(e.pid) : this.isAlive(e.pid);
   }
 }
