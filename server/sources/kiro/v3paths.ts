@@ -45,6 +45,34 @@ export function kiroV3TranscriptPath(kiroDir: string, sessionId: string, cache?:
   return dir ? join(dir, 'messages.jsonl') : undefined;
 }
 
+/** Id do personagem de um subagente do 3.x: "<sessionId>:<subSessionId>". */
+export function kiroV3SubAgentId(sessionId: string, subSessionId: string): string {
+  return `${sessionId}:${subSessionId}`;
+}
+
+/** Separa "<sessionId>:<subSessionId>" (os dois sem barra nem ".."), ou undefined. */
+export function parseKiroV3SubAgentId(agentId: string): { sessionId: string; subSessionId: string } | undefined {
+  const i = agentId.indexOf(':');
+  if (i <= 0) return undefined;
+  const sessionId = agentId.slice(0, i);
+  const subSessionId = agentId.slice(i + 1);
+  return isKiroV3SessionId(sessionId) && isKiroV3SessionId(subSessionId) ? { sessionId, subSessionId } : undefined;
+}
+
+/** Transcript de um subagente: <pasta da sessão>/sub-executions/<subSessionId>.jsonl (mesmo formato do messages.jsonl). */
+export function kiroV3SubTranscriptFile(sessionDir: string, subSessionId: string): string | undefined {
+  return isKiroV3SessionId(subSessionId) ? join(sessionDir, 'sub-executions', `${subSessionId}.jsonl`) : undefined;
+}
+
+/** Transcript do subagente pelo id do personagem ("<sessionId>:<subSessionId>"), se o arquivo existir. */
+export function kiroV3SubTranscriptPath(kiroDir: string, agentId: string, cache?: Map<string, string>): string | undefined {
+  const ref = parseKiroV3SubAgentId(agentId);
+  if (!ref) return undefined;
+  const dir = kiroV3SessionDir(kiroDir, ref.sessionId, cache);
+  const file = dir ? kiroV3SubTranscriptFile(dir, ref.subSessionId) : undefined;
+  return file && existsSync(file) ? file : undefined;
+}
+
 /** Trava da sessão aberta (3.x). */
 export function kiroV3LeasePath(kiroDir: string, sessionId: string): string | undefined {
   return isKiroV3SessionId(sessionId) ? join(kiroDir, 'session-leases', `${sessionId}.lease`) : undefined;

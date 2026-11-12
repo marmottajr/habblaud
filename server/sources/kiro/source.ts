@@ -16,7 +16,7 @@ import { KiroHookSessions } from './hooks';
 import type { KiroHookEvent, KiroHookPayload, KiroLive } from './live';
 import { isWsl } from './liveness';
 import { KiroTerminalParser } from './terminal';
-import { kiroV3TranscriptPath } from './v3paths';
+import { kiroV3SubTranscriptPath, kiroV3TranscriptPath } from './v3paths';
 import { KiroV3Watcher } from './v3watcher';
 import { KiroWatcher } from './watcher';
 
@@ -229,8 +229,9 @@ export class KiroSource implements AgentSource, KiroLive {
     const v2 = (owner ?? this.watched[0])?.watcher.transcriptPathOf(agentId);
     if (v2) return v2;
     // Kiro CLI 3.x: <pasta>/sessions/<hash>/<sessionId>/messages.jsonl (v3paths.ts).
+    // Subagente do 3.x ("<sessionId>:<subSessionId>"): <pasta da sessão>/sub-executions/<subSessionId>.jsonl.
     for (const w of this.watched) {
-      const p = kiroV3TranscriptPath(w.dir.dir, agentId, this.v3Dirs);
+      const p = kiroV3TranscriptPath(w.dir.dir, agentId, this.v3Dirs) ?? kiroV3SubTranscriptPath(w.dir.dir, agentId, this.v3Dirs);
       if (p) return p;
     }
     return undefined;

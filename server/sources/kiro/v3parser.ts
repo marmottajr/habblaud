@@ -5,10 +5,11 @@
 // Sem I/O: o estado (tarefas, números, ferramentas vistas, aprovações pendentes) vai num KiroV3State que o watcher
 // guarda por sessão. As descrições reaproveitam as do 2.x (parser.ts) e as do Claude Code (shared/activity.ts).
 import type { Activity, AgentStats, AgentStatus, TaskItem } from '../../../shared/types';
-import { describePrompt, describeShellJob, describeTool, SPECIAL, truncate } from '../../../shared/activity';
+import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
 import type { ShellStart } from '../shells';
 import { cleanKiroPrompt, describeKiroTool, KIRO_SHELL_TOOLS } from './parser';
+import { kiroRole } from './watcher';
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : {});
@@ -80,6 +81,25 @@ export interface KiroV3LineResult {
   shells: KiroV3ShellSignal[];
   /** Pedido do usuário sem o contexto injetado (vira título quando a sessão não tem). */
   promptText?: string;
+  /** sub_agent_start: o watcher põe o subagente no escritório e lê sub-executions/<subSessionId>.jsonl. */
+  subStart?: KiroV3SubStart;
+  /** sub_agent_complete: o watcher termina de ler o arquivo do subagente e o tira do trabalho. */
+  subComplete?: KiroV3SubComplete;
+}
+
+export interface KiroV3SubStart {
+  subSessionId: string;
+  /** Papel (subAgentName sem o prefixo do Kiro), ou undefined. */
+  role?: string;
+  /** Pedido resumido (sem o briefing do orquestrador, segredos mascarados, até 90 caracteres). */
+  title?: string;
+}
+
+export interface KiroV3SubComplete {
+  subSessionId: string;
+  error: boolean;
+  /** Resposta (ou mensagem de erro) do subagente, sem cortar: o Activity corta e mascara. */
+  text?: string;
 }
 
 export interface KiroV3ParseOptions {
@@ -108,6 +128,31 @@ export function kiroV3Text(content: unknown): string {
   }
   const o = obj(content);
   return str(o.text);
+}
+
+// ------------------------------------------------------------------ subagentes
+
+const BRIEFING = /<orchestrator_briefing>[\s\S]*?(?:<\/orchestrator_briefing>|$)/g;
+const WRAPPER_TAGS = /<\/?(?:user_instruction|how_to_interpret|orchestrator_briefing)>/g;
+
+/**
+ * Título do subagente pelo pedido do sub_agent_start: o texto de <user_instruction> quando houver (pode vir sem o
+ * fechamento); senão o pedido sem os blocos <orchestrator_briefing>; senão a explicação. Só as tags do Kiro saem:
+ * "<repo>" e afins no meio do pedido são texto do usuário.
+ */
+export function kiroSubTitle(prompt: string, explanation = ''): string | undefined {
+  const pick = (s: string): string => {
+    const open = s.indexOf('<user_instruction>');
+    let t = s;
+    if (open >= 0) {
+      const rest = s.slice(open + '<user_instruction>'.length);
+      const close = rest.indexOf('</user_instruction>');
+      t = close >= 0 ? rest.slice(0, close) : rest.replace(BRIEFING, ' ');
+    } else t = s.replace(BRIEFING, ' ');
+    return cleanKiroPrompt(t.replace(WRAPPER_TAGS, ' ')).replace(/\s+/g, ' ').trim();
+  };
+  const text = pick(prompt) || pick(explanation);
+  return text ? truncate(maskSecrets(text.slice(0, 2_000)), 90) : undefined;
 }
 
 // ------------------------------------------------------------------ linhas mexidas
@@ -355,12 +400,29 @@ export function applyKiroV3Line(state: KiroV3State, line: string, opts: KiroV3Pa
       act('err', { ...SPECIAL.error(undefined, str(v.message) || str(v.errorType)), error: true });
       return r;
     }
-    case 'sub_agent_start':
+    case 'sub_agent_start': {
       state.subagentStarts++;
       state.stats.subagents = Math.max(state.subagentCalls, state.subagentStarts);
       r.statsChanged = true;
+      const subSessionId = str(payload.subSessionId);
+      if (subSessionId) {
+        const role = kiroRole(str(payload.subAgentName) || undefined);
+        const title = kiroSubTitle(str(payload.prompt), str(payload.explanation));
+        r.subStart = { subSessionId, ...(role ? { role } : {}), ...(title ? { title } : {}) };
+      }
       return r;
-    case 'sub_agent_complete':
+    }
+    case 'sub_agent_complete': {
+      const subSessionId = str(payload.subSessionId);
+      if (subSessionId) {
+        // Status visto: "success" / "error" (com errorMessage); qualquer outro valor com cara de falha conta como erro.
+        const errorMessage = str(payload.errorMessage);
+        const error = FAILED.test(str(payload.status)) || !!errorMessage;
+        const text = (error ? errorMessage || kiroV3Text(payload.response) : kiroV3Text(payload.response)).trim();
+        r.subComplete = { subSessionId, error, ...(text ? { text } : {}) };
+      }
+      return r;
+    }
     case 'usage_summary': // créditos: AgentStats não tem campo para eles
       return r;
     default:

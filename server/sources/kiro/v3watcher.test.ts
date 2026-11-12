@@ -6,6 +6,7 @@ import { Office } from '../../model/office';
 import { NameStore } from '../../model/names';
 import type { KiroLiveness } from './liveness';
 import { KiroV3Watcher, readKiroV3Lease } from './v3watcher';
+import { kiroV3SubTranscriptPath } from './v3paths';
 
 // Pasta do Kiro 3.x sintética: session-leases/<id>.lease e sessions/<hash>/<id>/{session.json,messages.jsonl}.
 const PID = 5151;
@@ -52,8 +53,14 @@ function setup() {
     alive,
     tracked,
     leases,
+    sdir,
     session,
     append,
+    /** Linha no transcript do subagente (sub-executions/<sub>.jsonl, criado na primeira). */
+    subAppend: (sub: string, p: Record<string, unknown>) => {
+      mkdirSync(join(sdir, 'sub-executions'), { recursive: true });
+      appendFileSync(join(sdir, 'sub-executions', `${sub}.jsonl`), line(p));
+    },
     tick: (ms: number) => (now += ms),
     get now() {
       return now;
@@ -179,5 +186,131 @@ describe('KiroV3Watcher', () => {
     } finally {
       t.watcher.stop();
     }
+  });
+
+  describe('subagentes do 3.x', () => {
+    const SUB_A = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    const SUB_B = 'bbbbbbbb-0000-4000-8000-00000000000b';
+    const A = `${SID}:${SUB_A}`;
+    const B = `${SID}:${SUB_B}`;
+    const briefing = '<orchestrator_briefing>contexto longo do orquestrador <how_to_interpret>x</how_to_interpret></orchestrator_briefing>\n';
+
+    it('ao vivo: dois em paralelo viram personagens, com atividades, tarefas, resposta e erro', () => {
+      const t = setup();
+      t.session([[{ type: 'user', content: 'divida o trabalho' }], [{ type: 'turn_start' }]]);
+      t.watcher.start();
+      try {
+        t.append({ type: 'tool_call', toolCallId: 'o1', toolName: 'orchestrate_subagent', args: { description: 'dividir' } });
+        t.append({
+          type: 'sub_agent_start',
+          parentExecutionId: 'p1',
+          subSessionId: SUB_A,
+          subAgentName: 'kiro_dev-agent',
+          prompt: `${briefing}<user_instruction>Corrija o login com GITHUB_TOKEN=abc123segredo</user_instruction>\nresto`,
+          explanation: 'explicação longa',
+        });
+        t.append({ type: 'sub_agent_start', parentExecutionId: 'p1', subSessionId: SUB_B, subAgentName: 'revisor', prompt: 'Revise o <repo> inteiro' });
+        t.watcher.scan();
+        expect(t.office.get(A)).toMatchObject({ kind: 'sub', parentId: SID, role: 'dev-agent', status: 'working', title: 'Corrija o login com GITHUB_TOKEN=***' });
+        expect(t.office.get(B)).toMatchObject({ kind: 'sub', parentId: SID, role: 'revisor', title: 'Revise o <repo> inteiro' });
+        // o arquivo do subagente ainda não existe: abre o terminal assim que aparecer
+        expect(t.watcher.transcriptPathOf(A)).toBe(join(t.sdir, 'sub-executions', `${SUB_A}.jsonl`));
+
+        t.subAppend(SUB_A, { type: 'steering_inclusion' });
+        t.subAppend(SUB_A, { type: 'tool_call', toolCallId: 'a1', toolName: 'todo_list', args: { command: 'create', tasks: { '0': { task_description: 'Ler o código' }, '1': { task_description: 'Corrigir' } } } });
+        t.subAppend(SUB_A, { type: 'tool_call', toolCallId: 'a2', toolName: 'fs_read', args: { operations: [{ mode: 'Line', path: '/proj/app/login.ts' }] } });
+        t.subAppend(SUB_A, { type: 'tool_result', toolCallId: 'a2', success: true, content: 'x' });
+        t.subAppend(SUB_B, { type: 'tool_call', toolCallId: 'b1', toolName: 'execute_bash', args: { command: 'git log -1' } });
+        t.watcher.scan();
+        const a = t.office.get(A);
+        expect(a?.tasks.map((x) => `${x.id}:${x.status}`)).toEqual(['1:pending', '2:pending']);
+        expect(a?.stats.toolCalls).toBe(2);
+        expect(a?.recent.some((x) => x.tool === 'fs_read')).toBe(true);
+        expect(t.office.get(B)?.recent.some((x) => x.tool === 'execute_bash')).toBe(true);
+        expect(t.office.get(B)?.shells).toMatchObject([{ id: 'b1', background: false }]);
+        // as atividades do subagente não vão para o principal
+        expect(t.office.get(SID)?.recent.some((x) => x.tool === 'fs_read')).toBe(false);
+
+        // o complete chega antes de o resto do arquivo ser lido: lê primeiro, depois conclui
+        t.tick(10_000);
+        t.subAppend(SUB_A, { type: 'tool_call', toolCallId: 'a3', toolName: 'todo_list', args: { command: 'complete', completed_task_ids: { '0': '1', '1': '2' } } });
+        t.subAppend(SUB_A, { type: 'assistant', content: 'Pronto.', operationType: 'Say' });
+        t.append({ type: 'sub_agent_complete', parentExecutionId: 'p1', subSessionId: SUB_A, response: 'Login corrigido em login.ts', status: 'success' });
+        t.append({ type: 'sub_agent_complete', parentExecutionId: 'p1', subSessionId: SUB_B, response: null, status: 'error', errorMessage: 'Tempo esgotado' });
+        t.watcher.scan();
+        const a2 = t.office.get(A);
+        expect(a2?.status).toBe('done');
+        expect(a2?.tasks.every((x) => x.status === 'completed')).toBe(true);
+        expect(a2?.recent.some((x) => x.kind === 'respond' && x.detail === 'Login corrigido em login.ts')).toBe(true);
+        const b2 = t.office.get(B);
+        expect(b2?.status).toBe('done');
+        expect(b2?.shells).toBeUndefined();
+        expect(b2?.recent.some((x) => x.kind === 'error' && x.detail === 'Tempo esgotado')).toBe(true);
+        expect(t.office.get(SID)?.stats.subagents).toBe(2);
+        expect(JSON.stringify(t.office.commit())).toContain('entregou');
+        // concluído: o terminal ainda acha o arquivo
+        expect(t.watcher.transcriptPathOf(A)).toBe(join(t.sdir, 'sub-executions', `${SUB_A}.jsonl`));
+        expect(t.watcher.transcriptPathOf(`${SID}:../x`)).toBeUndefined();
+      } finally {
+        t.watcher.stop();
+      }
+    });
+
+    it('releitura: o que já terminou não entra; o que ainda roda entra; sessão fechada leva os subagentes', () => {
+      const t = setup();
+      const at = t.now - 30_000;
+      t.session([
+        [{ type: 'user', content: 'divida' }, at],
+        [{ type: 'sub_agent_start', subSessionId: SUB_A, subAgentName: 'velho', prompt: 'tarefa antiga' }, at + 1_000],
+        [{ type: 'sub_agent_complete', subSessionId: SUB_A, response: 'ok', status: 'success' }, at + 2_000],
+        [{ type: 'sub_agent_start', subSessionId: SUB_B, subAgentName: 'atual', prompt: 'tarefa atual' }, at + 3_000],
+      ]);
+      t.subAppend(SUB_A, { type: 'tool_call', toolCallId: 'a1', toolName: 'fs_read', args: {} });
+      t.subAppend(SUB_B, { type: 'tool_call', toolCallId: 'b1', toolName: 'grep', args: { pattern: 'login' } });
+      t.watcher.start();
+      try {
+        expect(t.office.get(A)).toBeUndefined();
+        const b = t.office.get(B);
+        expect(b).toMatchObject({ kind: 'sub', parentId: SID, role: 'atual', title: 'tarefa atual', status: 'working' });
+        expect(b?.stats.toolCalls).toBe(1);
+        expect(t.office.get(SID)?.stats.subagents).toBe(2);
+
+        // ao vivo depois da releitura
+        t.subAppend(SUB_B, { type: 'assistant', content: 'achei', operationType: 'Say' });
+        t.watcher.scan();
+        expect(t.office.get(B)?.recent.some((x) => x.kind === 'respond')).toBe(true);
+
+        t.alive.delete(PID);
+        t.watcher.scan();
+        expect(t.office.get(SID)?.status).toBe('offline');
+        expect(t.office.get(B)?.status).toBe('done');
+        // aviso de entrega só para quem entregou de verdade
+        expect(JSON.stringify(t.office.commit())).not.toContain('entregou');
+      } finally {
+        t.watcher.stop();
+      }
+    });
+
+    it('sessão retomada noutro processo: subagente aberto do processo anterior não volta', () => {
+      const t = setup();
+      const acquired = t.now - 1_000;
+      t.session([[{ type: 'sub_agent_start', subSessionId: SUB_A, subAgentName: 'x', prompt: 'p' }, acquired - 60_000]], acquired);
+      t.watcher.start();
+      try {
+        expect(t.office.get(A)).toBeUndefined();
+      } finally {
+        t.watcher.stop();
+      }
+    });
+
+    it('transcript do subagente de sessão encerrada pelo id do personagem', () => {
+      const t = setup();
+      t.session([]);
+      t.subAppend(SUB_A, { type: 'assistant', content: 'oi' });
+      const root = join(t.leases, '..');
+      expect(kiroV3SubTranscriptPath(root, A)).toBe(join(t.sdir, 'sub-executions', `${SUB_A}.jsonl`));
+      expect(kiroV3SubTranscriptPath(root, B)).toBeUndefined();
+      expect(kiroV3SubTranscriptPath(root, SID)).toBeUndefined();
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyKiroTodo, applyKiroV3Line, createKiroV3State, diffLineCounts, kiroEditLines, kiroV3Text } from './v3parser';
+import { applyKiroTodo, applyKiroV3Line, createKiroV3State, diffLineCounts, kiroEditLines, kiroSubTitle, kiroV3Text } from './v3parser';
 
 // Dados sintéticos no formato do messages.jsonl do Kiro CLI 3.x.
 const T0 = Date.parse('2030-01-02T10:00:00.000Z');
@@ -147,5 +147,32 @@ describe('ajudantes', () => {
     expect(diffLineCounts('', 'x\ny')).toEqual({ added: 2, removed: 0 });
     expect(kiroEditLines('fs_read', {})).toBeUndefined();
     expect(kiroV3Text([{ type: 'text', text: 'oi' }, { kind: 'text', data: 'tchau' }])).toBe('oi\ntchau');
+  });
+});
+
+describe('subagentes do 3.x', () => {
+  it('sub_agent_start: papel, título sem o briefing e com segredo mascarado; complete com erro e sucesso', () => {
+    const { state, line } = run();
+    const s = line({
+      type: 'sub_agent_start',
+      parentExecutionId: 'p',
+      subSessionId: 'sub-1',
+      subAgentName: 'kirocrew-revisor-0123456789abcdef0123',
+      prompt: '<orchestrator_briefing>muito contexto</orchestrator_briefing>\n  Revise   o login, senha password=hunter2xyz',
+    });
+    expect(s?.subStart).toEqual({ subSessionId: 'sub-1', role: 'revisor', title: 'Revise o login, senha password=***' });
+    expect(state.stats.subagents).toBe(1);
+    expect(line({ type: 'sub_agent_complete', subSessionId: 'sub-1', response: 'feito', status: 'success' })?.subComplete).toEqual({ subSessionId: 'sub-1', error: false, text: 'feito' });
+    expect(line({ type: 'sub_agent_complete', subSessionId: 'sub-2', status: 'error', errorMessage: 'falhou' })?.subComplete).toEqual({ subSessionId: 'sub-2', error: true, text: 'falhou' });
+    expect(line({ type: 'sub_agent_complete', subSessionId: 'sub-3' })?.subComplete).toEqual({ subSessionId: 'sub-3', error: false });
+    expect(line({ type: 'sub_agent_start', subAgentName: 'x' })?.subStart).toBeUndefined();
+  });
+
+  it('kiroSubTitle: <user_instruction> (mesmo sem fechar), corte em 90, explicação como reserva', () => {
+    expect(kiroSubTitle('<orchestrator_briefing>a</orchestrator_briefing><user_instruction>Faça X</user_instruction> resto')).toBe('Faça X');
+    expect(kiroSubTitle('<orchestrator_briefing>a</orchestrator_briefing><user_instruction>Faça Y\n<how_to_interpret>z</how_to_interpret>')).toBe('Faça Y z');
+    expect(kiroSubTitle('x'.repeat(200))?.length).toBeLessThanOrEqual(90);
+    expect(kiroSubTitle('<orchestrator_briefing>só briefing', 'Explorar o repo')).toBe('Explorar o repo');
+    expect(kiroSubTitle('', '')).toBeUndefined();
   });
 });

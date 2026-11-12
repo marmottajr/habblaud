@@ -4,11 +4,15 @@
 // - Da trava só saem pid, parentPid e acquiredAt: o token dela nunca é lido para fora daqui nem vai para o log.
 // - Ao achar a sessão, relê o fim do messages.jsonl (até REPLAY_MAX_BYTES) só para o histórico (feed: false); depois,
 //   cada linha nova vira atividade ao vivo (v3parser.ts), com tarefas (todo_list), números e shells (ShellTracker).
-// - Trava sumiu ou processo morreu: o personagem sai (closeMain).
+// - Subagentes (sub_agent_start / sub_agent_complete no messages.jsonl): cada um vira personagem próprio
+//   ("<sessionId>:<subSessionId>"), com atividades, status, tarefas e shells lidos de
+//   sub-executions/<subSessionId>.jsonl (mesmo formato; o arquivo pode aparecer depois do start).
+//   Na releitura, subagente que começou e terminou dentro dela não entra (como no Claude Code).
+// - Trava sumiu ou processo morreu: os subagentes saem calados e o personagem sai (closeMain).
 import { existsSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import type { Activity, AgentStatus } from '../../../shared/types';
-import { truncate } from '../../../shared/activity';
+import { SPECIAL, truncate } from '../../../shared/activity';
 import { tr } from '../../../shared/i18n';
 import { errMsg, log } from '../../log';
 import type { Office } from '../../model/office';
@@ -17,8 +21,8 @@ import { FileTail } from '../tail';
 import type { KiroHookPayload } from './live';
 import { chooseLivenessMode, createLiveness, type KiroLiveness } from './liveness';
 import { cleanKiroTitle } from './parser';
-import { applyKiroV3Line, createKiroV3State, type KiroV3LineResult, type KiroV3State } from './v3parser';
-import { isKiroV3SessionId, kiroV3SessionDir } from './v3paths';
+import { applyKiroV3Line, createKiroV3State, type KiroV3LineResult, type KiroV3State, type KiroV3SubComplete, type KiroV3SubStart } from './v3parser';
+import { isKiroV3SessionId, kiroV3SessionDir, kiroV3SubAgentId, kiroV3SubTranscriptFile, parseKiroV3SubAgentId } from './v3paths';
 import { kiroRole, REPLAY_MAX_BYTES, STALE_LOCK_MS } from './watcher';
 
 /** Atividades da releitura que entram no histórico do agente. */
@@ -91,6 +95,23 @@ export interface KiroV3WatcherDeps {
   onTrack?: (sessionId: string) => void;
 }
 
+/** Subagente do 3.x aberto no escritório. */
+interface V3Sub {
+  /** Id do personagem ("<sessionId>:<subSessionId>"). */
+  id: string;
+  subSessionId: string;
+  /** sub-executions/<subSessionId>.jsonl (pode ainda não existir). */
+  path: string;
+  tail: FileTail;
+  state: KiroV3State;
+  shells: ShellTracker;
+  base: AgentStatus;
+  waitingFor?: string;
+  startedAt: number;
+  /** Já recebeu o sub_agent_complete (fica só para o terminal achar o arquivo). */
+  done: boolean;
+}
+
 interface V3Session {
   sessionId: string;
   pid: number;
@@ -110,6 +131,8 @@ interface V3Session {
   title?: string;
   model?: string;
   fsWatcher?: FSWatcher;
+  /** subSessionId -> subagente (abertos e concluídos desta sessão). */
+  subs: Map<string, V3Sub>;
 }
 
 export class KiroV3Watcher {
@@ -190,8 +213,12 @@ export class KiroV3Watcher {
     return this.active.has(sessionId);
   }
 
-  transcriptPathOf(sessionId: string): string | undefined {
-    return this.active.get(sessionId)?.transcript;
+  /** Transcript da sessão ou, para "<sessionId>:<subSessionId>", o sub-executions do subagente. */
+  transcriptPathOf(agentId: string): string | undefined {
+    const main = this.active.get(agentId);
+    if (main) return main.transcript;
+    const ref = parseKiroV3SubAgentId(agentId);
+    return ref ? this.active.get(ref.sessionId)?.subs.get(ref.subSessionId)?.path : undefined;
   }
 
   private freshest(paths: string[]): number {
@@ -251,7 +278,10 @@ export class KiroV3Watcher {
     for (const s of this.active.values()) this.pump(s);
     for (const id of [...this.active.keys()]) {
       if (live.has(id)) continue;
-      this.active.get(id)?.fsWatcher?.close();
+      const s = this.active.get(id);
+      s?.fsWatcher?.close();
+      // Sessão fechou: subagentes ainda trabalhando saem sem aviso de entrega.
+      for (const sub of s?.subs.values() ?? []) if (!sub.done) this.office.completeSub(sub.id, { notify: false });
       this.active.delete(id);
       this.office.closeMain(id);
     }
@@ -284,6 +314,7 @@ export class KiroV3Watcher {
       shells: new ShellTracker(),
       base: 'idle',
       ...(meta.model ? { model: meta.model } : {}),
+      subs: new Map(),
     };
 
     // Releitura: só histórico; o status sai da última linha.
@@ -291,13 +322,17 @@ export class KiroV3Watcher {
     const acts: Activity[] = [];
     let firstPrompt: string | undefined;
     let lastAt = 0;
+    // Subagentes que começaram na releitura e ainda não terminaram (os terminados ficam de fora, como no Claude Code).
+    const openSubs = new Map<string, { start: KiroV3SubStart; at: number }>();
     for (let res = s.tail.read(); ; res = s.tail.read()) {
       for (const line of res.lines) {
         const r = applyKiroV3Line(s.state, line, { idPrefix: sessionId, now });
         if (!r) continue;
         if (r.at > lastAt) lastAt = r.at;
+        if (r.subStart) openSubs.set(r.subStart.subSessionId, { start: r.subStart, at: r.at });
+        if (r.subComplete) openSubs.delete(r.subComplete.subSessionId);
         acts.push(...r.activities);
-        this.applyShells(s, r); // shell que terminou dentro da releitura já está no passado: sem 'ShellDone'
+        this.applyShells(s, sessionId, r); // shell que terminou dentro da releitura já está no passado: sem 'ShellDone'
         if (r.status) {
           s.base = r.status;
           s.waitingFor = r.waitingFor;
@@ -314,6 +349,8 @@ export class KiroV3Watcher {
       s.state.approvals.clear();
       s.shells.endForeground(undefined, lease.acquiredAt);
     }
+    // Subagente do processo anterior (sessão retomada) não roda mais.
+    if (lastAt && lease.acquiredAt && lastAt < lease.acquiredAt) openSubs.clear();
     // Shells morrem com o processo: o que começou antes da trava não roda mais.
     s.shells.prune(now, lease.acquiredAt);
     s.title = cleanKiroTitle(meta.title) ?? (firstPrompt ? truncate(firstPrompt, 90) : undefined);
@@ -335,9 +372,10 @@ export class KiroV3Watcher {
     this.publish(s, lastAt || undefined);
     const keep = acts.slice(-REPLAY_MAX_ACTIVITIES);
     keep.forEach((a, i) => this.office.addActivity(sessionId, a, i === keep.length - 1, { feed: false }));
-    this.publishShells(s);
+    this.publishShells(sessionId, s.shells);
     this.office.setStatus(sessionId, status, s.waitingFor);
     this.office.fillShellActivity(sessionId);
+    for (const { start, at } of openSubs.values()) this.openSub(s, start, at, true);
     try {
       s.fsWatcher = watch(dir, () => this.pump(s));
       s.fsWatcher.on('error', () => {
@@ -350,14 +388,15 @@ export class KiroV3Watcher {
   }
 
   /** Status mostrado: ocioso com Bash em segundo plano rodando = esperando o shell. */
-  private effective(s: V3Session, now: number): AgentStatus {
+  private effective(s: Pick<V3Session, 'base' | 'shells'>, now: number): AgentStatus {
     return s.base === 'idle' && s.shells.hasBackgroundShell(now, SHELL_FALLBACK_MAX_AGE_MS) ? 'shell' : s.base;
   }
 
-  private applyShells(s: V3Session, r: KiroV3LineResult): ShellFinish[] {
+  /** `owner` = id do personagem dono dos shells (a sessão ou o subagente). */
+  private applyShells(s: Pick<V3Session, 'shells'>, owner: string, r: KiroV3LineResult): ShellFinish[] {
     const out: ShellFinish[] = [];
     for (const sig of r.shells) {
-      if (sig.type === 'start') s.shells.start(s.sessionId, sig.shell);
+      if (sig.type === 'start') s.shells.start(owner, sig.shell);
       else if (sig.type === 'turnEnd') s.shells.endForeground(undefined, r.at);
       else {
         const bg = s.shells.list().find((j) => j.toolUseId === sig.toolUseId)?.background;
@@ -370,15 +409,15 @@ export class KiroV3Watcher {
     return out;
   }
 
-  private reportShellDone(s: V3Session, fin: ShellFinish, live: boolean): void {
+  private reportShellDone(agentId: string, fin: ShellFinish, live: boolean): void {
     const job = fin.job;
     const input: { id: string; label: string; startedAt: number; command?: string } = { id: job.toolUseId, label: job.label, startedAt: job.startedAt };
     if (job.command) input.command = job.command;
-    this.office.shellDone(s.sessionId, input, fin.outcome, fin.at, job.command ? { live, summary: job.command } : { live });
+    this.office.shellDone(agentId, input, fin.outcome, fin.at, job.command ? { live, summary: job.command } : { live });
   }
 
-  private publishShells(s: V3Session): void {
-    this.office.setShells(s.sessionId, s.shells.list().map(toShellJob));
+  private publishShells(agentId: string, shells: ShellTracker): void {
+    this.office.setShells(agentId, shells.list().map(toShellJob));
   }
 
   private publish(s: V3Session, lastAt?: number): void {
@@ -425,8 +464,10 @@ export class KiroV3Watcher {
         for (const a of r.activities) this.office.addActivity(s.sessionId, a, true);
         if (r.shells.length) {
           shellsChanged = true;
-          for (const fin of this.applyShells(s, r)) this.reportShellDone(s, fin, true);
+          for (const fin of this.applyShells(s, s.sessionId, r)) this.reportShellDone(s.sessionId, fin, true);
         }
+        if (r.subStart) this.openSub(s, r.subStart, r.at, false);
+        if (r.subComplete) this.finishSub(s, r.subComplete, r.at);
         if (r.status) {
           s.base = r.status;
           s.waitingFor = r.waitingFor;
@@ -440,10 +481,104 @@ export class KiroV3Watcher {
     const now = this.now();
     if (s.shells.prune(now, s.startedAt)) shellsChanged = true;
     if (changed) this.publish(s, lastAt);
-    if (shellsChanged) this.publishShells(s);
+    if (shellsChanged) this.publishShells(s.sessionId, s.shells);
     this.office.setStatus(s.sessionId, this.effective(s, now), s.waitingFor);
     this.office.fillWorkingActivity(s.sessionId);
     this.office.fillShellActivity(s.sessionId);
+    for (const sub of s.subs.values()) if (!sub.done) this.pumpSub(s, sub, true);
+  }
+
+  // ---------------------------------------------------------------- subagentes
+
+  /**
+   * Põe o subagente no escritório. `replay` = já rodava quando a sessão foi achada: o que ele já escreveu vai só para o
+   * histórico (feed: false), como na sessão principal. Sem replay, o arquivo é novo e tudo entra ao vivo.
+   */
+  private openSub(s: V3Session, start: KiroV3SubStart, at: number, replay: boolean): void {
+    const prev = s.subs.get(start.subSessionId);
+    if (prev && !prev.done) return; // o mesmo start de novo
+    const path = kiroV3SubTranscriptFile(s.dir, start.subSessionId);
+    if (!path) return;
+    const id = kiroV3SubAgentId(s.sessionId, start.subSessionId);
+    const added = this.office.addSub({
+      id,
+      parentId: s.sessionId,
+      sessionId: s.sessionId,
+      role: start.role || tr('Subagente'),
+      ...(start.title ? { title: start.title } : {}),
+      background: false,
+      startedAt: at,
+    });
+    if (!added) return;
+    const state = createKiroV3State();
+    state.inTurn = true; // o subagente nasce trabalhando no pedido do agente principal
+    const sub: V3Sub = { id, subSessionId: start.subSessionId, path, tail: new FileTail(path), state, shells: new ShellTracker(), base: 'working', startedAt: at, done: false };
+    s.subs.set(start.subSessionId, sub);
+    if (replay) sub.tail.seekTail(REPLAY_MAX_BYTES);
+    this.pumpSub(s, sub, !replay);
+  }
+
+  /** Lê o que o subagente escreveu desde a última vez. `live` = false: só histórico (releitura). */
+  private pumpSub(s: V3Session, sub: V3Sub, live: boolean): void {
+    if (!this.office.has(sub.id)) return; // saiu do escritório (período de graça)
+    let changed = false;
+    let shellsChanged = false;
+    let lastAt: number | undefined;
+    const acts: Activity[] = [];
+    // shortcut: o fs.watch da sessão não vê sub-executions/; o arquivo do subagente anda no polling (pollMs) e a cada
+    // linha nova do messages.jsonl. Trocar por watch da pasta sub-executions/ se a latência incomodar.
+    for (let res = sub.tail.read(); ; res = sub.tail.read()) {
+      for (const line of res.lines) {
+        const r = applyKiroV3Line(sub.state, line, { idPrefix: sub.id, now: this.now() });
+        if (!r) continue;
+        lastAt = Math.max(lastAt ?? 0, r.at);
+        if (r.tasksChanged || r.statsChanged) changed = true;
+        if (live) for (const a of r.activities) this.office.addActivity(sub.id, a, true);
+        else acts.push(...r.activities);
+        if (r.shells.length) {
+          shellsChanged = true;
+          for (const fin of this.applyShells(sub, sub.id, r)) if (live) this.reportShellDone(sub.id, fin, true);
+        }
+        if (r.status) {
+          sub.base = r.status;
+          sub.waitingFor = r.waitingFor;
+          sub.shells.holdForeground(r.status === 'waiting', r.at);
+          shellsChanged = true;
+        }
+      }
+      if (!res.more) break;
+    }
+    if (acts.length) {
+      const keep = acts.slice(-REPLAY_MAX_ACTIVITIES);
+      keep.forEach((a, i) => this.office.addActivity(sub.id, a, i === keep.length - 1, { feed: false }));
+    }
+    const now = this.now();
+    if (sub.shells.prune(now, s.startedAt)) shellsChanged = true;
+    if (changed || lastAt) {
+      this.office.applyTranscript(sub.id, {
+        tasks: sub.state.tasks.map((t) => ({ ...t })),
+        stats: { ...sub.state.stats },
+        ...(lastAt ? { lastAt } : {}),
+      });
+    }
+    if (shellsChanged) this.publishShells(sub.id, sub.shells);
+    if (this.office.isSubDone(sub.id)) return;
+    this.office.setStatus(sub.id, this.effective(sub, now), sub.waitingFor);
+    this.office.fillWorkingActivity(sub.id);
+    this.office.fillShellActivity(sub.id);
+  }
+
+  /** sub_agent_complete: lê o resto do arquivo do subagente, mostra a resposta (ou o erro) e o tira do trabalho. */
+  private finishSub(s: V3Session, done: KiroV3SubComplete, at: number): void {
+    const sub = s.subs.get(done.subSessionId);
+    if (!sub || sub.done) return;
+    this.pumpSub(s, sub, true);
+    const base = `${sub.id}#complete`;
+    if (done.error) this.office.addActivity(sub.id, { id: `${base}:err`, at, ...SPECIAL.error(undefined, done.text), error: true }, true);
+    else if (done.text) this.office.addActivity(sub.id, { id: `${base}:r`, at, ...SPECIAL.respond(done.text) }, true);
+    sub.done = true;
+    sub.shells.endForeground(undefined, at);
+    this.office.completeSub(sub.id);
   }
 
   /**
