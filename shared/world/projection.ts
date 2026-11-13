@@ -140,6 +140,9 @@ export function projectWithReport(input: ProjectionInput, ids: WorldIdSource, no
   for (const a of input.agents) {
     if (isDemoId(a.id) || isDemoId(a.roomId) || !roomIds.has(a.roomId)) continue;
     if ((a.kind !== 'main' && a.kind !== 'sub') || !isWorldStatus(a.status)) continue;
+    // O protocolo do mundo só conhece Claude Code e Codex: um agente de outra ferramenta (ex.: Gemini CLI) fica de
+    // fora em vez de subir com a ferramenta errada (dados verdadeiros).
+    if (a.provider && a.provider !== 'claude' && a.provider !== 'codex') continue;
     const list = byRoom.get(a.roomId);
     if (list) list.push(a);
     else byRoom.set(a.roomId, [a]);

@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Novo
+
+- **Gemini CLI no escritório.** As sessões do `gemini` entram como personagens com o selo **GEMINI** e o chip azul
+  da conta **Gemini**: aparecem ao abrir, trabalham a cada prompt, mostram a ferramenta em uso (ler, editar, rodar
+  comando, buscar na web, MCP...), levantam a mão quando o Gemini pede aprovação e voltam a passear ao fim do turno.
+  Tudo chega pelos hooks do Gemini: `npm run gemini:install` (e `gemini:status`, `gemini:uninstall`), também no
+  Docker, sem montar nada. Aprovar, mandar mensagens e o terminal continuam no próprio Gemini. `HABBLAUD_GEMINI=0`
+  desliga.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

@@ -4,6 +4,8 @@ import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '.
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
+import { handleGeminiEvent } from '../gemini/http';
+import type { GeminiLive } from '../sources/gemini/source';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
@@ -63,6 +65,8 @@ export interface ApiDeps {
    * não dependem da trava do terminal).
    */
   codexLive?: CodexLive;
+  /** Fonte do Gemini ao vivo: recebe os eventos dos hooks do Gemini CLI (POST /api/gemini/events). Mesma trava do Codex. */
+  geminiLive?: GeminiLive;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -125,6 +129,7 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
+    path.startsWith('/api/gemini/') ||
     path.startsWith('/api/host/')
   );
 }
@@ -376,6 +381,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
+          geminiEvents: !!deps.geminiLive,
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
@@ -487,6 +493,14 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Codex só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/gemini/events') {
+      // Eventos dos hooks do Gemini CLI: mesma trava dos do Codex (só do próprio computador).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('eventos do Gemini só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else handleGeminiEvent(req, res, { live: deps.geminiLive }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

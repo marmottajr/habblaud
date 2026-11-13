@@ -42,6 +42,9 @@
     "codex:uninstall": "tsx scripts/codex-install.ts uninstall",
     "codex:status": "tsx scripts/codex-install.ts status",
     "codex:bridge": "tsx scripts/codex-bridge.ts",
+    "gemini:install": "tsx scripts/gemini-install.ts install",
+    "gemini:uninstall": "tsx scripts/gemini-install.ts uninstall",
+    "gemini:status": "tsx scripts/gemini-install.ts status",
     "remote:setup": "tsx scripts/remote-setup.ts",
     "remote:mdns": "tsx scripts/remote-mdns.ts",
     "release": "tsx scripts/release.ts"

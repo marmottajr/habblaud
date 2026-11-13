@@ -226,6 +226,24 @@ Depois, **abra o Codex e aprove os hooks do Habblaud em `/hooks`**: o Codex só 
 aprova (o Habblaud nunca grava essa aprovação). Com o Habblaud no Docker, para mandar mensagens às sessões do Codex
 deixe também `npm run codex:bridge` rodando no Mac (veja [Codex](#codex)).
 
+### 5. Gemini CLI no escritório (opcional)
+
+Se você usa o **[Gemini CLI](https://github.com/google-gemini/gemini-cli)** (`gemini`), as sessões dele também entram
+no escritório: cada projeto é uma sala e cada sessão, um personagem com o selo **GEMINI** e o chip azul da conta
+**Gemini**. Tudo chega pelos hooks do Gemini (nada é montado no Docker):
+
+```bash
+npm run gemini:install     # acrescenta os hooks do Habblaud em ~/.gemini/settings.json (backup antes; os outros ficam)
+npm run gemini:status      # confere
+```
+
+- **O que aparece:** a sessão entra ao abrir o `gemini`, trabalha a cada prompt, mostra a ferramenta em uso (ler,
+  editar, rodar comando, buscar na web, MCP...), levanta a mão quando o Gemini pede aprovação e volta a passear ao
+  terminar o turno. Ao sair do `gemini`, o personagem vai embora.
+- **Limites:** o Gemini não deixa aprovar nem mandar mensagens por fora, e a conversa dele não é acompanhada no
+  terminal do escritório: responda no próprio `gemini`. O Gemini também não informa cota (o cartão diz "ao vivo").
+- `HABBLAUD_GEMINI=0` desliga; `HABBLAUD_GEMINI_HOME` aponta outra pasta. Para desfazer: `npm run gemini:uninstall`.
+
 ### Abrir no celular (opcional)
 
 Por padrão o Habblaud só aceita conexões do próprio computador. Para abrir no celular (no mesmo Wi-Fi), com Docker:
