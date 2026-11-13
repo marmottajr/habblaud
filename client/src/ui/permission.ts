@@ -47,6 +47,9 @@ export function expiryText(expiresAt: number, now: number, seconds = false): str
 /** Aviso do cartão de um pedido do Codex. */
 export const CODEX_PERMISSION_NOTE = tr('No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.');
 
+/** Aviso do cartão de um pedido do Kiro. */
+export const KIRO_PERMISSION_NOTE = tr('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente). Aprovar libera o pedido: se o Kiro já confia na ferramenta, ela roda direto; senão, confirme no terminal.');
+
 /** O que o cartão oferece para um pedido (muda com a ferramenta). */
 export interface PermissionOptions {
   /** "Aprovar e não perguntar de novo" (as sugestões do Claude Code). */
@@ -59,10 +62,17 @@ export interface PermissionOptions {
   seconds: boolean;
   /** Aviso curto embaixo da prévia ('' = nenhum). */
   note: string;
+  /** "Responder no terminal" (soltar o pedido e deixar o terminal decidir). */
+  terminal: boolean;
 }
 
 export function permissionOptions(p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'>, agent: Pick<AgentInfo, 'kind' | 'background'>): PermissionOptions {
-  if (p.provider === 'codex') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: CODEX_PERMISSION_NOTE };
+  if (p.provider === 'codex') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: CODEX_PERMISSION_NOTE, terminal: true };
+  // Kiro: o hook aprova (libera o terminal) ou recusa com motivo (bloqueia a ferramenta); "não perguntar de novo" grava
+  // uma regra allow nas permissões do usuário do Kiro (o hook sugere: o shell inteiro, os comandos com um prefixo ou a
+  // escrita de arquivos). Sem "interromper", e o prazo é longo (minutos), como o do Claude Code. Sem "Responder no
+  // terminal": no Kiro o terminal já pergunta junto (o `[y/n/t]` aparece em paralelo), então soltar o pedido não muda nada.
+  if (p.provider === 'kiro') return { always: !!p.suggestions?.length, interrupt: false, reasonRequired: false, seconds: false, note: KIRO_PERMISSION_NOTE, terminal: false };
   // Subagente em segundo plano: o Claude Code só mostra o diálogo depois que o hook responde.
   const blocking = agent.kind === 'sub' && !!agent.background;
   return {
@@ -71,6 +81,7 @@ export function permissionOptions(p: Pick<PermissionRequestInfo, 'provider' | 's
     reasonRequired: false,
     seconds: false,
     note: blocking ? tr('Este subagente roda em segundo plano: o terminal só mostra o pedido depois que você responder aqui ou escolher “Responder no terminal”.') : '',
+    terminal: true,
   };
 }
 
@@ -96,9 +107,9 @@ export function focusPermission(ctx: UiContext, agentId: string): void {
 /** A página foi aberta pelo próprio computador? (a regra antiga; quem decide agora é o servidor, ver net/access.ts) */
 export const isLocalHostname = isLoopbackHostname;
 
-/** Pedido que se responde escolhendo (as perguntas do AskUserQuestion), não aprovando. O Codex nunca pergunta. */
+/** Pedido que se responde escolhendo (as perguntas do AskUserQuestion), não aprovando. O Codex e o Kiro nunca perguntam. */
 export function isQuestionRequest(p: Pick<PermissionRequestInfo, 'tool' | 'questions' | 'provider'> | undefined): boolean {
-  return !!p && p.provider !== 'codex' && p.tool === ASK_TOOL && !!p.questions?.length;
+  return !!p && p.provider !== 'codex' && p.provider !== 'kiro' && p.tool === ASK_TOOL && !!p.questions?.length;
 }
 
 /** O que está marcado numa pergunta do cartão: as opções (posições do original) e o "Outro" (marcado, e o texto). */
@@ -214,7 +225,7 @@ export class PermissionCard {
   private interruptRow: HTMLElement;
   private denySubmit: HTMLButtonElement;
   /** O que o cartão oferece para o pedido atual (Claude Code ou Codex). */
-  private opts: PermissionOptions = { always: false, interrupt: true, reasonRequired: false, seconds: false, note: '' };
+  private opts: PermissionOptions = { always: false, interrupt: true, reasonRequired: false, seconds: false, note: '', terminal: true };
   private status: HTMLElement;
   private remote: HTMLElement;
   /** Perguntas do AskUserQuestion, montadas uma vez por pedido (a seleção sobrevive aos snapshots). */
@@ -389,6 +400,7 @@ export class PermissionCard {
     setHidden(this.always, ask || !opts.always || this.phase === 'deny');
     setHidden(this.denyForm, this.phase !== 'deny');
     setHidden(this.interruptRow, !opts.interrupt);
+    setHidden(this.terminalBtn, !opts.terminal);
     setAttr(
       this.reason,
       'placeholder',

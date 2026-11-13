@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountInfo } from '../../../shared/types';
-import { cardState, codexUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
+import { cardState, codexUsageNote, kiroUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
 
 const MIN = 60_000;
 type Acc = Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider' | 'email' | 'plan' | 'configDir'>;
 const codex = (over: Partial<Acc> = {}): Acc => ({ provider: 'codex', usageStatus: 'ok', configDir: '~/.codex', plan: 'Team', ...over });
+const kiro = (over: Partial<Acc> = {}): Acc => ({ provider: 'kiro', usageStatus: 'disabled', configDir: '~/.kiro', plan: 'PRO MAX', ...over });
 const win = { utilization: 42, resetsAt: 10 * 60 * MIN };
 
 describe('sourceLabel', () => {
@@ -48,5 +49,19 @@ describe('cartão de uso de uma conta do Codex', () => {
     expect(usageSubtitle({ email: 'a@b.c', configDir: '~/.claude' })).toBe('a@b.c');
     expect(usageSubtitle({ configDir: '~/.claude' })).toBe('~/.claude');
     expect(codexUsageNote({ usageStatus: 'ok' }, 0)).toBe('');
+  });
+});
+
+describe('cartão de uso de uma conta do Kiro', () => {
+  it('mostra mensagem para consultar no terminal via /usage', () => {
+    expect(usageMessage(kiro())).toEqual(['consultar via /usage', '/usage']);
+    expect(kiroUsageNote(kiro())).toBe('Consulte créditos e limites no terminal do Kiro CLI com /usage');
+    expect(kiroUsageNote(codex())).toBe('');
+  });
+
+  it('mostra o plano ou "Kiro" embaixo do nome quando sem e-mail', () => {
+    expect(usageSubtitle(kiro())).toBe('plano PRO MAX');
+    expect(usageSubtitle(kiro({ plan: undefined }))).toBe('Kiro');
+    expect(usageSubtitle(kiro({ email: 'kiro@org.com' }))).toBe('kiro@org.com');
   });
 });

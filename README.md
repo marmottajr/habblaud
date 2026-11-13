@@ -5,7 +5,7 @@
 <h1 align="center">Habblaud</h1>
 
 <p align="center">
-  <b>The virtual office for your Claude Code (and Codex) agents.</b><br />
+  <b>The virtual office for your Claude Code, Codex and Kiro agents.</b><br />
   Each project becomes a room, and each agent becomes a pixel-art character that shows, in real time, what it's doing.
 </p>
 
@@ -608,6 +608,60 @@ Codex account chip is hollow and carries the **CODEX** tag.
   little while to leave after you close the terminal.
 - ChatGPT cloud conversations (with no file on the computer) don't show up. `HABBLAUD_CODEX=0` turns Codex off.
 
+### Kiro
+
+Kiro sessions (CLI or IDE) show up in the office automatically: character, project room, activity,
+terminal with live streaming, and history. The Kiro account chip carries the **KIRO** tag and vibrant purple color.
+
+- **Zero configuration:** Habblaud detects active Kiro CLI sessions automatically by reading session locks in
+  `~/.kiro/sessions/cli/*.lock` (and `KIRO_HOME` or `KIRO_SESSIONS_DIR`). The working directory (`cwd`) is determined from
+  the lockfile and process status.
+- **Open session = live Kiro process:** the lock's PID must really be Kiro (`/proc` on Linux, `tasklist` on Windows, `ps`
+  on macOS); a stale lock whose PID was reused by another program doesn't become a character. In Docker, or when processes
+  can't be listed, a lock, `.json` or `.jsonl` touched in the last 12 h counts (`HABBLAUD_KIRO_LIVENESS=pid|mtime` forces a
+  method).
+- **WSL and Windows together:** running in WSL, Habblaud also shows the Kiro sessions on Windows
+  (`/mnt/c/Users/<you>/.kiro`, account **Kiro (Windows)**, live via `tasklist.exe`). `HABBLAUD_KIRO_WINDOWS=0` turns it off;
+  `HABBLAUD_KIRO_DIRS` (comma-separated list) picks the folders.
+- **Waiting for approval:** on Linux/WSL, a pending tool with the Kiro process idle (no I/O and no new process under it)
+  becomes "Needs you: approve a permission". `HABBLAUD_KIRO_APPROVAL=0` turns it off. Native Windows and macOS don't get it.
+- **Times and Kiro Crew:** the replay uses the prompt and turn times from the `.json` (the `.jsonl` has no per-line time)
+  and doesn't repeat the history in the live feed; the context Kiro Crew injects in the prompt (`[AGENT SYSTEM PROMPT] …`)
+  is removed from the title and the balloon.
+- **Without the hook:** Kiro writes the transcript per model response (the request shows up with the first response),
+  so the character only starts working when it arrives; and Kiro CLI 3.x sessions (`~/.kiro/sessions/<hash>/sess_*`)
+  don't show up.
+- **Kiro hook (optional):** `npm run kiro:install` copies `mod/habblaud-kiro/hook.mjs` to `~/.habblaud/kiro-hook.mjs` and
+  registers it in Kiro CLI: on 2.x, in your agents at `~/.kiro/agents/*.json` (Kiro Crew's are skipped; the built-in
+  `kiro_default` agent doesn't take hooks); on 3.x, in `~/.kiro/hooks/habblaud.json`. With it the character works as soon
+  as you send the request, each tool closes on `PostToolUse` (the "approve a permission" for quick tools works on any
+  OS) and 3.x sessions show up (hook only: with no PID, they leave after 30 min without events). The hook only observes,
+  always exits 0 and the command carries `|| true` (`& exit /b 0` on Windows): Habblaud being down doesn't get in Kiro's
+  way. `npm run kiro:status` shows where it is; `npm run kiro:uninstall` removes it (backing up each agent first).
+  Options: `--formato v2|v3`, `--agente a,b`, `--pasta <project>`, `--port <n>`, `--dry-run`. On Windows, run the
+  installer with Windows Node (`node <Habblaud>\mod\habblaud-kiro\install.mjs install`).
+- **Approve Kiro permissions from the office (optional, opt-in):** `npm run kiro:install -- --aprovar` (option
+  `--espera <s>`, 5 to 86400, default 300) adds a separate `PreToolUse` hook that lets you **approve or deny** the Kiro's
+  permission requests (shell and file writes) right from the office, in the same "Asks for permission" card as Claude Code
+  and Codex — same safeguard (local access, local JSON origin). Denying from the office blocks the tool (the reason goes
+  to the model). Approving releases the request: a tool Kiro already trusts runs right away, others still go through the
+  terminal's `[y/n/t]` prompt — Kiro hooks can only block or ask, never auto-allow (checked on Kiro CLI 2.16 and 3.2).
+  To stop the terminal from asking, use **"Approve and don't ask again"** on the card: for shell, *commands starting with
+  `<prefix>`* (the first 1–2 words, never `rm`, `sudo`, `curl`, shells or anything with `;`, `|`, `&`, `` ` ``, `$(`) or
+  *any shell command*; for file writes, *any file write*. The hook writes an `allow` rule to Kiro's **user** permissions
+  file (`<kiro>/settings/permissions.yaml` or `.json`, the same one Kiro's own "Always allow" uses; backup, lock and atomic
+  write). Kiro reloads that file on its own and checks each sub-command (`a && b`) against the rules, so the prefix never
+  allows what comes after a separator; deny rules still win. The PreToolUse hook runs before Kiro's permission check, so the
+  current call usually goes through without `[y/n/t]` too. With no page open, Habblaud down or the wait timed out, the hook
+  exits without deciding and the terminal decides. When the tool runs anyway (hook killed, Ctrl+C), the `PostToolUse`
+  event clears the card right away. There is no "interrupt" and no answering questions. It comes **off**:
+  `npm run kiro:status` shows the state and `npm run kiro:uninstall` removes it (including the rules the office wrote).
+- **Live Terminal & History:** Habblaud tails `~/.kiro/sessions/cli/<sessionId>.jsonl` to reconstruct prompts, tool usage
+  (shell commands, file edits, git, test execution), model thinking, and outputs in real time via Server-Sent Events.
+- **Account & Plan:** Habblaud discovers plan metadata automatically from local files (`plan`, `plan.txt`,
+  `settings/plan.json`, `user.json`) or environment variables (`HABBLAUD_KIRO_PLAN`, `KIRO_PLAN`).
+- `HABBLAUD_KIRO=0` turns Kiro off in the office.
+
 ### GitHub in the office
 
 What the agents do on GitHub livens up the project's room, with no token and no internet access: Habblaud reads the
@@ -729,12 +783,13 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_CODEX` | on | `0` turns off Codex in the office. |
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` from PATH (on Windows, `codex.exe`) | The Codex binary that delivers the messages (`codex queue`), in Node mode or in `npm run codex:bridge`. |
+| `HABBLAUD_KIRO` | on | `0` turns off Kiro in the office. |
 | `HABBLAUD_UPDATE_CHECK` | on | `0` turns off the new-version check (a request to the repository's releases on GitHub every 6 h). |
 | `HABBLAUD_LANG` | system language (except English), otherwise `pt-BR` | Language of the texts the server builds (activities, notices, logs): `pt-BR`, `en`, `es` or `fr`. The interface follows the browser or the choice in Settings › Language. See [Languages](#languages). |
 | `HABBLAUD_ACCOUNTS` | — | JSON to customize name, letter or color, matched by the account folder name. E.g. `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 
 **In Docker**, `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
-`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
+`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_KIRO`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, the `HABBLAUD_WORLD*` and the
 `HABBLAUD_REMOTE_*` apply (in `.env` or in the environment), as do `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_USAGE_DIR` and
 `HABBLAUD_ACCOUNTS` (read by `docker:up` on the host); the rest are fixed inside the container. Options: `npm run docker:up -- --no-build` (starts without rebuilding),
 `npm run docker:down` (stops) and `npm run docker:logs` (follows the logs).
@@ -1013,6 +1068,9 @@ metadata (letter, email, organization) is read on the host by `docker:up` and pa
   other apps stay where they are) and writes `~/.habblaud/codex-hook.json`; approving the hooks is always up to you, in
   `/hooks`. The hooks only talk to `127.0.0.1`. Messages to Codex carry the same warning as those to Claude Code: any
   program on this machine that talks to Habblaud can leave a message in a session's queue.
+- **Kiro:** Habblaud only reads active session locks (`~/.kiro/sessions/cli/*.lock`) to discover open sessions,
+  their PID, and working folder. The transcript (`<sessionId>.jsonl`) is streamed exclusively for the local terminal
+  view. Habblaud never reads credentials, authentication tokens, or configurations outside the session directory.
 - **What shows up on screen:** activity summaries (tool, file, command or query), session titles,
   tasks and stats (and, in the terminal, the conversation). Don't expose the port on networks you don't
   trust.
@@ -1153,6 +1211,16 @@ run `npm run codex:install`, **approve the hooks in `/hooks` in Codex** and chec
 the hooks through the login shell, which may have an old Node; `codex:install` picks a Node 22+ and tells you which one (or use
 `--node <caminho>`). A freshly opened CLI session only shows up with the **first message**: before that, Codex doesn't
 say which folder it's in (it only creates the session lock), and without the folder there's no room.
+
+</details>
+
+<details>
+<summary><b>Kiro doesn't show up in the office</b></summary>
+
+Check that:
+- Kiro CLI sessions are actively running with session lock files in `~/.kiro/sessions/cli/` (or the directory pointed to by `KIRO_HOME` or `KIRO_SESSIONS_DIR`).
+- `HABBLAUD_KIRO=0` was not set in your environment.
+- The startup log (`npm run docker:logs` or terminal output) confirms: `Kiro: 1 conta(s), X sessão(ões) aberta(s).`
 
 </details>
 

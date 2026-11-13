@@ -274,14 +274,18 @@ describe('utilitários', () => {
   });
 });
 
-describe('rodapé do Codex', () => {
+describe('rodapé do Codex e Kiro', () => {
   it('spinner e símbolo neutros (o ✻ é do Claude Code); o resto é igual', () => {
     expect(spinnerFrames('claude')).toContain('✻');
     expect(spinnerFrames('codex')).not.toContain('✻');
     expect(spinnerFrames('codex')).toHaveLength(spinnerFrames('claude').length);
+    expect(spinnerFrames('kiro')).not.toContain('✻');
+    expect(spinnerFrames('kiro')).toHaveLength(spinnerFrames('claude').length);
     expect(footerGlyph('working', 'claude')).toBe('✻');
     expect(footerGlyph('working', 'codex')).toBe('•');
+    expect(footerGlyph('working', 'kiro')).toBe('•');
     expect(footerGlyph('waiting', 'codex')).toBe('✋');
+    expect(footerGlyph('waiting', 'kiro')).toBe('✋');
     expect(footerGlyph('ended', 'claude')).toBe('■');
   });
 });

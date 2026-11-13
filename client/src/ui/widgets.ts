@@ -26,14 +26,19 @@ export function updateAccountChip(chip: HTMLElement, account: AccountInfo | unde
   setAttr(chip, 'aria-label', label);
 }
 
-/** Selo de texto "Codex" ao lado do nome da conta (onde há espaço: gaveta, terminal, cartão de uso, dica). */
+/** Selo de texto "Codex" ou "Kiro" ao lado do nome da conta (onde há espaço: gaveta, terminal, cartão de uso, dica). */
 export function createProviderTag(extra = ''): HTMLElement {
   return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: 'Codex', hidden: true, title: tr('Agente do Codex (OpenAI)') });
 }
 
-/** Mostra o selo só para o Codex (e não repete quando o nome da conta já diz "Codex"). */
+/** Mostra o selo para Codex ou Kiro (e não repete quando o nome da conta já diz a ferramenta). */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
-  setHidden(tag, !showsProviderTag(provider, accountName));
+  const show = showsProviderTag(provider, accountName);
+  setHidden(tag, !show);
+  if (show) {
+    setText(tag, provider === 'kiro' ? 'Kiro' : 'Codex');
+    setTitle(tag, provider === 'kiro' ? tr('Agente do Kiro') : tr('Agente do Codex (OpenAI)'));
+  }
 }
 
 /** Quadradinho de status (pixel), com pulso quando precisa de você. */

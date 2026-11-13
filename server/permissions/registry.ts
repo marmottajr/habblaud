@@ -21,7 +21,9 @@ import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../s
 import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import { toolView } from '../sources/terminal';
+import { normalizeCwd } from '../model/rooms';
 import { codexToolView } from './codex';
+import { kiroToolView } from './kiro';
 import { callSignature, scanToolCall } from './transcript';
 import { tr } from '../../shared/i18n';
 
@@ -130,8 +132,10 @@ interface AskFormat {
 interface Pending {
   /** Versão completa (com `input`): GET /api/permissions/:id. */
   info: PermissionRequestInfo;
-  /** Pedido do Codex (sem a busca da resposta no transcript). */
+  /** Pedido do Codex ou do Kiro (sem a busca da resposta no transcript: o terminal só pede depois do hook). */
   codex?: boolean;
+  /** Pedido do Kiro: ferramenta + comando/caminho (kiroCallKey), para os hooks repetidos e o PostToolUse. */
+  kiroKey?: string;
   /** Pergunta (AskUserQuestion): o formato de `tool_input.questions`, por posição (undefined = entrada inválida). */
   askFormat?: Array<AskFormat | undefined>;
   agentId: string;
@@ -166,14 +170,79 @@ function isIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
-/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; o Codex não as manda pelo hook). */
+/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; Codex e Kiro não as mandam pelo hook). */
 function isQuestion(info: { tool: string; provider?: string }): boolean {
-  return info.tool === ASK_TOOL && info.provider !== 'codex';
+  return info.tool === ASK_TOOL && info.provider !== 'codex' && info.provider !== 'kiro';
 }
 
-/** O Codex não aceita interromper nem "sempre permitir" (o hook dele só aprova ou recusa com motivo). */
-function unsupportedByCodex(info: PermissionRequestInfo, d: PermissionDecision): boolean {
+/** Codex não aceita interromper nem "sempre permitir"; Kiro, só não interromper (o hook dele grava a regra sugerida). */
+function unsupportedByProvider(info: PermissionRequestInfo, d: PermissionDecision): boolean {
+  if (info.provider === 'kiro') return d.interrupt === true;
   return info.provider === 'codex' && (d.interrupt === true || d.suggestion !== undefined);
+}
+
+const KIRO_SHELL = new Set(['shell', 'execute_bash', 'execute_cmd', 'execute_pwsh', 'bash', 'execute']);
+const KIRO_WRITE = new Set(['fs_write', 'write', 'write_file', 'str_replace']);
+/** Mesmas listas do hook (mod/habblaud-kiro/approval-hook.mjs): o servidor confere de novo o que vai mostrar. */
+const KIRO_NEVER_PREFIX = new Set([
+  'rm', 'rmdir', 'unlink', 'shred', 'dd', 'mkfs', 'fdisk', 'mount', 'umount', 'chmod', 'chown', 'chgrp', 'chattr',
+  'sudo', 'su', 'doas', 'pkexec', 'runas', 'env', 'xargs', 'nohup', 'nice', 'ionice', 'time', 'timeout', 'watch',
+  'command', 'builtin', 'exec', 'eval', 'source', 'sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'pwsh',
+  'powershell', 'cmd', 'curl', 'wget', 'ssh', 'scp', 'rsync', 'nc', 'ncat', 'socat', 'kill', 'killall', 'pkill',
+  'reboot', 'shutdown', 'halt', 'poweroff', 'systemctl', 'crontab', 'at',
+]);
+const KIRO_NEEDS_SUB = new Set(['python', 'python3', 'python2', 'node', 'nodejs', 'deno', 'bun', 'perl', 'ruby', 'php', 'lua', 'npx', 'pnpx', 'bunx', 'uvx', 'osascript', 'awk', 'sed', 'find', 'git', 'docker', 'kubectl']);
+const KIRO_FIRST = /^[A-Za-z0-9][\w.+-]{0,63}$/;
+const KIRO_SUB = /^[A-Za-z0-9][\w:.+-]{0,63}$/;
+const KIRO_META = /[;|&`$()<>'"\\{}*?!#~]/;
+
+/** Capability das regras do Kiro para a ferramenta ("shell", "fs_write") ou undefined. */
+export function kiroCapability(tool: string): 'shell' | 'fs_write' | undefined {
+  return KIRO_SHELL.has(tool) ? 'shell' : KIRO_WRITE.has(tool) ? 'fs_write' : undefined;
+}
+
+/** O prefixo que o hook do Kiro calcularia para o comando (as 1–2 primeiras palavras, sem caracteres de shell). */
+export function kiroShellPrefix(command: unknown): string | undefined {
+  if (typeof command !== 'string') return undefined;
+  const words = command.trim().split('\n')[0].split(/\s+/).filter(Boolean);
+  const [first, second] = words;
+  if (!first || !KIRO_FIRST.test(first)) return undefined;
+  const name = first.toLowerCase();
+  if (KIRO_NEVER_PREFIX.has(name) || name.startsWith('mkfs')) return undefined;
+  if (second && KIRO_SUB.test(second)) return `${first} ${second}`;
+  if (second && KIRO_META.test(second)) return undefined;
+  return KIRO_NEEDS_SUB.has(name) ? undefined : first;
+}
+
+/**
+ * Sugestões "não perguntar de novo" do hook do Kiro (`kiro_suggestions`: [{capability, effect:"allow", match?}]). Só
+ * passam as que o próprio hook geraria para ESTE pedido: a capability da ferramenta, `effect: "allow"` e, no shell, um
+ * único padrão `<prefixo> *` com o prefixo do comando pedido. Vão como regra do usuário (vale em todos os projetos).
+ */
+export function pickKiroSuggestions(raw: unknown, tool: string, input: Rec): PermissionSuggestionInfo[] {
+  if (!Array.isArray(raw)) return [];
+  const capability = kiroCapability(tool);
+  if (!capability) return [];
+  const prefix = capability === 'shell' ? kiroShellPrefix(input.command) : undefined;
+  const out: PermissionSuggestionInfo[] = [];
+  raw.slice(0, MAX_SUGGESTIONS).forEach((s, index) => {
+    const r = rec(s);
+    if (!r || r.capability !== capability || r.effect !== 'allow' || (r.exclude !== undefined)) return;
+    if (r.match === undefined) {
+      out.push({ index, rules: [capability === 'shell' ? tr('qualquer comando no shell') : tr('qualquer escrita de arquivo')], destination: 'userSettings' });
+      return;
+    }
+    if (!prefix || !Array.isArray(r.match) || r.match.length !== 1 || r.match[0] !== `${prefix} *`) return;
+    out.push({ index, rules: [tr('comandos que começam com “{0}”', [truncate(prefix, 80)])], destination: 'userSettings' });
+  });
+  return out;
+}
+
+/** Chave de uma chamada do Kiro: ferramenta (shell/escrita juntas) + comando ou caminho (para casar o PostToolUse e os hooks repetidos). */
+export function kiroCallKey(tool: string, input: unknown): string {
+  const r = rec(input) ?? {};
+  const what = typeof r.command === 'string' ? r.command : typeof r.path === 'string' ? r.path : typeof r.file_path === 'string' ? r.file_path : '';
+  return `${kiroCapability(tool) ?? tool}\0${what.trim().slice(0, 1_000)}`;
 }
 
 /**
@@ -261,12 +330,14 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
 /**
  * Valida o JSON do hook (o mesmo que o Claude Code entrega no stdin, com `timeout_ms` do hook). O hook do Codex manda
  * também `provider: "codex"`, a conta (`account`, o basename do CODEX_HOME) e o caminho dela (`codexHome`); nele,
- * `agent_id` é o thread do subagente (e `session_id`, o thread raiz).
+ * `agent_id` é o thread do subagente (e `session_id`, o thread raiz). O hook do Kiro manda `provider: "kiro"` e
+ * (opcional) `kiroHome` (a pasta KIRO_HOME, só para desempatar a conta); casa pela sessão, senão pela pasta (cwd).
  */
 export function parseHookInput(raw: unknown): {
-  provider?: 'codex';
+  provider?: 'codex' | 'kiro';
   account?: string;
   codexHome?: string;
+  kiroHome?: string;
   sessionId: string;
   agentId?: string;
   agentType?: string;
@@ -279,18 +350,22 @@ export function parseHookInput(raw: unknown): {
   const r = rec(raw);
   const sessionId = shortStr(r?.session_id, 200);
   const tool = shortStr(r?.tool_name, 200);
-  if (!r || !sessionId || !tool) throw new InvalidRequest(tr('esperado o JSON do hook PermissionRequest (session_id e tool_name)'));
+  const kiro = r?.provider === 'kiro';
+  const cwd = shortStr(r?.cwd, 4_096);
+  // Kiro: o harness antigo não manda session_id; aceita casar pela pasta (cwd). Os outros exigem session_id.
+  if (!r || !tool || (!sessionId && !(kiro && cwd))) throw new InvalidRequest(tr('esperado o JSON do hook PermissionRequest (session_id e tool_name)'));
   const t = typeof r.timeout_ms === 'number' && Number.isFinite(r.timeout_ms) ? r.timeout_ms : DEFAULT_TIMEOUT_MS;
   const codex = r.provider === 'codex';
   return {
     ...(codex ? { provider: 'codex' as const, account: shortStr(r.account, 200), codexHome: shortStr(r.codexHome, 4_096) } : {}),
-    sessionId,
+    ...(kiro ? { provider: 'kiro' as const, kiroHome: shortStr(r.kiroHome, 4_096) } : {}),
+    sessionId: sessionId ?? '',
     agentId: shortStr(r.agent_id, 200),
     agentType: shortStr(r.agent_type, 120),
-    cwd: shortStr(r.cwd, 4_096),
+    cwd,
     tool,
     input: rec(r.tool_input) ?? {},
-    suggestions: codex ? undefined : r.permission_suggestions,
+    suggestions: codex ? undefined : kiro ? r.kiro_suggestions : r.permission_suggestions,
     timeoutMs: Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, t)),
   };
 }
@@ -394,7 +469,8 @@ export class PermissionRegistry {
   register(raw: unknown): RegisterResult {
     const req = parseHookInput(raw);
     const codex = req.provider === 'codex';
-    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
+    const kiro = req.provider === 'kiro';
+    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : kiro ? kiroToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
     // Pergunta: todas precisam aparecer no escritório (o hook só responde se cada uma tiver resposta).
@@ -402,20 +478,32 @@ export class PermissionRegistry {
     if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
     const target = codex
       ? this.resolveCodexAgent(req.sessionId, req.agentId, req.agentType, this.opts.codexAccount?.(req.account, req.codexHome) ?? req.account)
-      : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
+      : kiro
+        ? this.resolveKiroAgent(req.sessionId, req.cwd)
+        : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
     if (!target) return { skip: 'unknown-session' };
+    // Kiro: o mesmo pedido de dois hooks de aprovação (ex.: hooks/habblaud.json e a cópia num agente ou num projeto,
+    // que o Kiro roda juntos) vira UM cartão; os dois hooks esperam a mesma decisão (senão a ferramenta ficaria presa
+    // no segundo cartão depois de você responder o primeiro).
+    const kiroKey = kiro ? kiroCallKey(req.tool, req.input) : undefined;
+    if (kiroKey) {
+      for (const o of this.pending.values()) {
+        if (!o.outcome && o.kiroKey === kiroKey && o.agentId === target.id) return { id: o.info.id, expiresAt: o.info.expiresAt + EXPIRY_GRACE_MS };
+      }
+    }
     if (this.size >= this.maxPending) return { skip: 'too-many' };
 
     const now = this.now();
     const id = `p-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    // Codex: título, resumo e argumentos pelos nomes de ferramenta dele (permissions/codex.ts).
+    // Codex/Kiro: título, resumo e argumentos pelos nomes de ferramenta deles (permissions/codex.ts, kiro.ts).
     const view = 'title' in desc ? desc : toolView(req.tool, req.input, req.cwd);
     const info: PermissionRequestInfo = { id, tool: req.tool, title: view.title, text: desc.text, icon: desc.icon, createdAt: now, expiresAt: now + req.timeoutMs };
     if (codex) info.provider = 'codex';
+    if (kiro) info.provider = 'kiro';
     if (view.input) info.input = view.input;
     if (view.inputKind) info.inputKind = view.inputKind;
     if (target.subagent) info.subagent = target.subagent;
-    const suggestions = pickSuggestions(req.suggestions);
+    const suggestions = kiro ? pickKiroSuggestions(req.suggestions, req.tool, req.input) : pickSuggestions(req.suggestions);
     if (suggestions.length) info.suggestions = suggestions;
     if (ask) info.questions = questions;
 
@@ -423,12 +511,13 @@ export class PermissionRegistry {
       info,
       agentId: target.id,
       sessionId: req.sessionId,
-      signature: codex ? '' : callSignature(req.tool, req.input),
+      signature: codex || kiro ? '' : callSignature(req.tool, req.input),
       lastScanAt: 0,
       waiters: new Set(),
       idleSince: now,
     };
-    if (codex) p.codex = true;
+    if (codex || kiro) p.codex = true;
+    if (kiroKey) p.kiroKey = kiroKey;
     if (req.agentId) p.hookAgentId = req.agentId;
     if (ask) p.askFormat = askFormat(req.input.questions);
     this.pending.set(id, p);
@@ -503,12 +592,12 @@ export class PermissionRegistry {
     const p = this.pending.get(id);
     if (!p) {
       const demo = this.opts.demoDetail?.(id);
-      if (demo && unsupportedByCodex(demo, d)) return 'unsupported';
+      if (demo && unsupportedByProvider(demo, d)) return 'unsupported';
       if (demo && (wrongKind(demo, d) || (d.behavior === 'answer' && !checkAnswers(demo.questions ?? [], d.answers)))) return 'invalid-answer';
       return this.opts.demoDecide?.(id, d) ? 'ok' : 'not-found';
     }
     if (p.outcome) return 'conflict';
-    if (unsupportedByCodex(p.info, d)) return 'unsupported';
+    if (unsupportedByProvider(p.info, d)) return 'unsupported';
     if (d.suggestion !== undefined && !p.info.suggestions?.some((s) => s.index === d.suggestion)) return 'invalid';
     if (d.behavior === 'terminal') {
       this.release(p, 'terminal');
@@ -565,6 +654,30 @@ export class PermissionRegistry {
     }
   }
 
+  /**
+   * Evento do hook de observar do Kiro (POST /api/kiro/events): a ferramenta rodou (PostToolUse) ou a vez acabou
+   * (Stop) = o pedido do escritório para ela já não vale (o Kiro seguiu sem o hook de aprovação: hook morto, tempo
+   * esgotado, Ctrl+C...). Solta o pedido da mesma sessão (no PostToolUse, o da mesma ferramenta e, quando o evento traz
+   * os argumentos, do mesmo comando/caminho), sem esperar o tempo limite. Devolve quantos soltou.
+   */
+  kiroHookEvent(ev: { hook_event_name: string; session_id: string; tool_name?: string; tool_input?: unknown }): number {
+    const post = ev.hook_event_name === 'PostToolUse';
+    if (!post && ev.hook_event_name !== 'Stop') return 0;
+    if (post && !ev.tool_name) return 0;
+    const key = post && ev.tool_input !== undefined ? kiroCallKey(ev.tool_name!, ev.tool_input) : undefined;
+    const tool = post ? (kiroCapability(ev.tool_name!) ?? ev.tool_name!) : undefined;
+    let n = 0;
+    for (const p of [...this.pending.values()]) {
+      if (p.outcome || !p.kiroKey || (p.sessionId !== ev.session_id && p.agentId !== ev.session_id)) continue;
+      if (post && (key ? p.kiroKey !== key : !p.kiroKey.startsWith(`${tool}\0`))) continue;
+      this.release(p, 'answered');
+      n++;
+      // PostToolUse = uma chamada: solta só o pedido mais antigo que casa.
+      if (post) break;
+    }
+    return n;
+  }
+
   // ---------------------------------------------------------------- internos
 
   private resolveAgent(sessionId: string, agentId?: string, agentType?: string): { id: string; subagent?: string } | undefined {
@@ -595,6 +708,24 @@ export class PermissionRegistry {
     const main = find(sessionId);
     if (!main) return undefined;
     return sub ? { id: main.id, subagent: agentType ?? tr('subagente') } : { id: main.id };
+  }
+
+  /**
+   * Agente do Kiro de um pedido: o principal da sessão (`session_id` do hook). Sem a sessão (harness antigo, que não
+   * manda session_id), casa pela pasta (o cwd do hook = a sala de um principal do Kiro). O Kiro não mostra subagentes
+   * por este caminho.
+   */
+  private resolveKiroAgent(sessionId: string, cwd: string | undefined): { id: string; subagent?: string } | undefined {
+    const mains = this.opts.office.list().filter((a) => a.kind === 'main' && a.provider === 'kiro' && present(a));
+    const bySession = sessionId ? mains.find((a) => a.sessionId === sessionId) : undefined;
+    if (bySession) return { id: bySession.id };
+    // Com session_id que o escritório ainda não conhece (sessão nova, o primeiro evento chegando junto), a pasta NÃO
+    // vale: o pedido iria para outra sessão do Kiro aberta na mesma pasta. O hook tenta de novo em seguida.
+    if (sessionId || !cwd) return undefined;
+    const want = normalizeCwd(cwd);
+    const byCwd = mains.filter((a) => a.roomId === want);
+    // Só desvia quando não há ambiguidade: duas sessões do Kiro na mesma pasta sem session_id não dão para distinguir.
+    return byCwd.length === 1 ? { id: byCwd[0].id } : undefined;
   }
 
   private queueOf(p: Pending): { queued?: number } {

@@ -12,7 +12,7 @@ import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { FIVE_HOURS_MS, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
 import { ICONS } from './icons';
-import { isCodex } from './provider';
+import { isCodex, isKiro } from './provider';
 import { usageRowFits } from './usage-row';
 import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
 import { tr } from '../../../shared/i18n';
@@ -174,10 +174,11 @@ export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pr
   return state === 'stale' || (isCodex(a) && state !== 'empty');
 }
 
-/** Linha embaixo do nome: e-mail; no Codex (sem e-mail), o plano; nas outras, a pasta. */
+/** Linha embaixo do nome: e-mail; no Codex e Kiro (sem e-mail), o plano; nas outras, a pasta. */
 export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
   if (a.email) return a.email;
   if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
+  if (isKiro(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Kiro';
   return a.configDir;
 }
 
@@ -186,7 +187,14 @@ export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pro
   const state = cardState(a);
   if (state === 'noquota') return [tr('sem cota'), tr('sem cota')];
   if (isCodex(a)) return [tr('sem dados ainda'), tr('sem dados')];
+  if (isKiro(a)) return [tr('consultar via /usage'), tr('/usage')];
   return [tr('sem dados de uso'), tr('sem dados')];
+}
+
+/** Explicação do cartão de uma conta do Kiro (dica); '' nas outras. */
+export function kiroUsageNote(a: Pick<AccountInfo, 'provider'>): string {
+  if (!isKiro(a)) return '';
+  return tr('Consulte créditos e limites no terminal do Kiro CLI com /usage');
 }
 
 /** Explicação do cartão de uma conta do Codex (dica); '' nas outras. */
@@ -337,12 +345,13 @@ export class UsageCards {
     const r = this.refs.get(card)!;
     const now = this.ctx.now();
     const codex = isCodex(a);
+    const kiro = isKiro(a);
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
-    updateProviderTag(r.prov, codex ? 'codex' : 'claude', a.name);
+    updateProviderTag(r.prov, codex ? 'codex' : kiro ? 'kiro' : 'claude', a.name);
     setText(r.email, usageSubtitle(a));
-    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
+    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : kiro ? ' (Kiro)' : '']));
 
     const usage = a.usage;
     const state = cardState(a);
@@ -375,7 +384,7 @@ export class UsageCards {
       );
     }
 
-    // Sem números: "sem dados de uso" + "Como ativar" (no Codex, "Como funciona": não há o que instalar). Sem cota:
+    // Sem números: "sem dados de uso" + "Como ativar" (no Codex e Kiro, "Como funciona": não há o que instalar). Sem cota:
     // a mensagem, sem botão.
     const [msgLong, msgShort] = usageMessage(a);
     setText(r.msgLong, msgLong);
@@ -383,19 +392,29 @@ export class UsageCards {
     setHidden(r.msg, state !== 'empty' && state !== 'noquota');
     setHidden(r.how, state === 'noquota');
     r.msg.classList.toggle('is-noquota', state === 'noquota');
-    setTitle(r.msg, state === 'noquota' ? codexUsageNote(a, now) : '');
-    setText(r.howLong, codex ? tr('Como funciona') : tr('Como ativar'));
-    setText(r.howShort, codex ? tr('Saber') : tr('Ativar'));
-    r.how.dataset.help = codex ? 'codex' : 'usage';
-    setTitle(r.how, codex ? tr('Como o uso do Codex chega ao Habblaud (abre a ajuda em “Codex”)') : tr('Como mostrar o uso desta conta (abre a ajuda em “Contas e uso”)'));
+    setTitle(r.msg, state === 'noquota' ? codexUsageNote(a, now) : kiro ? kiroUsageNote(a) : '');
+    setText(r.howLong, codex || kiro ? tr('Como funciona') : tr('Como ativar'));
+    setText(r.howShort, codex || kiro ? tr('Saber') : tr('Ativar'));
+    r.how.dataset.help = codex ? 'codex' : kiro ? 'kiro' : 'usage';
+    setTitle(
+      r.how,
+      codex
+        ? tr('Como o uso do Codex chega ao Habblaud (abre a ajuda em “Codex”)')
+        : kiro
+          ? tr('Como o Kiro funciona no Habblaud (abre a ajuda em “Kiro”)')
+          : tr('Como mostrar o uso desta conta (abre a ajuda em “Contas e uso”)'),
+    );
     this.updateTip(r, a, state, five, week, now);
   }
 
   private updateTip(r: CardRefs, a: AccountInfo, state: CardState, five: UsageWindowView | null, week: UsageWindowView | null, now: number): void {
     const codex = isCodex(a);
-    setText(r.tipTitle, `${a.name}${codex && !/codex/i.test(a.name) ? ' · Codex' : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
+    const kiro = isKiro(a);
+    const provTag = codex && !/codex/i.test(a.name) ? ' · Codex' : kiro && !/kiro/i.test(a.name) ? ' · Kiro' : '';
+    setText(r.tipTitle, `${a.name}${provTag}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
     const rows: [string, string][] = [];
     if (codex) rows.push([tr('Ferramenta'), 'Codex']);
+    if (kiro) rows.push([tr('Ferramenta'), 'Kiro']);
     if (a.email) rows.push(['E-mail', a.email]);
     if (a.organization) rows.push([tr('Organização'), a.organization]);
     if (a.plan) rows.push([tr('Plano'), a.plan]);
@@ -405,9 +424,9 @@ export class UsageCards {
     if (u && (u.fiveHour || u.sevenDay)) {
       rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
       rows.push([tr('Semana'), week?.summary ?? '—']);
-      // Opus e Sonnet são janelas do Claude: no Codex não existem.
-      const opus = codex ? null : usageWindowView(u.sevenDayOpus, u.fetchedAt, now, WEEK_MS);
-      const sonnet = codex ? null : usageWindowView(u.sevenDaySonnet, u.fetchedAt, now, WEEK_MS);
+      // Opus e Sonnet são janelas do Claude: no Codex e Kiro não existem.
+      const opus = codex || kiro ? null : usageWindowView(u.sevenDayOpus, u.fetchedAt, now, WEEK_MS);
+      const sonnet = codex || kiro ? null : usageWindowView(u.sevenDaySonnet, u.fetchedAt, now, WEEK_MS);
       if (opus) rows.push([tr('Opus (semana)'), opus.summary]);
       if (sonnet) rows.push([tr('Sonnet (semana)'), sonnet.summary]);
     }
@@ -423,6 +442,15 @@ export class UsageCards {
       const note = codexUsageNote(a, now);
       setText(r.tipNote, note);
       setHidden(r.tipNote, !note);
+      setHidden(r.tipSetup, true);
+      return;
+    }
+
+    // Kiro: explicação sobre como consultar o uso pelo Kiro CLI, sem o setup do Claude Code.
+    if (kiro) {
+      const note = tr('Para consultar créditos e limites de uso da conta do Kiro, digite /usage no terminal do Kiro CLI.');
+      setText(r.tipNote, note);
+      setHidden(r.tipNote, false);
       setHidden(r.tipSetup, true);
       return;
     }

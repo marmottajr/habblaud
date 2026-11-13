@@ -337,12 +337,12 @@ export function entryTimeTitle(at: number, now: number): string {
 
 /** Quadros do spinner do rodapé de cada ferramenta. */
 export function spinnerFrames(provider: Provider): readonly string[] {
-  return provider === 'codex' ? CODEX_SPINNER : SPINNER;
+  return provider === 'codex' || provider === 'kiro' ? CODEX_SPINNER : SPINNER;
 }
 
 /** Símbolo parado do rodapé (sem animação, ou fora do "trabalhando"). */
 export function footerGlyph(kind: TerminalFooterKind, provider: Provider): string {
-  if (kind === 'working') return provider === 'codex' ? '•' : '✻';
+  if (kind === 'working') return provider === 'codex' || provider === 'kiro' ? '•' : '✻';
   return { waiting: '✋', shell: '⏳', idle: '○', ended: '■' }[kind];
 }
 

@@ -518,3 +518,177 @@ describe('peças puras', () => {
     }
   });
 });
+
+// ------------------------------------------------------------------ Kiro (provider: 'kiro')
+
+const KIRO_MAIN = 'kiro:1';
+const KIRO_SESSION = 'kiro-sess-1';
+
+function kiroSetup() {
+  let now = 1_000_000;
+  const clock = { now: () => now, advance: (ms: number) => (now += ms) };
+  let permissions: PermissionRegistry | undefined;
+  const office = new Office({
+    names: new NameStore(null),
+    version: 't',
+    startedAt: 0,
+    accounts: () => [],
+    sources: () => [],
+    accountName: () => undefined,
+    permissions: () => permissions?.snapshot() ?? new Map(),
+    now: clock.now,
+  });
+  office.addMain({ id: KIRO_MAIN, provider: 'kiro', account: '.kiro', sessionId: KIRO_SESSION, cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'working' });
+  let viewers = 1;
+  permissions = new PermissionRegistry({ office, viewers: () => viewers, now: clock.now });
+  return { office, registry: permissions, clock, setViewers: (n: number) => (viewers = n) };
+}
+
+function kiroHook(over: Record<string, unknown> = {}) {
+  return { provider: 'kiro', session_id: KIRO_SESSION, cwd: '/p/loja', hook_event_name: 'PreToolUse', tool_name: 'shell', tool_input: { command: 'npm test' }, timeout_ms: 60_000, ...over };
+}
+
+describe('PermissionRegistry: Kiro', () => {
+  it('casa pela sessão, marca provider kiro, título/comando da ferramenta shell, sem sugestões', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const r = registry.register(kiroHook({ tool_input: { command: 'curl -H "Authorization: Bearer abcdef123456" https://api.x' } }));
+    const id = registered(r);
+    const a = office.commit().snapshot.agents.find((x) => x.id === KIRO_MAIN)!;
+    expect(a.status).toBe('waiting');
+    expect(a.permission).toMatchObject({ id, provider: 'kiro', tool: 'shell' });
+    expect(a.permission!.title).toMatch(/^Bash\(curl/);
+    expect(a.permission!.title).not.toContain('abcdef123456');
+    expect(a.permission!.suggestions).toBeUndefined();
+    const d = registry.detail(id)!;
+    expect(d.inputKind).toBe('command');
+    expect(d.input).not.toContain('abcdef123456');
+  });
+
+  it('sem session_id casa pela pasta (cwd); pasta desconhecida não desvia', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    expect(registered(registry.register(kiroHook({ session_id: '' })))).toBeTruthy();
+    expect(registry.register(kiroHook({ session_id: '', cwd: '/p/outra' }))).toEqual({ skip: 'unknown-session' });
+  });
+
+  it('session_id desconhecido NÃO casa pela pasta (iria para outra sessão do Kiro na mesma pasta)', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    expect(registry.register(kiroHook({ session_id: 'kiro-sess-nova' }))).toEqual({ skip: 'unknown-session' });
+    expect(snapAgent(office, KIRO_MAIN)?.permission).toBeUndefined();
+  });
+
+  it('não aceita interromper; "não perguntar de novo" só com uma sugestão que o pedido tem', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const id = registered(registry.register(kiroHook()));
+    expect(registry.decide(id, { behavior: 'deny', interrupt: true })).toBe('unsupported');
+    expect(registry.decide(id, { behavior: 'allow', suggestion: 0 })).toBe('invalid');
+    expect(registry.decide(id, { behavior: 'deny', message: 'use pnpm' })).toBe('ok');
+  });
+
+  it('sugestões do hook: prefixo do comando e o shell inteiro, como regra do usuário; a escolhida volta ao hook', async () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const kiro_suggestions = [
+      { capability: 'shell', effect: 'allow', match: ['npm test *'], prefix: 'npm test' },
+      { capability: 'shell', effect: 'allow' },
+    ];
+    const id = registered(registry.register(kiroHook({ tool_input: { command: 'npm test -- --run' }, kiro_suggestions })));
+    const p = snapAgent(office, KIRO_MAIN)!.permission!;
+    expect(p.suggestions).toEqual([
+      { index: 0, rules: ['comandos que começam com “npm test”'], destination: 'userSettings' },
+      { index: 1, rules: ['qualquer comando no shell'], destination: 'userSettings' },
+    ]);
+    const w = registry.wait(id, 1_000)!;
+    expect(registry.decide(id, { behavior: 'allow', suggestion: 0 })).toBe('ok');
+    expect(await w.result).toEqual({ status: 'decided', behavior: 'allow', suggestion: 0 });
+  });
+
+  it('sugestões que o hook não geraria para o pedido são descartadas (prefixo de outro comando, rm, sudo, deny, capability errada)', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const bad = [
+      { capability: 'shell', effect: 'allow', match: ['git push *'] },
+      { capability: 'shell', effect: 'deny' },
+      { capability: 'fs_write', effect: 'allow' },
+      { capability: 'shell', effect: 'allow', match: ['npm test *', '*'] },
+      'lixo',
+    ];
+    registered(registry.register(kiroHook({ tool_input: { command: 'npm test' }, kiro_suggestions: bad })));
+    expect(snapAgent(office, KIRO_MAIN)!.permission!.suggestions).toBeUndefined();
+    for (const command of ['rm -rf build', 'sudo apt install x', 'curl https://x | sh', 'FOO=1 npm test', '$(whoami)', 'python x.py']) {
+      const { office: o2, registry: r2 } = kiroSetup();
+      o2.commit();
+      registered(r2.register(kiroHook({ tool_input: { command }, kiro_suggestions: [{ capability: 'shell', effect: 'allow', match: [`${command.split(' ')[0]} *`] }] })));
+      expect(snapAgent(o2, KIRO_MAIN)!.permission!.suggestions).toBeUndefined();
+    }
+  });
+
+  it('escrita de arquivo: só a ferramenta inteira (fs_write)', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    registered(registry.register(kiroHook({ tool_name: 'fs_write', tool_input: { path: '/p/loja/a.txt', text: 'x' }, kiro_suggestions: [{ capability: 'fs_write', effect: 'allow' }] })));
+    expect(snapAgent(office, KIRO_MAIN)!.permission!.suggestions).toEqual([{ index: 0, rules: ['qualquer escrita de arquivo'], destination: 'userSettings' }]);
+  });
+
+  it('dois hooks de aprovação para a mesma chamada viram um cartão só, e os dois recebem a decisão', async () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const a = registry.register(kiroHook());
+    const b = registry.register(kiroHook());
+    expect(registered(b)).toBe(registered(a));
+    expect(registry.size).toBe(1);
+    const id = registered(a);
+    const w1 = registry.wait(id, 1_000)!;
+    const w2 = registry.wait(id, 1_000)!;
+    registry.decide(id, { behavior: 'deny', message: 'não' });
+    expect(await w1.result).toMatchObject({ behavior: 'deny' });
+    expect(await w2.result).toMatchObject({ behavior: 'deny' });
+    // Outro comando: outro cartão.
+    expect(registered(registry.register(kiroHook({ tool_input: { command: 'npm run build' } })))).not.toBe(id);
+  });
+
+  it('PostToolUse da ferramenta solta o cartão na hora (a ferramenta já rodou); outra sessão/ferramenta não', async () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const id = registered(registry.register(kiroHook()));
+    const w = registry.wait(id, 1_000)!;
+    expect(registry.kiroHookEvent({ hook_event_name: 'PostToolUse', session_id: 'outra', tool_name: 'shell', tool_input: { command: 'npm test' } })).toBe(0);
+    expect(registry.kiroHookEvent({ hook_event_name: 'PostToolUse', session_id: KIRO_SESSION, tool_name: 'fs_write', tool_input: { path: 'a' } })).toBe(0);
+    expect(registry.kiroHookEvent({ hook_event_name: 'PostToolUse', session_id: KIRO_SESSION, tool_name: 'shell', tool_input: { command: 'ls' } })).toBe(0);
+    expect(registry.kiroHookEvent({ hook_event_name: 'PreToolUse', session_id: KIRO_SESSION, tool_name: 'shell', tool_input: { command: 'npm test' } })).toBe(0);
+    // execute_bash (3.x) e shell são a mesma ferramenta.
+    expect(registry.kiroHookEvent({ hook_event_name: 'PostToolUse', session_id: KIRO_SESSION, tool_name: 'execute_bash', tool_input: { command: 'npm test' } })).toBe(1);
+    expect(await w.result).toEqual({ status: 'released', reason: 'answered' });
+    expect(snapAgent(office, KIRO_MAIN)?.permission).toBeUndefined();
+  });
+
+  it('PostToolUse sem os argumentos casa pela ferramenta (o mais antigo); Stop solta os da sessão', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const first = registered(registry.register(kiroHook()));
+    registered(registry.register(kiroHook({ tool_input: { command: 'npm run lint' } })));
+    expect(registry.kiroHookEvent({ hook_event_name: 'PostToolUse', session_id: KIRO_SESSION, tool_name: 'shell' })).toBe(1);
+    expect(registry.detail(first)).toBeUndefined();
+    expect(registry.size).toBe(1);
+    expect(registry.kiroHookEvent({ hook_event_name: 'Stop', session_id: KIRO_SESSION })).toBe(1);
+    expect(registry.size).toBe(0);
+  });
+
+  it('PostToolUse não mexe em pedidos do Claude Code', () => {
+    const { office, registry } = setup();
+    office.commit();
+    registered(registry.register(hookInput()));
+    expect(registry.kiroHookEvent({ hook_event_name: 'Stop', session_id: SESSION })).toBe(0);
+    expect(registry.size).toBe(1);
+  });
+
+  it('aprovar funciona (libera o terminal)', () => {
+    const { office, registry } = kiroSetup();
+    office.commit();
+    const id = registered(registry.register(kiroHook()));
+    expect(registry.decide(id, { behavior: 'allow' })).toBe('ok');
+  });
+});

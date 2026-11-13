@@ -8,7 +8,9 @@ import {
   fallbackShort,
   hasCodexPermission,
   isCodex,
+  isKiro,
   looksLikeCodexId,
+  looksLikeKiroId,
   providerOf,
   showsProviderTag,
 } from './provider';
@@ -18,19 +20,28 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(providerOf(undefined)).toBe('claude');
     expect(providerOf({})).toBe('claude');
     expect(providerOf({ provider: 'codex' })).toBe('codex');
+    expect(providerOf({ provider: 'kiro' })).toBe('kiro');
     expect(isCodex({ provider: 'codex' })).toBe(true);
     expect(isCodex({ provider: 'claude' })).toBe(false);
     expect(isCodex(null)).toBe(false);
+    expect(isKiro({ provider: 'kiro' })).toBe(true);
+    expect(isKiro({ provider: 'claude' })).toBe(false);
+    expect(isKiro(null)).toBe(false);
   });
 
   it('id com cara de pasta do Codex (só quando a conta já não está no snapshot)', () => {
     for (const id of ['.codex', 'demo:.codex', '.codex-trabalho', '.codex~2', '/Users/ana/.codex', 'codex']) expect(looksLikeCodexId(id), id).toBe(true);
     for (const id of ['.claude', '.claude-conta2', 'demo:.claude', 'meucodex', '.codexy', '']) expect(looksLikeCodexId(id), id).toBe(false);
+    for (const id of ['.kiro', 'demo:.kiro', '.kiro-trabalho', '.kiro~2', '/Users/ana/.kiro', 'kiro']) expect(looksLikeKiroId(id), id).toBe(true);
+    for (const id of ['.claude', '.codex', 'meukiro', '.kiroy', '']) expect(looksLikeKiroId(id), id).toBe(false);
     // Com a conta à mão, vale o provider dela; sem ela, a dica de quem chamou e, por fim, o id.
     expect(accountProvider({ provider: 'codex' }, '.claude')).toBe('codex');
+    expect(accountProvider({ provider: 'kiro' }, '.claude')).toBe('kiro');
     expect(accountProvider({}, '.codex')).toBe('claude');
     expect(accountProvider(undefined, '.claude', 'codex')).toBe('codex');
+    expect(accountProvider(undefined, '.claude', 'kiro')).toBe('kiro');
     expect(accountProvider(undefined, '.codex')).toBe('codex');
+    expect(accountProvider(undefined, '.kiro')).toBe('kiro');
     expect(accountProvider(undefined, 'x')).toBe('claude');
   });
 
@@ -41,15 +52,22 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(fallbackShort('.codex-trabalho')).toBe('T');
     expect(fallbackShort('.codex~2')).toBe('X');
     expect(fallbackShort('demo:.codex')).toBe('X');
+    expect(fallbackShort('.kiro')).toBe('K');
+    expect(fallbackShort('.kiro-trabalho')).toBe('T');
+    expect(fallbackShort('demo:.kiro')).toBe('K');
     expect(fallbackShort('minha-conta')).toBe('M');
     expect(fallbackShort('')).toBe('?');
     expect(fallbackShort('...', 'codex')).toBe('X');
+    expect(fallbackShort('...', 'kiro')).toBe('K');
   });
 
   it('selo "Codex": só no Codex, e sem repetir o nome da conta', () => {
     expect(showsProviderTag('codex', 'Conta X')).toBe(true);
     expect(showsProviderTag('codex', 'Codex')).toBe(false);
     expect(showsProviderTag('codex', 'Demo Codex')).toBe(false);
+    expect(showsProviderTag('kiro', 'Conta K')).toBe(true);
+    expect(showsProviderTag('kiro', 'Kiro')).toBe(false);
+    expect(showsProviderTag('kiro', 'Demo Kiro')).toBe(false);
     expect(showsProviderTag('claude', 'Conta C')).toBe(false);
   });
 
@@ -57,17 +75,24 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(accountChipLabel({ name: 'Conta C', email: 'a@b.c' }, '.claude', 'claude')).toBe('Conta C (a@b.c)');
     expect(accountChipLabel({ name: 'Conta X', plan: 'Team', provider: 'codex' }, '.codex', 'codex')).toBe('Conta X · Codex · plano Team');
     expect(accountChipLabel({ name: 'Codex', plan: 'Team', provider: 'codex' }, '.codex', 'codex')).toBe('Codex · plano Team');
+    expect(accountChipLabel({ name: 'Conta K', plan: 'Pro', provider: 'kiro' }, '.kiro', 'kiro')).toBe('Conta K · Kiro · plano Pro');
+    expect(accountChipLabel({ name: 'Kiro', plan: 'Pro', provider: 'kiro' }, '.kiro', 'kiro')).toBe('Kiro · plano Pro');
     expect(accountChipLabel(undefined, '.codex', 'codex')).toBe('.codex · Codex');
+    expect(accountChipLabel(undefined, '.kiro', 'kiro')).toBe('.kiro · Kiro');
     expect(accountChipLabel(undefined, '', 'claude')).toBe('Conta desconhecida');
   });
 
-  it('escritório vazio: atalhos só das contas do Claude Code; o Codex entra quando há conta dele', () => {
+  it('escritório vazio: atalhos só das contas do Claude Code; o Codex e Kiro entram quando há conta deles', () => {
     const c = { short: 'C' };
     const d = { short: 'D' };
     const x = { short: 'X', provider: 'codex' as const };
+    const k = { short: 'K', provider: 'kiro' as const };
     expect(emptyOfficeHint([c, d])).toBe('Abra o Claude Code em qualquer projeto (atalhos c ou d) e veja seu agente chegar.');
     expect(emptyOfficeHint([c, d, x])).toBe('Abra o Claude Code (atalhos c ou d) ou o Codex em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([c, d, k])).toBe('Abra o Claude Code (atalhos c ou d) ou o Kiro em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([c, d, x, k])).toBe('Abra o Claude Code (atalhos c ou d), o Codex ou o Kiro em qualquer projeto e veja seu agente chegar.');
     expect(emptyOfficeHint([x])).toBe('Abra o Claude Code ou o Codex em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([k])).toBe('Abra o Claude Code ou o Kiro em qualquer projeto e veja seu agente chegar.');
     expect(emptyOfficeHint([])).toBe('Abra o Claude Code em qualquer projeto e veja seu agente chegar.');
   });
 

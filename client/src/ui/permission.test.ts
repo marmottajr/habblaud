@@ -8,6 +8,7 @@ import {
   expiryText,
   isLocalHostname,
   isQuestionRequest,
+  KIRO_PERMISSION_NOTE,
   nextPermissionAgent,
   permissionAgents,
   permissionOptions,
@@ -59,12 +60,30 @@ describe('responder pelo escritório (peças puras)', () => {
       reasonRequired: true,
       seconds: true,
       note: CODEX_PERMISSION_NOTE,
+      terminal: true,
     });
     expect(CODEX_PERMISSION_NOTE).toBe('No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.');
     // Claude Code: como antes.
-    expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '' });
+    expect(permissionOptions({ suggestions }, { kind: 'main' })).toEqual({ always: true, interrupt: true, reasonRequired: false, seconds: false, note: '', terminal: true });
     expect(permissionOptions({}, { kind: 'main' }).always).toBe(false);
     expect(permissionOptions({}, { kind: 'sub', background: true }).note).toMatch(/^Este subagente roda em segundo plano/);
+  });
+
+  it('cartão do Kiro: "não perguntar de novo" só com as sugestões do hook, sem "interromper", recusa opcional e o aviso do Kiro', () => {
+    const suggestions = [{ index: 0, rules: ['comandos que começam com “npm test”'], destination: 'userSettings' }];
+    expect(permissionOptions({ provider: 'kiro', suggestions }, { kind: 'main' })).toEqual({
+      always: true,
+      interrupt: false,
+      reasonRequired: false,
+      seconds: false,
+      note: KIRO_PERMISSION_NOTE,
+      terminal: false,
+    });
+    // Sem sugestões (hook antigo ou ferramenta sem regra): sem os botões.
+    expect(permissionOptions({ provider: 'kiro' }, { kind: 'main' }).always).toBe(false);
+    expect(KIRO_PERMISSION_NOTE).toBe('No Kiro, recusar aqui bloqueia a ferramenta (o motivo vai para o agente). Aprovar libera o pedido: se o Kiro já confia na ferramenta, ela roda direto; senão, confirme no terminal.');
+    // Kiro nunca pergunta (AskUserQuestion).
+    expect(isQuestionRequest({ provider: 'kiro', tool: 'AskUserQuestion', questions: [{ index: 0, question: 'q', options: [] }] })).toBe(false);
   });
 
   it('destinationLabel', () => {

@@ -68,6 +68,16 @@ const CODEX_HELP: string[] = [
   tr('Meu dia: o Codex conta tokens, mas não grava custo.'),
 ];
 
+/** O Kiro no escritório: o que muda em relação ao Claude Code e Codex (trechos `assim` viram código). */
+const KIRO_HELP: string[] = [
+  tr('Cada projeto aberto no Kiro CLI vira uma sala: a mesma do Claude Code e Codex naquela pasta, e todos dividem a sala.'),
+  tr('Os agentes do Kiro têm o selo KIRO na etiqueta e nos detalhes.'),
+  tr('O escritório monitora as sessões ativas do Kiro CLI através do diretório ~/.kiro/sessions/cli.'),
+  tr('A conversa da sessão é exibida ao vivo no terminal do agente.'),
+  tr('Uso e cota: o Kiro gerencia créditos e planos via AWS Q / CodeWhisperer. Para consultar créditos, cota e renovação, digite /usage no terminal do Kiro CLI.'),
+  tr('Plano no escritório: defina a variável de ambiente HABBLAUD_KIRO_PLAN (ex.: “PRO MAX”) ou o arquivo ~/.kiro/plan para exibir o selo do plano.'),
+];
+
 /** O fim da espera (o servidor marca com uma atividade ✅ ou ❌). */
 const SHELL_END_HELP: [string, string][] = [
   ['🎉', tr('Terminou bem: levanta, comemora com confete e uma estrela.')],
@@ -75,7 +85,7 @@ const SHELL_END_HELP: [string, string][] = [
 ];
 
 const INTRO =
-  tr('Cada projeto aberto no Claude Code ou no Codex vira uma sala (os dois no mesmo projeto dividem a sala), e cada sessão aberta é um personagem com nome próprio. ') +
+  tr('Cada projeto aberto no Claude Code, no Codex ou no Kiro vira uma sala (eles no mesmo projeto dividem a sala), e cada sessão aberta é um personagem com nome próprio. ') +
   tr('Subagentes chegam como colegas novos, trabalham na mesma sala e vão embora quando terminam. ') +
   tr('Quando a última sessão de uma sala é fechada, quem sai apaga a luz e a sala é desmontada.');
 
@@ -144,7 +154,7 @@ export class HelpDialog {
             h('li', { text: tr('Clique em um personagem ou sala para ver os detalhes; duplo clique aproxima a câmera.') }),
             h('li', { text: tr('Passe o mouse sobre um personagem para ver o que ele está fazendo.') }),
             h('li', {
-              text: tr('Nos detalhes de um agente, “Abrir terminal” mostra a conversa da sessão como no Claude Code (ou no Codex), ao vivo (precisa do acesso local, bind 127.0.0.1).'),
+              text: tr('Nos detalhes de um agente, “Abrir terminal” mostra a conversa da sessão como no Claude Code, Codex ou Kiro, ao vivo (precisa do acesso local, bind 127.0.0.1).'),
             }),
             h('li', {
               text: tr('Com o plugin habblaud-mensagens (npm run mod:install), dá para mandar mensagens ao agente principal pelos detalhes dele ou pela caixa no rodapé do terminal: o texto entra na sessão como se você o tivesse digitado. Enter manda, Shift+Enter quebra a linha.'),
@@ -160,6 +170,7 @@ export class HelpDialog {
         ),
         this.usageSection(),
         this.codexSection(),
+        this.kiroSection(),
       ),
     );
     // Clique no fundo (fora do conteúdo) fecha.
@@ -247,7 +258,16 @@ export class HelpDialog {
         'ul',
         { class: 'ui-help__list' },
         h('li', { text: tr('O chip colorido com a letra (C, D…) mostra de qual conta do Claude Code é cada agente: cada atalho de terminal usa uma pasta de configuração diferente.') }),
-        h('li', {}, accountSample('C', '#f08a3c'), tr(' Conta do Claude Code · '), accountSample('X', '#a77bf3', true), tr(' Conta do Codex (chip vazado, com o selo CODEX onde há espaço).')),
+        h(
+          'li',
+          {},
+          accountSample('C', '#f08a3c'),
+          tr(' Conta do Claude Code · '),
+          accountSample('X', '#a77bf3', 'codex'),
+          tr(' Conta do Codex (chip vazado) · '),
+          accountSample('K', '#7c3aed', 'kiro'),
+          tr(' Conta do Kiro (com o selo KIRO onde há espaço).'),
+        ),
         h('li', {
           text: tr('No topo, cada conta mostra o uso da sessão de 5 horas e da semana. O ↻ indica quando cada limite reinicia (contagem regressiva se faltar menos de um dia). Verde abaixo de 50%, âmbar até 80% e vermelho a partir daí.'),
         }),
@@ -272,15 +292,27 @@ export class HelpDialog {
     return el;
   }
 
+  /** O Kiro no escritório (o "Como funciona" do cartão de uso de uma conta do Kiro abre aqui). */
+  private kiroSection(): HTMLElement {
+    const el = h(
+      'section',
+      { class: 'ui-help__usage', attrs: { 'aria-labelledby': 'ui-help-kiro' } },
+      h('h3', { text: 'Kiro', tabIndex: -1, attrs: { id: 'ui-help-kiro' } }),
+      h('ul', { class: 'ui-help__list' }, ...KIRO_HELP.map((text) => h('li', {}, ...richText(text)))),
+    );
+    this.sections.set('kiro', el);
+    return el;
+  }
+
   get isOpen(): boolean {
     return this.el.open;
   }
 }
 
 /** Um chip de conta de exemplo (legenda). */
-function accountSample(short: string, color: string, codex = false): HTMLElement {
+function accountSample(short: string, color: string, provider?: 'codex' | 'kiro'): HTMLElement {
   const chip = createAccountChip('sm');
-  updateAccountChip(chip, { id: short, short, name: codex ? 'Codex' : tr('Conta {0}', [short]), color, configDir: '', sessions: 0, usageStatus: 'disabled', ...(codex ? { provider: 'codex' as const } : {}) });
+  updateAccountChip(chip, { id: short, short, name: provider === 'codex' ? 'Codex' : provider === 'kiro' ? 'Kiro' : tr('Conta {0}', [short]), color, configDir: '', sessions: 0, usageStatus: 'disabled', ...(provider ? { provider } : {}) });
   chip.setAttribute('aria-hidden', 'true');
   return chip;
 }

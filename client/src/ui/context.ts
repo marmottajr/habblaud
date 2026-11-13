@@ -30,7 +30,7 @@ export interface TerminalRouter {
   newSession(cwd: string, account?: string): Promise<void>;
 }
 
-export type HelpSection = 'usage' | 'codex';
+export type HelpSection = 'usage' | 'codex' | 'kiro';
 
 export interface UiContext {
   readonly store: OfficeStore;
