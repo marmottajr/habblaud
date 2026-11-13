@@ -219,6 +219,10 @@ const ALIAS_TOOLS: Record<Provider, { invokes: RegExp; dir: RegExp }> = {
     invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?codex(?=$|[\s;&|)])/,
     dir: /\bCODEX_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
   },
+  gemini: {
+    invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?gemini(?=$|[\s;&|)])/,
+    dir: /\bGEMINI_CLI_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
+  },
 };
 
 /**

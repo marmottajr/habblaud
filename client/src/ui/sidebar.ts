@@ -391,7 +391,8 @@ export class Sidebar implements UiComponent {
     r.head.dataset.room = n.agent.roomId;
     const router = this.ctx.terminals;
     const a = n.agent;
-    const canTerm = !!router?.available && a.status !== 'offline';
+    // Gemini CLI: a conversa fica num JSON que o Habblaud não acompanha (só os hooks): sem terminal.
+    const canTerm = !!router?.available && a.status !== 'offline' && a.provider !== 'gemini';
     setHidden(r.term, !canTerm);
     if (canTerm && router) {
       const open = router.openAgentId === a.id;

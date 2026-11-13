@@ -40,6 +40,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { AccountInfo, SourceInfo } from '../shared/types';
 import { codexDirsRefused, detectAccounts, discoverClaudeDirs, type DetectedAccount } from '../server/accounts/detect';
 import { detectCodexAccounts, discoverCodexDirs } from '../server/sources/codex/accounts';
+import { defaultGeminiDir, geminiEmail } from '../server/sources/gemini/discover';
 import { describeStateMigration, LEGACY_NAME, legacyEnvWarning, migrateLegacyStateDir } from '../server/legacy';
 import { makeClaudeRunner, MIN_CLAUDE_VERSION, readPackageVersion, updateInstalledMods, type ModUpdateResult } from './mod-install';
 import { tr } from '../shared/i18n';
@@ -316,12 +317,18 @@ export function renderOverride(
   codex: AccountMount[] = [],
   remoteTlsDir?: string,
   extraPorts: string[] = [],
+  gemini?: { home: string; email?: string },
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
     ['HABBLAUD_ACCOUNTS', JSON.stringify([...accountsPayload(mounts), ...codexAccountsPayload(codex)])],
   ];
   if (codex.length) env.push(['HABBLAUD_CODEX_DIRS', codex.map((m) => m.mountDir).join(',')]);
+  // Gemini CLI: nada é montado (ele fala com o Habblaud só pelos hooks); só a pasta do host e o e-mail, para exibir.
+  if (gemini) {
+    env.push(['HABBLAUD_GEMINI_HOME', gemini.home]);
+    if (gemini.email) env.push(['HABBLAUD_GEMINI_EMAIL', gemini.email]);
+  }
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
   const lines = [
@@ -712,8 +719,16 @@ async function up(opts: Options, port: number): Promise<void> {
   if (usageDir) say(tr('Uso ao vivo (mod ou tap de statusline): monta {0} em {1}, somente leitura.', [tildify(USAGE_DIR), CONTAINER_USAGE_DIR]));
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
+  const geminiOff = /^(0|false|no|nao|não|off)$/i.test(process.env.HABBLAUD_GEMINI?.trim() ?? '');
+  const geminiDir = defaultGeminiDir(process.env, homedir());
+  let gemini: { home: string; email?: string } | undefined;
+  if (!geminiOff && realDir(geminiDir)) {
+    const email = geminiEmail(geminiDir);
+    gemini = email ? { home: geminiDir, email } : { home: geminiDir };
+    say(tr('Gemini CLI ({0}): ao vivo pelos hooks (npm run gemini:install), sem montar nada.', [tildify(geminiDir)]));
+  }
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts), { mode: 0o600 });
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, gemini), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say(tr('docker-compose.override.yml gerado.'));

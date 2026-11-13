@@ -178,6 +178,7 @@ export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pr
 export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
   if (a.email) return a.email;
   if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
+  if (a.provider === 'gemini') return 'Gemini CLI';
   return a.configDir;
 }
 
@@ -186,6 +187,7 @@ export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pro
   const state = cardState(a);
   if (state === 'noquota') return [tr('sem cota'), tr('sem cota')];
   if (isCodex(a)) return [tr('sem dados ainda'), tr('sem dados')];
+  if (a.provider === 'gemini') return [tr('ao vivo pelos hooks'), tr('ao vivo')];
   return [tr('sem dados de uso'), tr('sem dados')];
 }
 
@@ -340,7 +342,7 @@ export class UsageCards {
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
-    updateProviderTag(r.prov, codex ? 'codex' : 'claude', a.name);
+    updateProviderTag(r.prov, codex ? 'codex' : a.provider === 'gemini' ? 'gemini' : 'claude', a.name);
     setText(r.email, usageSubtitle(a));
     setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
 
@@ -381,7 +383,8 @@ export class UsageCards {
     setText(r.msgLong, msgLong);
     setText(r.msgShort, msgShort);
     setHidden(r.msg, state !== 'empty' && state !== 'noquota');
-    setHidden(r.how, state === 'noquota');
+    // Gemini: não há uso de plano a mostrar nem nada a ativar (o que importa são os hooks: npm run gemini:install).
+    setHidden(r.how, state === 'noquota' || a.provider === 'gemini');
     r.msg.classList.toggle('is-noquota', state === 'noquota');
     setTitle(r.msg, state === 'noquota' ? codexUsageNote(a, now) : '');
     setText(r.howLong, codex ? tr('Como funciona') : tr('Como ativar'));

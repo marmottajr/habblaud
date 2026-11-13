@@ -365,6 +365,17 @@
   --step: 3px;
 }
 
+/* Conta do Gemini CLI: chip com degradê azul-violeta (lembra o brilho do Gemini, sem logotipo). */
+.ui-acc-chip[data-provider='gemini'] {
+  background: linear-gradient(135deg, #4b8bf5 0%, #8f6cf0 60%, #d96aa7 100%);
+  color: #fff;
+}
+
+.ui-prov[data-provider='gemini'] {
+  background: rgba(75, 139, 245, 0.22);
+  color: #a9c6ff;
+}
+
 /* Selo de texto "Codex" ao lado do nome da conta (fonte do sistema: na Pixelify o "C" parece "O"). */
 .ui-prov {
   display: inline-flex;
