@@ -606,6 +606,36 @@ chip da conta do Codex é vazado e leva o selo **CODEX**.
   pouco para ir embora depois que você fecha o terminal.
 - Conversas da nuvem do ChatGPT (sem arquivo no computador) não aparecem. `HABBLAUD_CODEX=0` desliga o Codex.
 
+### Outras ferramentas (agentes externos)
+
+Ferramentas sem suporte próprio no Habblaud (ex.: o **Grok**, que não grava as conversas no computador nem tem hooks
+como os do Claude Code e do Codex) entram no escritório mandando eventos para `POST /api/external/events`, de um
+script, de um hook ou de um wrapper. Cada ferramenta vira uma conta e cada sessão, um personagem na sala do projeto,
+com o nome da ferramenta no selo (como o **CODEX**). O `scripts/agent-event.mjs` manda os eventos pela linha de
+comando:
+
+```bash
+node scripts/agent-event.mjs start    --tool grok --title "Refatorar o login"
+node scripts/agent-event.mjs prompt   --tool grok --text "Corrija o teste do login"
+node scripts/agent-event.mjs activity --tool grok --kind run --text "Rodando os testes" --detail "npm test"
+node scripts/agent-event.mjs activity --tool grok --tool-name Read --input '{"file_path":"src/login.ts"}'
+node scripts/agent-event.mjs waiting  --tool grok --text "aprovar um comando"
+node scripts/agent-event.mjs idle     --tool grok
+node scripts/agent-event.mjs end      --tool grok
+```
+
+- **Eventos:** `start` (chega ocioso), `prompt` (nova instrução: trabalhando), `activity` (o que está fazendo: `kind`
+  + `text`, ou `toolName` + `input` no formato do Claude Code), `waiting` (levanta a mão), `idle` (terminou o turno) e
+  `end` (vai embora). O primeiro evento da sessão precisa do `cwd` (a pasta do projeto, que define a sala); o script
+  usa a pasta atual.
+- **Sessão:** sem `--session`, uma por ferramenta e pasta. Uma sessão sem eventos por `HABBLAUD_EXTERNAL_TTL` minutos
+  (padrão 30) sai sozinha.
+- **O corpo do POST** (JSON): `{tool, toolLabel?, session, event, cwd?, title?, model?, text?, kind?, detail?,
+  toolName?, input?}`; `tool` é um nome curto em minúsculas (`grok`), que vira o id da conta.
+- **Limites:** só vale pelo próprio computador (como os eventos do Codex); não há terminal, histórico, tokens,
+  responder nem mandar mensagens (o Habblaud não tem como falar com a ferramenta); e os agentes externos **nunca
+  sobem ao Habblaud World**. `HABBLAUD_EXTERNAL=0` desliga.
+
 ### GitHub no escritório
 
 O que os agentes fazem no GitHub anima a sala do projeto, sem token e sem acessar a internet: o Habblaud lê nos
@@ -727,6 +757,8 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_CODEX` | ligado | `0` desliga o Codex no escritório. |
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
+| `HABBLAUD_EXTERNAL` | ligado | `0` desliga os agentes externos (`POST /api/external/events`, ver [Outras ferramentas](#outras-ferramentas-agentes-externos)). |
+| `HABBLAUD_EXTERNAL_TTL` | `30` | Minutos sem eventos até um agente externo sair sozinho (1 a 1440). |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (uma consulta às releases do repositório no GitHub a cada 6 h). |
 | `HABBLAUD_LANG` | idioma do sistema (menos inglês), senão `pt-BR` | Idioma dos textos montados pelo servidor (atividades, avisos, logs): `pt-BR`, `en`, `es` ou `fr`. A interface segue o navegador ou a escolha em Configurações › Idioma. Ver [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar nome, letra ou cor, casado pelo nome da pasta da conta. Ex.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |

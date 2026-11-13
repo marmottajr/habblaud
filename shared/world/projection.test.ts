@@ -213,6 +213,16 @@ describe('projeção: regras', () => {
     expect(project(input([room('demo:/x')], [agent('demo:a', 'demo:/x')]), new FakeIds(), NOW).floors).toEqual([]);
   });
 
+  it('agentes externos (POST /api/external/events) nunca sobem (nem pedem id do mundo)', () => {
+    const ids = new FakeIds();
+    const rooms = [room('/p/a'), room('/p/so-externo')];
+    const agents = [agent('acc:1', '/p/a'), agent('grok:s1', '/p/a', { provider: 'external' }), agent('grok:s2', '/p/so-externo', { provider: 'external' })];
+    const u = project(input(rooms, agents), ids, NOW);
+    expect(u.floors).toHaveLength(1);
+    expect(agentsOf(u)).toHaveLength(1);
+    expect(ids.calls.some((c) => c.startsWith('grok:') || c === '/p/so-externo')).toBe(false);
+  });
+
   it('só agentes presentes: done e offline somem, e a sala sem ninguém presente não vira andar', () => {
     const rooms = [room('/p/a'), room('/p/b'), room('/p/vazia')];
     const agents = [

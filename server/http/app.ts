@@ -4,9 +4,11 @@ import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '.
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
+import { handleExternalEvent } from '../external/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
+import type { ExternalLive } from '../sources/external/source';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import type { RemoteFeature } from './remote';
@@ -63,6 +65,11 @@ export interface ApiDeps {
    * não dependem da trava do terminal).
    */
   codexLive?: CodexLive;
+  /**
+   * Agentes externos (ferramentas sem suporte próprio, ex.: Grok): recebe POST /api/external/events
+   * (server/external/http.ts). Ausente (HABBLAUD_EXTERNAL=0) = a rota responde 404. Mesma trava dos eventos do Codex.
+   */
+  externalLive?: ExternalLive;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -125,6 +132,7 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
+    path.startsWith('/api/external/') ||
     path.startsWith('/api/host/')
   );
 }
@@ -376,6 +384,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
+          externalEvents: !!deps.externalLive,
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
@@ -487,6 +496,14 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Codex só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/external/events') {
+      // Eventos de agentes externos: como os do Codex, só valem vindos do próprio computador.
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('eventos de agentes externos só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else handleExternalEvent(req, res, deps.externalLive).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

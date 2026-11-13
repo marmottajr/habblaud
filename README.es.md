@@ -640,6 +640,26 @@ chip de la cuenta de Codex es hueco y lleva el sello **CODEX**.
 - Las conversaciones en la nube de ChatGPT (sin archivo en la computadora) no aparecen. `HABBLAUD_CODEX=0` desactiva
   Codex.
 
+### Otras herramientas (agentes externos)
+
+Las herramientas sin soporte propio en Habblaud (ej.: **Grok**, que no guarda las conversaciones en el equipo ni
+tiene hooks como los de Claude Code y Codex) entran en la oficina enviando eventos a `POST /api/external/events`,
+desde un script, un hook o un wrapper. Cada herramienta se vuelve una cuenta y cada sesión, un personaje en la sala
+del proyecto, con el nombre de la herramienta en el sello (como **CODEX**). `scripts/agent-event.mjs` envía los
+eventos por la línea de comandos:
+
+```bash
+node scripts/agent-event.mjs start    --tool grok --title "Refactorizar el login"
+node scripts/agent-event.mjs activity --tool grok --kind run --text "Ejecutando las pruebas" --detail "npm test"
+node scripts/agent-event.mjs waiting  --tool grok --text "aprobar un comando"
+node scripts/agent-event.mjs end      --tool grok
+```
+
+Eventos: `start`, `prompt`, `activity`, `waiting`, `idle` y `end`; el primero de la sesión necesita `cwd` (la carpeta
+del proyecto). Una sesión sin eventos durante `HABBLAUD_EXTERNAL_TTL` minutos (30 por defecto) se va sola. Solo se
+acepta desde este equipo, no hay terminal, historial, tokens, responder ni mensajes, y los agentes externos **nunca
+suben a Habblaud World**. `HABBLAUD_EXTERNAL=0` lo desactiva.
+
 ### GitHub en la oficina
 
 Lo que los agentes hacen en GitHub anima la sala del proyecto, sin token y sin acceder a internet: Habblaud lee en
@@ -763,6 +783,8 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_CODEX` | activado | `0` desactiva Codex en la oficina. |
 | `HABBLAUD_CODEX_DIRS` | detección automática | Carpetas de Codex, separadas por comas (en lugar de `~/.codex*` y `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` del PATH (en Windows, `codex.exe`) | El binario de Codex que entrega los mensajes (`codex queue`), en modo Node o en `npm run codex:bridge`. |
+| `HABBLAUD_EXTERNAL` | activado | `0` desactiva los agentes externos (`POST /api/external/events`, ver [Otras herramientas](#otras-herramientas-agentes-externos)). |
+| `HABBLAUD_EXTERNAL_TTL` | `30` | Minutos sin eventos hasta que un agente externo se va solo (1 a 1440). |
 | `HABBLAUD_UPDATE_CHECK` | activada | `0` desactiva la comprobación de versión nueva (una consulta a las releases del repositorio en GitHub cada 6 h). |
 | `HABBLAUD_LANG` | idioma del sistema (salvo inglés); si no, `pt-BR` | Idioma de los textos que arma el servidor (actividades, avisos, logs): `pt-BR`, `en`, `es` o `fr`. La interfaz sigue al navegador o la elección en Configuración › Idioma. Consulta [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar el nombre, la letra o el color, emparejado por el nombre de la carpeta de la cuenta. P. ej.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |

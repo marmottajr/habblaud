@@ -37,6 +37,7 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { ExternalSource } from './sources/external/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -141,6 +142,10 @@ if (codex) agents.add(codex);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
+// Agentes externos (ferramentas sem suporte próprio, ex.: Grok): entram por POST /api/external/events;
+// HABBLAUD_EXTERNAL=0 desliga (a rota responde 404).
+const external = config.external ? new ExternalSource({ accounts, office, ttlMin: config.externalTtlMin }) : undefined;
+if (external) agents.add(external);
 late.office = office;
 late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
@@ -372,6 +377,7 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   codexLive,
+  externalLive: external,
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
@@ -491,6 +497,7 @@ server.listen(config.port, config.host, () => {
   } else {
     log.info(tr('   Codex: {0}.', [config.codex ? tr('nenhuma pasta do Codex encontrada (defina HABBLAUD_CODEX_DIRS)') : tr('desligado (HABBLAUD_CODEX=0)')]));
   }
+  log.info(tr('   Agentes externos (ex.: Grok): {0}.', [external ? tr('aceitos em POST /api/external/events (scripts/agent-event.mjs)') : tr('desligados (HABBLAUD_EXTERNAL=0)')]));
   if (office.isDemo()) log.info(tr('   Modo demonstração ligado (agentes simulados misturados aos reais).'));
   if (config.terminal) log.info(tr('   Terminal: ligado (acesso só local).'));
   else log.info(tr('   Terminal: desligado ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));

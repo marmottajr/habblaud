@@ -139,6 +139,9 @@ export function projectWithReport(input: ProjectionInput, ids: WorldIdSource, no
   const byRoom = new Map<string, AgentInfo[]>();
   for (const a of input.agents) {
     if (isDemoId(a.id) || isDemoId(a.roomId) || !roomIds.has(a.roomId)) continue;
+    // Agentes externos (POST /api/external/events) nunca sobem: qualquer script local os cria, sem um arquivo da
+    // ferramenta que os confirme, e o protocolo só conhece claude e codex.
+    if (a.provider === 'external') continue;
     if ((a.kind !== 'main' && a.kind !== 'sub') || !isWorldStatus(a.status)) continue;
     const list = byRoom.get(a.roomId);
     if (list) list.push(a);

@@ -52,6 +52,10 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
+  /** Aceita agentes externos (POST /api/external/events, sources/external/); HABBLAUD_EXTERNAL=0 desliga. */
+  external: boolean;
+  /** Minutos sem eventos até um agente externo sair sozinho (HABBLAUD_EXTERNAL_TTL; padrão 30). */
+  externalTtlMin?: number;
   /** Segunda porta, com login, para o celular na rede local (http/remote.ts); ausente = desligada. */
   remote?: RemoteConfig;
   /** Por que o acesso remoto ficou desligado quando as variáveis estão incompletas. */
@@ -78,6 +82,12 @@ export interface WorldConfig {
   dev: boolean;
   /** Por que HABBLAUD_WORLD_URL foi recusada (vai para o log ao iniciar). */
   warning?: string;
+}
+
+/** HABBLAUD_EXTERNAL_TTL: minutos (inteiro de 1 a 1440); inválido ou ausente = o padrão da fonte. */
+export function externalTtlOf(v: string | undefined): number | undefined {
+  const n = Number.parseInt(v?.trim() ?? '', 10);
+  return Number.isInteger(n) && n >= 1 && n <= 1440 ? n : undefined;
 }
 
 export function isTruthy(v: string | undefined): boolean {
@@ -249,6 +259,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     repo: pkg.repo,
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
+    external: !env.HABBLAUD_EXTERNAL?.trim() || isTruthy(env.HABBLAUD_EXTERNAL),
+    externalTtlMin: externalTtlOf(env.HABBLAUD_EXTERNAL_TTL),
     remote: remote.config,
     remoteWarning: remote.warning,
     world: parseWorldConfig(env, argv),

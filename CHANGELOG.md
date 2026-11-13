@@ -10,6 +10,14 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Agentes externos: outras ferramentas no escritório (ex.: Grok).** Uma ferramenta sem suporte próprio entra no
+  escritório mandando eventos para `POST /api/external/events` (de um script, hook ou wrapper; o
+  `scripts/agent-event.mjs` faz isso pela linha de comando): `start`, `prompt`, `activity`, `waiting`, `idle` e `end`.
+  Cada ferramenta vira uma conta e cada sessão, um personagem na sala do projeto, com o nome da ferramenta no selo
+  (como o **CODEX**). Só vale pelo próprio computador, nunca sobe ao Habblaud World e `HABBLAUD_EXTERNAL=0` desliga.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

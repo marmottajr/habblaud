@@ -108,6 +108,20 @@ type Item = Bubble | Label;
 const CODEX_CHIP_BG = '#161b26';
 /** Selo "CODEX" das etiquetas: discreto (vidro claro), sem a cor de ninguém. */
 const CODEX_BADGE = 'CODEX';
+/** Maior selo de ferramenta de um agente externo (o nome da conta, em maiúsculas). */
+const TOOL_BADGE_MAX = 10;
+
+/**
+ * Selo de ferramenta da etiqueta: "CODEX" no Codex; nos agentes externos, o nome da ferramenta (a conta: "GROK").
+ * O Claude Code não tem selo.
+ */
+export function toolBadge(provider: string | undefined, accountName: string | undefined): string | undefined {
+  if (provider === 'codex') return CODEX_BADGE;
+  if (provider !== 'external') return undefined;
+  const name = (accountName ?? '').trim().toLocaleUpperCase();
+  if (!name) return undefined;
+  return name.length > TOOL_BADGE_MAX ? `${name.slice(0, TOOL_BADGE_MAX - 1)}…` : name;
+}
 
 /** Octógono "em degrau" (um quadrado de cantos cortados, como um pixel arredondado). */
 function steppedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, s: number): void {
@@ -868,7 +882,7 @@ export class Overlay {
 
   // =================================================================== etiquetas
 
-  /** Larguras das partes da etiqueta. O selo "CODEX" (como o "SUB") só aparece fora do modo compacto. */
+  /** Larguras das partes da etiqueta. O selo da ferramenta ("CODEX", "GROK"), como o "SUB", só aparece fora do modo compacto. */
   private labelWidth(l: Label): { nameW: number; chipW: number; badgeW: number; codexW: number } {
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
@@ -876,7 +890,8 @@ export class Overlay {
     const chipW = acc ? 13 : 0;
     const visitor = ch === this.sim.visitor;
     const badgeW = visitor ? this.measure(BADGE_FONT, visitorBadge()) + 7 : ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
-    const codexW = ch.info.provider === 'codex' && !l.compact ? this.measure(BADGE_FONT, CODEX_BADGE) + 7 : 0;
+    const tool = l.compact ? undefined : toolBadge(ch.info.provider, acc?.name);
+    const codexW = tool ? this.measure(BADGE_FONT, tool) + 7 : 0;
     return { nameW, chipW, badgeW, codexW };
   }
 
@@ -970,7 +985,7 @@ export class Overlay {
       ctx.fill();
       ctx.font = BADGE_FONT;
       ctx.fillStyle = '#e8ecf5';
-      ctx.fillText(CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText(toolBadge(ch.info.provider, acc?.name) ?? '', cx + 3.5, y + h / 2 + 0.5);
     }
   }
 }
