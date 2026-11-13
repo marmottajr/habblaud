@@ -169,7 +169,7 @@ export class Sim {
     this.now = now;
     const first = !this.initialized;
     this.initialized = true;
-    this.accounts = new Map(snap.accounts.map((a) => [a.id, { short: a.short, color: a.color, name: a.name, ...(a.provider === 'codex' ? { provider: a.provider } : {}) }]));
+    this.accounts = new Map(snap.accounts.map((a) => [a.id, { short: a.short, color: a.color, name: a.name, ...(a.provider && a.provider !== 'claude' ? { provider: a.provider } : {}) }]));
 
     // ---- salas
     let layoutDirty = false;
