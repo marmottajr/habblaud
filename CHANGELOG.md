@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Modo TV (`?tv=1`).** Para deixar o escritório aberto numa TV: o layout fica com 1920 px de largura (igual ao do
+  computador) e passeia sozinho pelas salas com agentes ativos, abrindo o painel de cada uma, a cada 15 s (`?tv=30` muda o intervalo), com
+  prioridade para quem está esperando você; sem ninguém ativo, mostra a visão geral.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

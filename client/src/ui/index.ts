@@ -47,6 +47,7 @@ import { SceneSwitch, type CitySceneHost } from './world/scene-switch';
 import { worldSource } from '../net/world';
 import { FreeArea } from './viewport';
 import { tr } from '../../../shared/i18n';
+import { startTvMode, tvModeFromUrl } from './tvmode';
 
 /** Relógio dos tempos relativos ("há 5 s"). */
 const CLOCK_MS = 5_000;
@@ -232,6 +233,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     }
     if (url.search && location.search === url.search) window.history.replaceState(null, '', location.pathname);
   };
+  // Modo TV (?tv=1): lido antes do openLink, que limpa a query da barra de endereço.
+  const tvSeconds = tvModeFromUrl();
+  if (tvSeconds) startTvMode(ctx, tvSeconds);
   if (typeof location !== 'undefined') openLink(new URL(location.href));
   drawer = new Drawer(ctx, terminal, pty);
   const feed = new FeedPanel(ctx);
