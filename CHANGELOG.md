@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Entregas: o filtro de segredos só conhecia nomes em inglês e deixava passar nomes em português.** Arquivos como
+  `credenciais.csv`, `chaves.csv`, `senhas.pdf`, `cofre.kdbx.png` e `api_key.txt` eram mostrados e lidos do disco
+  como se não fossem segredo. Agora o nome é lido em português e em inglês, antes da extensão de ver, e esses
+  arquivos ficam de fora.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
