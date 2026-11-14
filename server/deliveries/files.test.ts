@@ -12,10 +12,22 @@ describe('arquivos das entregas', () => {
     }
   });
 
+  it('nomes em português e chaves sem prefixo também são segredo', () => {
+    // O nome ganha extensão de ver: `kdbx`, `txt`, `csv` não passam sozinhos, mas o nome mostra o segredo.
+    for (const bad of ['/Users/a/p/credenciais.csv', '/Users/a/p/credenciais-bancarias.txt', '/Users/a/p/senhas.pdf', '/Users/a/p/chaves.csv', '/Users/a/p/claves.csv', '/Users/a/p/segredo.txt', '/Users/a/p/cofre.kdbx.png', '/Users/a/p/id_ed25519.png', '/Users/a/p/id_rsa.pdf', '/Users/a/p/api_key.txt', '/Users/a/p/apikey.txt', '/Users/a/p/auth.yaml.png', '/Users/a/p/access-key.csv']) {
+      expect(pathProblem(bad), bad).toBeDefined();
+    }
+    // Palavras que só lembram segredo de longe continuam aparecendo.
+    for (const ok of ['/Users/a/p/relatorio.pdf', '/Users/a/p/chaveamento.pdf', '/Users/a/p/conclave.pdf', '/Users/a/p/monkey.png', '/Users/a/p/carteira-de-identidade.png']) {
+      expect(pathProblem(ok), ok).toBeUndefined();
+    }
+  });
+
   it('checkFile: confere o caminho real (link para segredo cai), tamanho e tipo', () => {
     const fs = (real: string, size = 10, file = true) => ({ realpath: () => real, stat: () => ({ isFile: () => file, size }) });
     expect(checkFile('/Users/a/p/x.png', fs('/Users/a/p/x.png'))).toEqual({ path: '/Users/a/p/x.png', size: 10 });
     expect(checkFile('/Users/a/p/x.png', fs('/Users/a/.ssh/x.png'))).toEqual({ error: 'arquivo protegido' });
+    expect(checkFile('/Users/a/p/x.png', fs('/Users/a/p/api_key.txt'))).toEqual({ error: 'arquivo protegido' });
     expect(checkFile('/Users/a/p/x.png', fs('/Users/a/p/x.png', DELIVERY_FILE_MAX_BYTES + 1))).toHaveProperty('error');
     expect(checkFile('/Users/a/p/x.png', fs('/Users/a/p/x.png', 1, false))).toEqual({ error: 'não é um arquivo' });
     expect(checkFile('/nao/existe.png')).toEqual({ error: 'arquivo não encontrado' });

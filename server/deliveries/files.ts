@@ -36,7 +36,29 @@ const TYPES: Readonly<Record<string, { kind: DeliveryAttachmentKind; type: strin
 
 /** Pastas e nomes que nunca saem, mesmo que um agente os "entregue" (texto injetado num transcript, por exemplo). */
 const SECRET_DIRS = /(^|\/)(\.ssh|\.gnupg|\.aws|\.azure|\.kube|\.docker|\.password-store|\.config\/gh|\.config\/gcloud|Keychains|\.habblaud\/remote-tls)(\/|$)/i;
-const SECRET_NAMES = /(^|\/)(\.env[^/]*|id_[a-z0-9]+|[^/]*\.(pem|key|p12|pfx|keystore|jks|kdbx)|[^/]*(secret|credential|password|senha|token)[^/]*)$/i;
+const SECRET_NAMES = /(^|\/)(\.env[^/]*|id_[a-z0-9]+)[^/]*$|(^|\/)[^/]*\.(pem|key|p12|pfx|keystore|jks|kdbx)$/i;
+/** Pedaços de nome que denunciam segredo, em português e em inglês (`credenciais`, `chaves`, `claves`, `api_key`...). */
+const SECRET_WORDS = /(^|[^a-z])(?:secret|segredo|credential|credenciais?|credencial|password|senha|token|chaves?|claves?|cofre|key)(?:[^a-z]|s?$)/i;
+const SECRET_ANYWHERE = /(secret|segredo|credential|credencial|password|senha|token)/i;
+
+/**
+ * Primeiros dois elementos do último trecho do nome, sem a extensão de ver depois: `cofre.kdbx.png` vira
+ * `cofre.kdbx`, `backup.sql.png` vira `backup.sql` e `relatorio.pdf` fica `relatorio`.
+ */
+function stemOf(base: string): string {
+  const parts = base.split('.');
+  return parts.slice(0, parts.length > 1 && fileType(base) ? 2 : parts.length).join('.');
+}
+
+/** Último trecho do nome com cara de segredo? `api_key.txt`, `credenciais.csv`, `id_ed25519.png`, `tokens.xlsx`... */
+export function secretNameProblem(path: string): boolean {
+  const base = path.split(/[\\/]/).pop() ?? '';
+  if (SECRET_ANYWHERE.test(base)) return true;
+  const stem = stemOf(base);
+  // `key` no começo (`keybackup`?) e `api_key` ainda passam pelo teste de palavra; `id` e `auth` só como peça
+  // inteira do nome (`id_ed25519`, `auth.yaml`, `auth-token`), nunca boiada no meio de outra palavra.
+  return SECRET_WORDS.test(stem) || /^(api[-_]?key|access[-_]?key|key$)/i.test(stem) || /(^|[-_.])(id|auth)([-_.]|$)/i.test(stem);
+}
 
 export function extensionOf(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? '';
@@ -53,7 +75,7 @@ export function fileType(path: string): { kind: DeliveryAttachmentKind; type: st
 export function pathProblem(path: string): string | undefined {
   if (!path || path.includes('\0') || !path.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(path)) return tr('caminho inválido');
   if (!fileType(path)) return tr('tipo de arquivo que não se mostra aqui');
-  if (SECRET_DIRS.test(path) || SECRET_NAMES.test(path)) return tr('arquivo protegido');
+  if (SECRET_DIRS.test(path) || SECRET_NAMES.test(path) || secretNameProblem(path)) return tr('arquivo protegido');
   return undefined;
 }
 
