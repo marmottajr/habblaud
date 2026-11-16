@@ -122,10 +122,13 @@ export function layoutProjectRoom(room: RoomInput, theme: RoomTheme): AreaLayout
   // ---- itens de parede
   const signCx = north ? 8 : 10.5;
   area.signId = wallItem('sign', signCx, undefined, { order: 0.95 });
+  // TV das apresentações (shared/presentation.ts): sobre o canto de reunião, no lugar do relógio e do pôster (a estante
+  // e a planta alta tomam o resto da parede). O pôster continua sorteado no mesmo ponto, para o resto da decoração das
+  // salas não mudar.
   if (north) {
     wallItem('whiteboard', 4.5, undefined, { order: 0.6 });
-    wallItem('clock', 10, undefined, { order: 0.7 });
-    wallItem('poster', 11.1, pick(POSTERS), { order: 0.5 });
+    wallItem('tv', 10.75, undefined, { order: 0.65 });
+    pick(POSTERS);
     wallItem('window', 12.75, undefined, { order: 0.4 });
     // interruptor ao lado da porta, na mureta (por dentro)
     wallItem('light_switch', DOOR_X - 0.5, 'on', { ly: 12, on: 'south', order: 0.8 });
@@ -133,8 +136,8 @@ export function layoutProjectRoom(room: RoomInput, theme: RoomTheme): AreaLayout
   } else {
     wallItem('whiteboard', 2.5, undefined, { order: 0.6 });
     wallItem('light_switch', DOOR_X - 0.5, 'on', { order: 0.8 });
-    wallItem('clock', 12.3, undefined, { order: 0.7 });
-    wallItem('poster', 13.35, pick(POSTERS), { order: 0.5 });
+    wallItem('tv', 13, undefined, { order: 0.65 });
+    pick(POSTERS);
     spot('switch', DOOR_X - 1, 2, 'up', { dy: -3 });
   }
   spot('whiteboard', north ? 4 : 2, 2, 'up', { dx: 8, dy: 2 });

@@ -3,6 +3,7 @@
 // nítido) fica em overlay.ts.
 import { TILE, type ArtModule, type CharacterFrameRequest, type IconName, type ScreenMode, type Sprite } from '../../art/api';
 import type { SeasonalTheme, WorldOptions } from '../api';
+import type { TvState } from '../../../../shared/presentation';
 import type { WorldAssets } from '../assets';
 import type { Camera } from '../camera';
 import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y } from '../constants';
@@ -79,6 +80,8 @@ export class Renderer {
   readonly ctx: CanvasRenderingContext2D;
   readonly areas = new Map<string, AreaVis>();
   readonly heads = new Map<string, HeadInfo>();
+  /** Tela da TV de cada sala no último quadro (px de mundo): o clique na TV abre as apresentações. */
+  readonly tvRects = new Map<string, { x: number; y: number; w: number; h: number }>();
   exterior: ExteriorLayout;
   shells: SlotShell[] = [];
   shellWindows: WallVis[] = [];
@@ -630,6 +633,15 @@ export class Renderer {
         const o = wallItemOrigin(w, s.base);
         ctx.drawImage(s.base.canvas, o.x, o.y + rise);
         const r = s.base.rects?.tv;
+        if (vis.room) {
+          // TV das apresentações (uma por sala): desligada, chiado enquanto o agente prepara, acesa e piscando com uma
+          // nova, em espera com as já vistas e com a apresentação na tela enquanto alguém assiste
+          if (!r) return;
+          const rect = { x: o.x + r.x, y: o.y + rise + r.y, w: r.w, h: r.h };
+          this.tvRects.set(vis.room.info.id, { x: o.x, y: o.y + rise + r.y - 1, w: s.base.canvas.width, h: r.h + 3 });
+          this.safe(() => this.drawRoomTv(rect, vis.room!.info.tv?.state ?? 'off', this.sim.tvAudience.roomId === vis.room!.info.id, now, w.seed));
+          return;
+        }
         // roda na TV do lounge: o programa escolhido (futebol, novela, desenho) ou o videogame
         const live = this.sim.social.tvScreen();
         const mode = live ? live.mode : TV_MODES[Math.floor(now / 9000) % TV_MODES.length];
@@ -653,6 +665,45 @@ export class Renderer {
         ctx.drawImage(s.base.canvas, o.x, o.y + rise);
       }
     }
+  }
+
+  /** Tela da TV de uma sala (apresentações). */
+  private drawRoomTv(r: { x: number; y: number; w: number; h: number }, state: TvState, watching: boolean, now: number, seed: number): void {
+    const { ctx } = this;
+    if (watching) {
+      this.art.drawScreen(ctx, r, 'docs', now, seed);
+      return;
+    }
+    if (state === 'preparing') {
+      // barras coloridas com chiado por cima, trocando a cada 90 ms
+      const bars = ['#d8d8d8', '#d8d23a', '#3ad2d2', '#3ad23a', '#d23ad2', '#d23a3a', '#3a3ad2'];
+      const bw = r.w / bars.length;
+      bars.forEach((c, i) => {
+        ctx.fillStyle = c;
+        ctx.fillRect(Math.round(r.x + i * bw), r.y, Math.ceil(bw), r.h);
+      });
+      let k = (Math.floor(now / 90) * 2654435761 + seed) >>> 0;
+      for (let y = 0; y < r.h; y++)
+        for (let x = 0; x < r.w; x++) {
+          k = (k * 1103515245 + 12345) >>> 0;
+          if ((k >>> 16) % 3 === 0) {
+            const g = (k >>> 8) & 0xff;
+            ctx.fillStyle = `rgba(${g},${g},${g},0.75)`;
+            ctx.fillRect(r.x + x, r.y + y, 1, 1);
+          }
+        }
+      return;
+    }
+    if (state === 'new') {
+      // acesa com o "slide" e um contorno âmbar pulsando: tem apresentação nova
+      this.art.drawScreen(ctx, r, 'docs', now, seed);
+      const a = 0.45 + 0.45 * Math.sin(now / 260);
+      ctx.strokeStyle = `rgba(255,181,71,${a.toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(r.x - 1.5, r.y - 1.5, r.w + 3, r.h + 3);
+      return;
+    }
+    this.art.drawScreen(ctx, r, state === 'ready' ? 'standby' : 'off', now, seed);
   }
 
   private drawWindow(w: WallVis, hour: number, now: number, alpha: number, rise = 0): void {

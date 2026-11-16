@@ -1,7 +1,7 @@
 // Entrada: arrastar (mouse/toque), roda/pinça (zoom no cursor), clique/duplo clique e teclado.
 import type { Camera } from './camera';
 
-export type Hit = { type: 'agent'; id: string } | { type: 'room'; id: string } | null;
+export type Hit = { type: 'agent'; id: string } | { type: 'room'; id: string } | { type: 'tv'; id: string } | null;
 
 export interface InputHandlers {
   pick(sx: number, sy: number): Hit;

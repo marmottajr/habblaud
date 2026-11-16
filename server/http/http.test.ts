@@ -9,6 +9,8 @@ import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office, type OfficeDeps } from '../model/office';
 import { tempDir } from '../test/fixtures';
+import { PresentationStore } from '../presentations/store';
+import { roomFolder } from '../../shared/presentation';
 import { createApiHandler, type ApiDeps } from './app';
 import { createRequestGuard, hostAllowed, hostnameOf, isLoopbackHost, originAllowed, parseAllowedHosts } from './guard';
 import { Hub } from './sse';
@@ -484,5 +486,68 @@ describe('guarda de Host/Origin', () => {
     expect(originAllowed('http://1.2.3.4', 'localhost:4747', allowed)).toBe(false);
     expect(originAllowed('null', 'localhost:4747', allowed)).toBe(false);
     expect(originAllowed('file://', 'localhost:4747', allowed)).toBe(false);
+  });
+});
+
+describe('TV das salas (/api/presentations)', () => {
+  let env: Awaited<ReturnType<typeof start>>;
+  let store: PresentationStore;
+  let tmp: ReturnType<typeof tempDir>;
+  const sent: string[] = [];
+
+  beforeEach(async () => {
+    tmp = tempDir();
+    sent.length = 0;
+    const late: { office?: Office } = {};
+    store = new PresentationStore({
+      dir: join(tmp.dir, 'apresentacoes'),
+      hostDir: '/home/ana/.habblaud/apresentacoes',
+      dataDir: join(tmp.dir, 'data'),
+      rooms: () => [...new Set((late.office?.list() ?? []).map((a) => a.roomId))].map((id) => ({ id, name: late.office!.roomName(id) })),
+      agent: (id) => late.office?.get(id),
+      send: (agentId, text) => {
+        sent.push(`${agentId}|${text}`);
+        return { messageId: 'm1' };
+      },
+      onChange: () => late.office?.tvChanged(),
+      onReady: (roomId, title) => late.office?.noticeTv(roomId, title),
+    });
+    env = await start({ presentations: store }, { tvs: () => store.tvs() });
+    late.office = env.office;
+    const dir = join(tmp.dir, 'apresentacoes', roomFolder('/p/loja'), '2026-11-16-1400-login');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'slides.md'), '# Login novo\n---\n## Antes\n- senha');
+    store.scan();
+  });
+  afterEach(async () => {
+    await env.close();
+    env.cleanup();
+    tmp.cleanup();
+  });
+
+  it('lista, abre e marca como assistida; o snapshot leva o estado da TV da sala', async () => {
+    const list = (await (await fetch(`${env.base}/api/presentations?room=${encodeURIComponent('/p/loja')}`)).json()) as { presentations: Array<{ id: string; title: string; seen: boolean }>; canRequest: boolean };
+    expect(list.canRequest).toBe(true);
+    expect(list.presentations).toMatchObject([{ title: 'Login novo', seen: false }]);
+    const id = list.presentations[0]!.id;
+    const content = (await (await fetch(`${env.base}/api/presentations/${id}`)).json()) as { markdown: string };
+    expect(content.markdown).toContain('## Antes');
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await snapshotOf(env.base)).rooms.find((r) => r.id === '/p/loja')?.tv).toEqual({ state: 'new', title: 'Login novo', count: 1 });
+    expect((await fetch(`${env.base}/api/presentations/${id}/seen`, { method: 'POST', headers: JSON_HEADERS, body: '{}' })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await snapshotOf(env.base)).rooms.find((r) => r.id === '/p/loja')?.tv?.state).toBe('ready');
+    expect((await fetch(`${env.base}/api/presentations/desconhecida`)).status).toBe(404);
+  });
+
+  it('pedido: manda a mensagem ao agente e a TV fica "preparando"; só com Host local', async () => {
+    const lan = await raw(env.base, '/api/presentations/request', { method: 'POST', headers: { ...JSON_HEADERS, Host: 'habblaud.lan:4747' }, body: JSON.stringify({ roomId: '/p/loja', agentId: '.claude:1' }) });
+    expect(lan.status).toBe(403);
+    expect((await fetch(`${env.base}/api/presentations/request`, { method: 'POST', headers: JSON_HEADERS, body: '{}' })).status).toBe(400);
+    const res = await fetch(`${env.base}/api/presentations/request`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ roomId: '/p/loja', agentId: '.claude:1' }) });
+    expect(res.status).toBe(200);
+    expect(sent[0]).toContain(`/home/ana/.habblaud/apresentacoes/${roomFolder('/p/loja')}/`);
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await snapshotOf(env.base)).rooms.find((r) => r.id === '/p/loja')?.tv?.state).toBe('preparing');
   });
 });

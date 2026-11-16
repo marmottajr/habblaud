@@ -20,6 +20,17 @@ do meio (0.**3**.0).
   Habblaud World não mudam. A festa aparece para todo mundo, celular inclusive; começar e encerrar (`DELETE
   /api/party`, ou o mesmo botão) pelo próprio computador ou pelo celular com login: o botão cabe na barra do celular
   e a festa vale com qualquer `HABBLAUD_REMOTE_ALLOW`, menos `none` (só ver).
+- **TV nas salas: apresentações do que o agente fez.** Cada sala ganhou uma TV na parede. Clique nela para pedir ao
+  agente principal da sala (pelas mensagens do escritório; com mais de um, você escolhe quem) uma apresentação em
+  slides sobre a última tarefa que ele concluiu: o que foi pedido, o que foi feito, antes e depois, decisões, riscos e
+  próximos passos. A TV mostra chiado enquanto ele prepara e acende piscando, com o aviso "📺 Apresentação pronta",
+  quando fica pronta. A apresentação só começa quando você clica na TV: abre por cima de tudo, numa moldura de TV, com
+  o escritório desfocado atrás. Setas, espaço, clique ou deslizar passam os slides, ▶ (ou `P`) passa sozinha, a lista
+  mostra as anteriores da sala, e os personagens da sala vão assistir em frente à TV. Funciona no computador e no
+  celular. Os slides ficam em `~/.habblaud/apresentacoes` (Markdown, fora do projeto); o `npm run mod:install`
+  pergunta antes de liberar os agentes para gravar só nessa pasta sem pedir permissão (`--tv`/`--sem-tv` respondem
+  sem perguntar), e o `npm run docker:up` a monta no container, somente leitura. `HABBLAUD_PRESENTATIONS=0` desliga.
+  Nas salas, a TV fica sobre o canto de reunião, no lugar do relógio e do pôster.
 
 ### Corrigido
 

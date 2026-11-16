@@ -97,6 +97,15 @@ describe('docker-up', () => {
     expect(yamlString('a"b$c')).toBe('"a\\"b$$c"');
   });
 
+  it('TV das salas: monta a pasta das apresentações em /presentations (somente leitura) e passa o caminho do host', () => {
+    const mounts = planMounts(['/Users/fulano/.claude'], [acc('.claude')], slash);
+    const yml = renderOverride(mounts, new Date(0), undefined, undefined, [], undefined, [], '/Users/fulano/.habblaud/apresentacoes');
+    expect(yml).toContain('HABBLAUD_PRESENTATIONS_DIR: "/presentations"');
+    expect(yml).toContain('HABBLAUD_PRESENTATIONS_HOST_DIR: "/Users/fulano/.habblaud/apresentacoes"');
+    expect(yml).toContain('source: "/Users/fulano/.habblaud/apresentacoes"\n        target: "/presentations"\n        read_only: true');
+    expect(renderOverride(mounts)).not.toContain('PRESENTATIONS');
+  });
+
   it('Codex: monta SÓ sessions/, archived_sessions/ e thread-writer-locks/ (somente leitura) e passa as contas com a pasta do host', () => {
     expect([...CODEX_MOUNTED_SUBDIRS]).toEqual(['sessions', 'archived_sessions', 'thread-writer-locks']);
     const host = '/Users/fulano/.codex';

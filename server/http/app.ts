@@ -23,6 +23,7 @@ import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
 import { HOST_WAIT_MS } from '../host-wait';
 import { parsePartyRequest } from '../../shared/party';
+import type { PresentationStore } from '../presentations/store';
 
 export interface ApiDeps {
   office: Office;
@@ -74,6 +75,8 @@ export interface ApiDeps {
   dictation?: DictationService;
   /** Entregas (GET /api/deliveries e os anexos em /api/deliveries/file/:id; deliveries/deliveries.ts). */
   deliveries?: DeliveryIndex;
+  /** Apresentações na TV das salas (/api/presentations*; presentations/store.ts). Ausente = desligadas. */
+  presentations?: PresentationStore;
   /** Quem lê os arquivos das entregas (e, para o auxiliar do host, /api/host/files/*; deliveries/fetcher.ts). */
   files?: FileFetcher;
   /** Renomeia a sala (POST /api/rooms/rename {id, name}; vazio volta ao padrão). Devolve o nome em uso, ou undefined se a sala não existe. */
@@ -280,6 +283,80 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     sendJson(res, 405, { error: tr('método não permitido') });
   };
 
+  /**
+   * TV das salas (presentations/store.ts). Ver é como o resto do escritório (vale para quem vê o snapshot, celular
+   * incluído); pedir manda uma mensagem ao agente, então segue a trava das mensagens.
+   *   GET  /api/presentations?room=<id>        lista da sala (a mais recente primeiro) e se dá para pedir
+   *   GET  /api/presentations/:id              o texto (Markdown) e o resumo
+   *   GET  /api/presentations/:id/image?src=   uma imagem citada nos slides
+   *   POST /api/presentations/:id/seen         marca como assistida
+   *   POST /api/presentations/request          {roomId, agentId}: pede uma apresentação ao agente principal
+   */
+  const handlePresentations = (req: IncomingMessage, res: ServerResponse, url: URL, path: string, method: string) => {
+    const store = deps.presentations;
+    const isRead = method === 'GET' || method === 'HEAD';
+    if (!store) {
+      req.resume();
+      sendJson(res, 404, { error: tr('apresentações desligadas (HABBLAUD_PRESENTATIONS=0)') });
+      return;
+    }
+    if (path === '/api/presentations') {
+      if (!isRead) methodNotAllowed(res, 'GET');
+      else {
+        const room = url.searchParams.get('room') ?? '';
+        sendJson(res, 200, { presentations: room ? store.list(room) : [], canRequest: store.canRequest && trusted(req, 'messages') });
+      }
+      return;
+    }
+    if (path === '/api/presentations/request') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!trusted(req, 'messages')) {
+        req.resume();
+        sendJson(res, 403, { error: denied(req, tr('o pedido pela TV só é feito pelo próprio computador (http://localhost)')) });
+      } else
+        readJson(req)
+          .then((body) => {
+            const b = (body ?? {}) as { roomId?: unknown; agentId?: unknown };
+            if (typeof b.roomId !== 'string' || typeof b.agentId !== 'string' || b.roomId.length > 4096 || b.agentId.length > 200) {
+              throw new HttpError(400, tr('esperado {roomId: texto, agentId: texto}'));
+            }
+            const r = store.request(b.roomId, b.agentId);
+            if ('error' in r) throw new HttpError(r.status, r.error);
+            sendJson(res, 200, r);
+          })
+          .catch((err) => fail(res, err));
+      return;
+    }
+    const m = /^\/api\/presentations\/([A-Za-z0-9_-]{1,64})(\/image|\/seen)?$/.exec(path);
+    if (!m) {
+      req.resume();
+      sendJson(res, 404, { error: tr('rota desconhecida') });
+      return;
+    }
+    const [, id, sub] = m;
+    if (sub === '/seen') {
+      req.resume();
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!store.markSeen(id)) sendJson(res, 404, { error: tr('apresentação desconhecida') });
+      else sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (!isRead) {
+      methodNotAllowed(res, 'GET');
+      return;
+    }
+    if (sub === '/image') {
+      store.image(id, url.searchParams.get('src') ?? '').then(
+        (r) => ('data' in r ? sendFile(res, r.data, r.type, r.name) : sendJson(res, r.status, { error: r.error })),
+        (err) => fail(res, err),
+      );
+      return;
+    }
+    const content = store.content(id);
+    if (!content) sendJson(res, 404, { error: tr('apresentação desconhecida') });
+    else sendJson(res, 200, content);
+  };
+
   const handleDemo = async (req: IncomingMessage, res: ServerResponse) => {
     const body = (await readJson(req)) as { enabled?: unknown };
     if (typeof body?.enabled !== 'boolean') throw new HttpError(400, tr('esperado {enabled: boolean}'));
@@ -401,6 +478,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           spawn: !!deps.spawn && trusted(req, 'spawn'),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
           party: trusted(req, 'party'),
+          presentations: !!deps.presentations?.canRequest && trusted(req, 'messages'),
         };
         sendJson(res, 200, access);
       }
@@ -679,6 +757,10 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
             sendJson(res, 200, { name });
           })
           .catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/presentations' || path.startsWith('/api/presentations/')) {
+      handlePresentations(req, res, url, path, method);
       return true;
     }
     if (path === '/api/party') {

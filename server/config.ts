@@ -43,6 +43,13 @@ export interface ServerConfig {
   messages: boolean;
   /** Grava a linha do tempo do escritório para o timelapse (<dataDir>/timeline); HABBLAUD_TIMELINE=0 desliga. */
   timeline: boolean;
+  /**
+   * Apresentações na TV das salas (server/presentations/): `dir` = onde o servidor lê (no Docker, a pasta montada);
+   * `hostDir` = a mesma pasta no computador do usuário (vai no pedido ao agente, que grava lá). Padrão
+   * ~/.habblaud/apresentacoes; HABBLAUD_PRESENTATIONS=0 desliga. No Docker, sem HABBLAUD_PRESENTATIONS_HOST_DIR (o
+   * docker-up passa) fica desligado.
+   */
+  presentations?: { dir: string; hostDir: string };
   /** Raiz do projeto (onde fica o package.json); serve dist/client a partir daqui. */
   rootDir: string;
   version: string;
@@ -222,6 +229,15 @@ export function worldSocketUrl(base: string): string {
   return `${base.replace(/^http/, 'ws').replace(/\/+$/, '')}/v1/socket`;
 }
 
+/** Pastas das apresentações (ServerConfig.presentations), ou undefined (desligadas). */
+export function presentationsConfig(env: NodeJS.ProcessEnv, home: string, inDocker: boolean): { dir: string; hostDir: string } | undefined {
+  if (env.HABBLAUD_PRESENTATIONS?.trim() && !isTruthy(env.HABBLAUD_PRESENTATIONS)) return undefined;
+  const local = join(home, '.habblaud', 'apresentacoes');
+  const dir = env.HABBLAUD_PRESENTATIONS_DIR?.trim() || local;
+  const hostDir = env.HABBLAUD_PRESENTATIONS_HOST_DIR?.trim() || (inDocker ? '' : dir);
+  return hostDir ? { dir: resolve(dir), hostDir } : undefined;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): ServerConfig {
   const home = env.HOME || homedir();
   const inDocker = detectDocker(env);
@@ -244,6 +260,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     terminal: terminalOffReason(env, host, inDocker) === undefined,
     messages: messagesOffReason(env, host, inDocker) === undefined,
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
+    presentations: presentationsConfig(env, home, inDocker),
     rootDir,
     version: pkg.version,
     repo: pkg.repo,

@@ -590,6 +590,31 @@ son tour et attend la demande suivante, donner une nouvelle instruction ou corri
   Depuis le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes), seulement avec `messages` dans `HABBLAUD_REMOTE_ALLOW`.
 - En mode démonstration, les agents fictifs reçoivent aussi des messages (pour de faux).
 
+### TV des salles (présentations)
+
+Chaque salle a une TV au mur. Après une tâche plus importante, cliquez sur la TV de la salle et demandez à l'agent une
+**présentation** : il écrit des diapositives sur la dernière tâche terminée (ce qui a été demandé, ce qui a été fait,
+avant et après, décisions, risques et prochaines étapes) et la TV s'allume quand elles sont prêtes, avec un avis 📺. La
+présentation ne commence que quand vous cliquez sur la TV : elle s'ouvre par-dessus tout, dans un cadre de TV, avec le
+bureau flouté derrière.
+
+- **Regarder :** les flèches, l'espace, un clic ou un glissement sur le téléphone font défiler les diapositives ; ▶ (ou
+  `P`) les fait défiler toutes seules et tout déplacement met en pause ; `Échap` éteint la TV. Le bouton de la liste
+  montre les présentations précédentes de la salle, la plus récente d'abord. Pendant qu'une présentation est ouverte,
+  les personnages de la salle se rassemblent devant la TV pour la regarder.
+- **La TV dans la salle :** éteinte sans présentation, avec de la neige pendant que l'agent en prépare une, allumée et
+  clignotante avec une nouvelle que vous n'avez pas vue, et en veille avec celles déjà vues.
+- **Demander :** la demande va à l'agent principal de la salle par les [messages depuis le bureau](#envoyer-des-messages)
+  (le plugin `habblaud-mensagens`) ; avec plusieurs agents principaux dans la salle, vous choisissez qui la fait.
+  Depuis le téléphone, seulement avec `messages` dans `HABBLAUD_REMOTE_ALLOW` ; regarder fonctionne aussi sur le
+  téléphone.
+- **Où elles sont enregistrées :** dans `~/.habblaud/apresentacoes/<salle>/<date>-<titre>/slides.md` (Markdown,
+  diapositives séparées par `---`), hors du projet. `npm run mod:install` demande avant d'ajouter la règle
+  `Edit(~/.habblaud/apresentacoes/**)`, qui laisse les agents y écrire (et seulement là) sans demander la permission ;
+  sans elle, vous approuvez l'écriture à chaque présentation. Dans Docker, `npm run docker:up` monte le dossier en
+  lecture seule. Les diapositives sont dessinées par Habblaud lui-même : aucun HTML de l'agent ne s'exécute dans la
+  page. `HABBLAUD_PRESENTATIONS=0` éteint les TV.
+
 ### Modifier le personnage
 
 Chaque session arrive avec un nom et une apparence tirés au sort. Pour fixer le personnage d'un projet, ouvrez les
@@ -764,6 +789,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_CLAUDE_BIN` | `claude` du PATH | L'exécutable de Claude Code que lancent le terminal interactif et Nouvel agent. |
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. La fête au bureau marche toujours, sauf avec `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activé (avec le terminal) | `0` désactive seulement les messages depuis le bureau (la zone dans le terminal et dans les détails de l'agent). |
+| `HABBLAUD_PRESENTATIONS` | activé | `0` éteint la [TV des salles](#tv-des-salles-présentations) (présentations). |
 | `HABBLAUD_CODEX` | activé | `0` désactive Codex dans le bureau. |
 | `HABBLAUD_CODEX_DIRS` | détection automatique | Dossiers de Codex, séparés par des virgules (à la place de `~/.codex*` et `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` du PATH (sous Windows, `codex.exe`) | Le binaire de Codex qui remet les messages (`codex queue`), en mode Node ou dans `npm run codex:bridge`. |
@@ -940,6 +966,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/health` | Santé : version, démonstration, Docker, terminal, réponse et envoi de messages depuis le bureau, sources et statut de l'utilisation de chaque compte. |
 | `POST /api/demo` | `{"enabled": true \| false}` active ou désactive les agents simulés. |
 | `POST /api/party` | Fête au bureau : `{"room": salle, "seconds": 120}` (les deux facultatifs ; par défaut : la salle qui a le plus d'agents, pendant 2 min). Tous les personnages vont faire la fête dans la salle puis reviennent ; purement visuel, les sessions ne changent pas. `DELETE /api/party` l'arrête plus tôt. Depuis l'accès local ou le téléphone avec connexion (sauf avec `none` dans `HABBLAUD_REMOTE_ALLOW`). |
+| `/api/presentations…` | TV des salles : `GET ?room=` liste les présentations d'une salle, `GET /:id` renvoie le Markdown, `GET /:id/image?src=` une image citée dans les diapositives, `POST /:id/seen` la marque comme vue et `POST /request` `{roomId, agentId}` en demande une à l'agent principal (par les messages depuis le bureau ; accès local, ou le téléphone avec `messages`). |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renomme la salle (vide = retour au nom du dossier) ; le nom est enregistré dans `rooms.json`, dans le dossier de données. En accès local uniquement. |
 | `GET /api/mod/summary` | Pour le mod de Claude Code : version, nombre d'agents, combien travaillent et qui a besoin de vous (sans la démo et, avec `?account=&session=`, sans la session elle-même). |
 | `/api/permissions…` | Répondre depuis le bureau : le hook de permission enregistre la demande (permission ou question) et attend ; la page récupère le détail et décide ou répond. En accès local uniquement. |

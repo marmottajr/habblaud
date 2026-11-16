@@ -38,6 +38,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'nod
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createInterface } from 'node:readline/promises';
 import { discoverClaudeDirs, expandHome, isDefaultDir } from '../server/accounts/detect';
 import { LEGACY_NAME } from '../server/legacy';
 import { DEFAULT_PORT, installedHook, planUninstall as planHookUninstall } from './hooks-install';
@@ -55,6 +56,32 @@ import {
 import { tr } from '../shared/i18n';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * Regra de permissão da TV das salas: deixa o agente gravar as apresentações em ~/.habblaud/apresentacoes sem pedir
+ * (Edit vale para todas as ferramentas que gravam arquivos). Só essa pasta; o mod:install pergunta antes de pôr e o
+ * mod:uninstall tira.
+ */
+export const TV_RULE = 'Edit(~/.habblaud/apresentacoes/**)';
+
+/** settings.json com a regra da TV posta (`want`) ou tirada; `settings` ausente = nada a mudar. */
+export function planTvRule(settings: Settings, want: boolean): { settings?: Settings; message?: string } {
+  const perms = settings.permissions && typeof settings.permissions === 'object' && !Array.isArray(settings.permissions) ? (settings.permissions as Record<string, unknown>) : undefined;
+  const allow = Array.isArray(perms?.allow) ? (perms!.allow as unknown[]) : [];
+  const has = allow.includes(TV_RULE);
+  if (want === has) return {};
+  const nextAllow = want ? [...allow, TV_RULE] : allow.filter((r) => r !== TV_RULE);
+  const nextPerms: Record<string, unknown> = { ...(perms ?? {}), allow: nextAllow };
+  if (!want && !nextAllow.length) delete nextPerms.allow;
+  const next: Settings = { ...settings, permissions: nextPerms };
+  if (!want && !Object.keys(nextPerms).length) delete (next as Record<string, unknown>).permissions;
+  return {
+    settings: next,
+    message: want
+      ? tr('TV das salas: os agentes gravam as apresentações em ~/.habblaud/apresentacoes sem pedir permissão ({0})', [TV_RULE])
+      : tr('TV das salas: regra {0} removida', [TV_RULE]),
+  };
+}
 
 /** Nome do marketplace em .claude-plugin/marketplace.json (contrato com mod/). */
 export const MARKETPLACE = 'habblaud';
@@ -77,8 +104,7 @@ const SCOPE = 'user';
 /** Tempo máximo de cada chamada ao CLI (o add/update de um diretório local leva poucos segundos). */
 const CLI_TIMEOUT_MS = 120_000;
 
-const USAGE = tr('Uso: npm run mod:<install|uninstall|status> [-- opções]\n\n  install     instala o mod do Habblaud no Claude Code de cada conta (marketplace desta pasta + plugins)\n              e tira o que ele substitui: o tap de statusline e o hook de permissão antigos e o mod do\n              nome antigo (codetown)\n  uninstall   tira os plugins e o marketplace do Habblaud de cada conta (e os do nome antigo, se sobraram)\n  status      mostra, por conta, o marketplace, os plugins (e versões) e o que sobrou do jeito antigo\n\nOpções:\n  --sem-permissoes   não instala o plugin de responder permissões pelo escritório (e mantém o hook antigo)\n  --sem-mensagens    não instala o plugin de mandar mensagens pelo escritório (um já instalado continua)\n  --conta <pasta>    só esta conta (ex.: --conta ~/.claude-conta2); pode repetir\n  --dry-run          mostra o que faria, sem instalar nem gravar nada\n  --claude <cmd>     comando do Claude Code (padrão: claude, do PATH)\n  -h, --help         mostra esta ajuda\n\nPrecisa do Claude Code {0} ou mais novo. Em versões anteriores, use o jeito antigo:\nnpm run usage:install (uso ao vivo) e npm run hooks:install (responder permissões); mandar mensagens pelo\nescritório só existe com o mod.\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).', [MIN_CLAUDE_VERSION]);
-
+const USAGE = tr('Uso: npm run mod:<install|uninstall|status> [-- opções]\n\n  install     instala o mod do Habblaud no Claude Code de cada conta (marketplace desta pasta + plugins)\n              e tira o que ele substitui: o tap de statusline e o hook de permissão antigos e o mod do\n              nome antigo (codetown)\n  uninstall   tira os plugins e o marketplace do Habblaud de cada conta (e os do nome antigo, se sobraram)\n  status      mostra, por conta, o marketplace, os plugins (e versões) e o que sobrou do jeito antigo\n\nOpções:\n  --sem-permissoes   não instala o plugin de responder permissões pelo escritório (e mantém o hook antigo)\n  --sem-mensagens    não instala o plugin de mandar mensagens pelo escritório (um já instalado continua)\n  --tv / --sem-tv    põe (ou não) a regra da TV das salas sem perguntar: os agentes gravam as apresentações\n                     em ~/.habblaud/apresentacoes sem pedir permissão (só essa pasta)\n  --conta <pasta>    só esta conta (ex.: --conta ~/.claude-conta2); pode repetir\n  --dry-run          mostra o que faria, sem instalar nem gravar nada\n  --claude <cmd>     comando do Claude Code (padrão: claude, do PATH)\n  -h, --help         mostra esta ajuda\n\nPrecisa do Claude Code {0} ou mais novo. Em versões anteriores, use o jeito antigo:\nnpm run usage:install (uso ao vivo) e npm run hooks:install (responder permissões); mandar mensagens pelo\nescritório só existe com o mod.\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).', [MIN_CLAUDE_VERSION]);
 // ---------------------------------------------------------------------------------------------
 // O CLI do Claude Code (injetável: os testes nunca chamam o de verdade)
 // ---------------------------------------------------------------------------------------------
@@ -581,6 +607,8 @@ export interface RunOptions {
   /** --conta (vazio = todas as detectadas). */
   accounts: string[];
   claudeCmd?: string;
+  /** Regra da TV das salas (TV_RULE): true com --tv, false com --sem-tv; ausente = pergunta (ou pula sem terminal). */
+  tv?: boolean;
 }
 
 export interface RunContext {
@@ -595,6 +623,8 @@ export interface RunContext {
   out: (line: string) => void;
   /** Consulta o /api/health do Habblaud no status (testes injetam um falso). */
   health?: (port: number) => Promise<HealthInfo | undefined>;
+  /** Pergunta sim/não no terminal (ausente = sem terminal para perguntar). */
+  confirm?: (question: string) => Promise<boolean>;
 }
 
 /** O que o status usa do /api/health (`messages` só existe a partir do Habblaud com mensagens pelo escritório). */
@@ -626,6 +656,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
   let dryRun = false;
   let permissions = true;
   let messages = true;
+  let tv: boolean | undefined;
   let claudeCmd: string | undefined;
   const accounts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -634,6 +665,8 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
     if (a === '--dry-run') dryRun = true;
     else if (a === '--sem-permissoes') permissions = false;
     else if (a === '--sem-mensagens') messages = false;
+    else if (a === '--tv') tv = true;
+    else if (a === '--sem-tv') tv = false;
     else if (a === '--conta') {
       const dir = argv[++i];
       if (!dir) throw new FatalError(tr('--conta precisa da pasta da conta (ex.: --conta ~/.claude-conta2).'));
@@ -645,7 +678,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
     else throw new FatalError(tr('opção desconhecida: {0}\n\n{1}', [a, USAGE]));
   }
   if (!command) throw new FatalError(tr('diga o que fazer: install, uninstall ou status.\n\n{0}', [USAGE]));
-  return { command, dryRun, permissions, messages, accounts, claudeCmd };
+  return { command, dryRun, permissions, messages, accounts, claudeCmd, ...(tv !== undefined ? { tv } : {}) };
 }
 
 /** Versão do package.json da raiz. */
@@ -749,6 +782,18 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     }
   }
 
+  // TV das salas: a regra que libera só ~/.habblaud/apresentacoes vai com a sua confirmação (uma pergunta para todas
+  // as contas); sem terminal para perguntar, fica de fora com a dica.
+  let tvRule = opts.tv;
+  if (opts.command === 'install' && tvRule === undefined) {
+    if (ctx.confirm) {
+      tvRule = await ctx.confirm(tr('TV das salas: liberar os agentes para gravar as apresentações em ~/.habblaud/apresentacoes sem pedir permissão (só essa pasta: {0})? [S/n] ', [TV_RULE]));
+    } else {
+      tvRule = false;
+      out(tr('! TV das salas: a regra {0} não foi posta (sem terminal para perguntar). Rode com --tv para pôr, ou aprove a gravação a cada apresentação.', [TV_RULE]));
+    }
+  }
+
   let failures = 0;
   let changed = 0;
   for (const dir of dirs) {
@@ -809,6 +854,23 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     }
     if (stepFailed) failures++;
     for (const n of plan.notes) out(`  ! ${n}`);
+    if (opts.command === 'uninstall') {
+      // A regra da TV sai junto com o mod.
+      const read = readSettings(file);
+      const tv = 'error' in read ? {} : planTvRule(read.settings, false);
+      if (tv.settings && !('error' in read)) {
+        if (opts.dryRun) out(tr('  ~ {0} (simulação: nada gravado)', [tv.message!]));
+        else
+          try {
+            writeSettings(file, tv.settings, read.raw, ctx.now);
+            out(`  ✓ ${tv.message}`);
+            changed++;
+          } catch (err) {
+            out(tr('  ✗ não consegui gravar o settings.json ({0}); a regra da TV continua', [(err as Error).message]));
+            failures++;
+          }
+      }
+    }
     if (opts.command !== 'install') continue;
 
     // Confere com o próprio Claude Code o que ficou instalado (um update sem efeito também sai com 0) e decide a
@@ -835,13 +897,18 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     for (const k of mig.kept) out(`  = ${k}`);
     for (const w of mig.warnings) out(`  ! ${w}`);
     if (read.settings.disableAllHooks === true) out(tr('  ! disableAllHooks está ligado no settings.json desta conta: o mod não roda até você desligar'));
-    if (!mig.settings) continue;
+    // A regra da TV entra na mesma gravação (um backup só).
+    const tv = tvRule ? planTvRule(mig.settings ?? read.settings, true) : {};
+    if (tv.settings) mig.done.push(tv.message!);
+    else if (tvRule) out(tr('  = TV das salas: a regra {0} já estava', [TV_RULE]));
+    const nextSettings = tv.settings ?? mig.settings;
+    if (!nextSettings) continue;
     if (opts.dryRun) {
       for (const d of mig.done) out(tr('  ~ {0} (simulação: nada gravado)', [d]));
       continue;
     }
     try {
-      const backup = writeSettings(file, mig.settings, read.raw, ctx.now);
+      const backup = writeSettings(file, nextSettings, read.raw, ctx.now);
       for (const d of mig.done) out(`  ✓ ${d}`);
       if (backup) out(tr('    backup do settings.json em {0}', [tildify(backup, home)]));
       changed++;
@@ -961,6 +1028,17 @@ function applyUpdate(steps: CliStep[], o: { claude: ClaudeRunner; env: NodeJS.Pr
   return { level: 'info', text: tr('Mod atualizado para {0} na {1}; sessões abertas: /reload-plugins', [o.version, o.label]) };
 }
 
+/** Pergunta sim/não no terminal (Enter = sim). */
+async function askYesNo(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(question)).trim().toLowerCase();
+    return answer === '' || /^(s|sim|y|yes)$/.test(answer);
+  } finally {
+    rl.close();
+  }
+}
+
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed === 'help') {
@@ -976,6 +1054,7 @@ async function main(): Promise<void> {
     version: readPackageVersion(ROOT),
     claude: makeClaudeRunner(parsed.claudeCmd),
     out: (l) => console.log(l),
+    confirm: process.stdin.isTTY ? askYesNo : undefined,
   });
 }
 

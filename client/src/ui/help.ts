@@ -47,6 +47,7 @@ const SOCIAL_HELP: [string, string][] = [
   ['✊', tr('Jokenpô valendo moedinhas: jo-ken-pô, revelação, quem ganha leva o 🪙 (e quem perde pede revanche).')],
   ['💄', tr('Espelho do banheiro: se arrumam (batom, pente) e aparecem refletidos no vidro.')],
   ['🪙', tr('Carteira: entram com 🪙100 (subagentes 🪙30), ganham 🪙10 por tarefa concluída, 🪙5 por pedido atendido e 🪙15 por entrega de subagente.')],
+  ['📺', tr('TV das salas: clique na TV de uma sala para pedir ao agente uma apresentação em slides sobre a última tarefa e, quando ela acender, para assistir (setas, espaço ou deslizar; ▶ passa sozinha; Esc desliga). Os personagens da sala vão assistir junto.')],
   ['🎊', tr('Festa no escritório (botão da barra, também no celular): por ~2 min todos vão comemorar juntos na sala com mais agentes e depois voltam; quem precisa de você fica na mesa. Só visual: as sessões não mudam.')],
 ];
 

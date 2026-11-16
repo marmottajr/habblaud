@@ -50,6 +50,7 @@ import { DictationService } from './dictation/dictation';
 import { createWhisperTranscriber, findWhisper } from './dictation/whisper';
 import { DeliveryIndex } from './deliveries/deliveries';
 import { FileFetcher } from './deliveries/fetcher';
+import { PresentationStore } from './presentations/store';
 import { WorldClient } from './world/client';
 import { createWorldRoutes } from './world/http';
 import { WorldService } from './world/service';
@@ -79,7 +80,7 @@ const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
-const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
+const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string; presentations?: PresentationStore } = {};
 // Versão nova: consulta a release mais recente no GitHub a cada 6 h (HABBLAUD_UPDATE_CHECK=0 desliga).
 const updates = new UpdateChecker({
   current: config.version,
@@ -129,6 +130,7 @@ const office = new Office({
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('desligado') }, list: [] }),
   updates: () => updates.status(),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
+  tvs: config.presentations ? () => late.presentations?.tvs() ?? new Map() : undefined,
 });
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
@@ -278,6 +280,31 @@ const messages = config.messages
   : undefined;
 late.messages = messages;
 
+// Apresentações na TV das salas (server/presentations/store.ts): lidas de ~/.habblaud/apresentacoes (no Docker, da
+// montagem que o docker-up faz); o pedido pela TV vai ao agente pelas mensagens do escritório.
+const presentations = config.presentations
+  ? new PresentationStore({
+      dir: config.presentations.dir,
+      hostDir: config.presentations.hostDir,
+      dataDir: config.dataDir,
+      rooms: () => hub.current().rooms.filter((r) => !isDemoId(r.id)),
+      agent: (id) => office.get(id),
+      send: messages
+        ? (agentId, text) => {
+            const r = messages.send({ agentId, text });
+            if ('message' in r) return { messageId: r.message.id };
+            if (r.error === 'unavailable') return { error: r.reason };
+            return { error: r.error === 'too-many' ? tr('já há mensagens demais esperando a entrega para este agente') : tr('agente desconhecido: ele já saiu do escritório?') };
+          }
+        : undefined,
+      messageStatus: messages ? (id) => messages.get(id)?.status : undefined,
+      readFile: deliveryFiles ? (path) => deliveryFiles.get(path) : undefined,
+      onChange: () => office.tvChanged(),
+      onReady: (roomId, title) => office.noticeTv(roomId, title),
+    })
+  : undefined;
+late.presentations = presentations;
+
 // Terminal interativo (abrir/assumir sessões e encerrar agentes): opt-in com HABBLAUD_PTY=1, só com bind local, fora
 // do Docker, com node-pty e o executável do claude no PATH.
 const claudeBinSetting = process.env.HABBLAUD_CLAUDE_BIN?.trim();
@@ -327,6 +354,7 @@ if (timeline) {
 }
 permissions?.start();
 messages?.start();
+presentations?.start();
 stats.start();
 updates.start();
 worldUplink?.start();
@@ -364,6 +392,7 @@ const api = createApiHandler({
   dictation,
   deliveries,
   files: deliveryFiles,
+  presentations,
   spawnFolders: async () => {
     const snap = hub.current();
     const last = new Map<string, number>();
@@ -553,6 +582,7 @@ function shutdown(signal: string): void {
   timeline?.stop();
   permissions?.stop();
   messages?.stop();
+  presentations?.stop();
   ptys?.stopAll();
   updates.stop();
   worldViewer?.stop();

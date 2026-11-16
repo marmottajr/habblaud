@@ -80,6 +80,16 @@ export interface WorldApi {
    * moedinhas, amizades/rivalidades com quem está lá agora e a roda de que participa. null se não está.
    */
   social?(agentId: string): AgentSocial | null;
+  /**
+   * (Opcional, aditivo) Clique (ou toque) na TV de uma sala (apresentações): o id da sala. Só para as salas cuja TV
+   * está ligada ao recurso (RoomInfo.tv no snapshot).
+   */
+  onTvClick?(cb: (roomId: string) => void): () => void;
+  /**
+   * (Opcional, aditivo) Apresentação aberta na TV da sala `roomId` (null = fechada): os personagens disponíveis da sala
+   * vão assistir em frente à TV, e a tela dela mostra a apresentação.
+   */
+  setTvAudience?(roomId: string | null): void;
   /** (Opcional, aditivo) Botão direito numa sala do escritório: id da sala e o ponto do clique (px da janela). */
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
   /** (Opcional, aditivo) Acontecimentos sociais (partidas e apostas) para o feed. */

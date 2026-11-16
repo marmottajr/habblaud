@@ -5,6 +5,7 @@ import type { UiComponent, UiContext } from './context';
 import { h, iconButton, prefersReducedMotion, setHidden, setText } from './dom';
 import { ICONS } from './icons';
 import { focusPermission } from './permission';
+import { TV_OPEN_EVENT } from './tv';
 import { tr } from '../../../shared/i18n';
 
 const MAX_VISIBLE = 4;
@@ -97,6 +98,24 @@ export class Toasts implements UiComponent {
       const id = n.agentId;
       toast.answer = h('button', { class: 'ui-toast__answer', type: 'button', text: tr('Responder'), title: tr('Responder pelo escritório (aprovar, recusar ou responder a pergunta)'), hidden: !agent?.permission, on: { click: () => focusPermission(this.ctx, id) } });
       el.append(toast.answer);
+    }
+    if (n.action === 'tv' && n.roomId) {
+      // apresentação pronta: "Assistir" liga a TV da sala
+      const roomId = n.roomId;
+      el.append(
+        h('button', {
+          class: 'ui-toast__answer',
+          type: 'button',
+          text: tr('Assistir'),
+          title: tr('Abrir a apresentação na TV da sala'),
+          on: {
+            click: () => {
+              this.dismiss(toast);
+              this.ctx.root.dispatchEvent(new CustomEvent(TV_OPEN_EVENT, { detail: roomId }));
+            },
+          },
+        }),
+      );
     }
     el.append(iconButton(ICONS.close, tr('Fechar aviso'), () => this.dismiss(toast), 'ui-icon-btn--sm ui-toast__close'));
     // Pausa o tempo de vida com o mouse em cima.

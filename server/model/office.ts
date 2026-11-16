@@ -30,6 +30,7 @@ import { DemoSimulator } from '../../shared/demo/simulator';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
 import { pickPartyRoom, type PartyRequest } from '../../shared/party';
+import type { RoomTv } from '../../shared/presentation';
 import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
@@ -80,6 +81,11 @@ export interface OfficeDeps {
   updates?: () => UpdateStatus;
   /** Terminais interativos (PtyManager): estado do recurso e os abertos. */
   ptys?: () => { status: PtyStatus; list: PtyInfo[] };
+  /**
+   * TVs das salas (apresentações; server/presentations/store.ts): o estado de cada sala com apresentação ou pedido.
+   * Ausente = recurso desligado (as salas saem sem `tv`).
+   */
+  tvs?: () => ReadonlyMap<string, RoomTv>;
   /** Habblaud World (WorldService.meta; ver OfficeSnapshot.meta.world). */
   world?: () => WorldMeta;
   now?: () => number;
@@ -160,7 +166,7 @@ export interface CommitResult {
   notices: Notice[];
 }
 
-type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character' | 'party';
+type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character' | 'party' | 'tv';
 
 /** Pergunta ainda sem resposta (o balão dela já diz que o agente espera você). */
 function isOpenQuestion(a: Activity | undefined): boolean {
@@ -907,6 +913,19 @@ export class Office {
     return undefined;
   }
 
+  // ---------------------------------------------------------------- TV das salas (apresentações)
+
+  /** O estado de alguma TV mudou (server/presentations/store.ts): o snapshot sai de novo. */
+  tvChanged(): void {
+    this.markDirty();
+  }
+
+  /** Aviso de apresentação nova na TV de uma sala. */
+  noticeTv(roomId: string, title: string): void {
+    this.notice('tv', roomId, 'success', tr('📺 Apresentação pronta em {0}: {1}', [this.roomName(roomId), title]), roomId, { dedupeKey: `tv:${roomId}:${title}`, action: 'tv' });
+    this.markDirty();
+  }
+
   // ---------------------------------------------------------------- festa no escritório
 
   /**
@@ -1008,6 +1027,9 @@ export class Office {
         createdAt: r.createdAt,
       }))
       .sort((a, b) => a.slot - b.slot);
+    // TV de cada sala (apresentações): só com o recurso ligado
+    const tvs = this.deps.tvs?.();
+    if (tvs) for (const room of rooms) room.tv = { ...(tvs.get(room.id) ?? { state: 'off', count: 0 }) };
     // festa/alarme (eventos do GitHub): das salas reais ou do demo
     for (const room of rooms) {
       const effect = this.effects.get(room.id, now) ?? this.demoSnap?.rooms.find((r) => r.id === room.id)?.effect;
@@ -1116,7 +1138,7 @@ export class Office {
     level: NoticeLevel,
     text: string,
     roomId?: string,
-    opts: { dedupeKey?: string; dedupeMs?: number } = {},
+    opts: { dedupeKey?: string; dedupeMs?: number; action?: Notice['action'] } = {},
   ): void {
     if (this.booting) return;
     const now = this.now();
@@ -1132,6 +1154,7 @@ export class Office {
     const n: Notice = { id: `n-${now.toString(36)}-${++this.seq}`, level, text, at: now };
     if (kind !== 'room') n.agentId = key;
     if (roomId) n.roomId = roomId;
+    if (opts.action) n.action = opts.action;
     this.pendingNotices.push(n);
   }
 }

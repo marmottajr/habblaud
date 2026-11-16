@@ -67,6 +67,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
   const socialCbs = new Set<(e: SocialEvent) => void>();
   const soundCbs = new Set<(c: SoundCue) => void>();
   const roomMenuCbs = new Set<(roomId: string, at: { x: number; y: number }) => void>();
+  /** Clique na TV de uma sala (apresentações). */
+  const tvCbs = new Set<(roomId: string) => void>();
   let cues = new SoundCues(sim, camera);
   let selection: Selection = null;
   let hover: string | null = null;
@@ -194,6 +196,14 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       }
     }
     if (best) return { type: 'agent', id: best };
+    // TV das apresentações (só fora da visita, com alguém ouvindo e nas salas em que o recurso está ligado)
+    if (tvCbs.size && !visitMode) {
+      for (const [roomId, r] of renderer.tvRects) {
+        const room = sim.rooms.get(roomId);
+        if (!room?.present || room.ghost || !room.info.tv) continue;
+        if (w.x >= r.x - slack && w.x <= r.x + r.w + slack && w.y >= r.y - slack && w.y <= r.y + r.h + slack) return { type: 'tv', id: roomId };
+      }
+    }
     const tx = Math.floor(w.x / TILE);
     const ty = Math.floor(w.y / TILE);
     for (const room of sim.rooms.values()) if (room.present && !room.ghost && inRect(room.layout.rect, tx, ty)) return { type: 'room', id: room.id };
@@ -222,8 +232,13 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   const detachInput = attachInput(canvas, camera, {
     pick,
-    click: (hit, at) => (visitMode ? visitClick(hit, at) : setSelection(hit)),
+    click: (hit, at) => {
+      if (hit?.type === 'tv') return void tvCbs.forEach((cb) => cb(hit.id));
+      if (visitMode) visitClick(hit, at);
+      else setSelection(hit);
+    },
     doubleClick: (hit) => {
+      if (hit?.type === 'tv') return;
       if (hit?.type === 'agent') {
         setSelection(hit);
         focusAgent(hit.id, { follow: true });
@@ -313,6 +328,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       if (mouse) {
         const hit = pick(mouse.x, mouse.y);
         setHover(hit?.type === 'agent' ? hit.id : null);
+        if (!hover) canvas.style.cursor = hit?.type === 'tv' ? 'pointer' : 'grab';
       }
       // seleção de quem já foi embora
       if (selection?.type === 'agent' && !sim.chars.has(selection.id)) setSelection(null);
@@ -342,7 +358,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     const hit = pick(sx, sy);
     const w = camera.screenToWorld(sx, sy);
     const roomId =
-      hit?.type === 'room'
+      hit?.type === 'room' || hit?.type === 'tv'
         ? hit.id
         : hit?.type === 'agent'
           ? (sim.chars.get(hit.id)?.roomId ?? null)
@@ -435,6 +451,11 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
       roomMenuCbs.add(cb);
       return () => void roomMenuCbs.delete(cb);
     },
+    onTvClick: (cb) => {
+      tvCbs.add(cb);
+      return () => void tvCbs.delete(cb);
+    },
+    setTvAudience: (roomId) => sim.tvAudience.set(sim, roomId),
     onSocialEvent: (cb) => {
       socialCbs.add(cb);
       return () => void socialCbs.delete(cb);

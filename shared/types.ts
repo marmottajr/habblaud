@@ -5,6 +5,7 @@
 // Renomear/remover campos quebra servidor, mundo e UI ao mesmo tempo.
 
 import type { AppearanceParts } from './appearance';
+import type { RoomTv } from './presentation';
 import type { WorldMeta } from './world/api';
 
 export type AgentKind = 'main' | 'sub';
@@ -214,6 +215,8 @@ export interface RoomInfo {
   createdAt: number;
   /** Efeito visual temporário na sala (eventos do GitHub detectados nos transcripts; ver shared/github.ts). */
   effect?: RoomEffect;
+  /** TV da sala (apresentações; shared/presentation.ts). Ausente = recurso desligado ou servidor antigo. */
+  tv?: RoomTv;
 }
 
 /**
@@ -424,6 +427,12 @@ export interface AccessInfo {
    * remota, só com `party` em HABBLAUD_REMOTE_ALLOW. Ausente em servidores antigos.
    */
   party?: boolean;
+  /**
+   * Pode pedir uma apresentação pela TV de uma sala (POST /api/presentations/request): as apresentações ligadas, as
+   * mensagens pelo escritório ligadas e a trava delas (local, ou `messages` em HABBLAUD_REMOTE_ALLOW). Ver as
+   * apresentações não precisa disto. Ausente em servidores antigos.
+   */
+  presentations?: boolean;
 }
 
 export interface FeedItem {
@@ -446,6 +455,8 @@ export interface Notice {
   agentId?: string;
   roomId?: string;
   at: number;
+  /** (Aditivo) Ação do aviso: 'tv' = apresentação pronta na TV de `roomId` (o aviso ganha "Assistir"). */
+  action?: 'tv';
 }
 
 /**

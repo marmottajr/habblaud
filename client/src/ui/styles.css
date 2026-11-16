@@ -11175,3 +11175,522 @@ html.is-replay #world {
 .ui-world-chip__visitors[hidden] {
   display: none;
 }
+
+/* ------------------------------------------------------------------------------------------------
+   TV das salas (apresentações; ui/tv.ts): por cima de tudo, com a moldura de uma TV em pixel art e o
+   escritório desfocado atrás. A tela tem 16:9 no computador e cresce em altura no celular em pé.
+   ------------------------------------------------------------------------------------------------ */
+
+.ui-tv {
+  width: min(1120px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text);
+  overflow: visible;
+}
+
+.ui-tv::backdrop {
+  background: rgba(5, 8, 14, 0.55);
+  backdrop-filter: blur(8px) saturate(0.85);
+}
+
+.ui-tv[open] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: ui-tv-on 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+@keyframes ui-tv-on {
+  from {
+    opacity: 0;
+    transform: scale(0.15, 0.02);
+    filter: brightness(3);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.01, 0.9);
+  }
+  to {
+    transform: none;
+    filter: none;
+  }
+}
+
+/* Moldura: plástico escuro com degraus de pixel na borda (box-shadow), luzinha e o rótulo da sala. */
+.ui-tv__set {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  background: #23262f;
+  box-shadow:
+    0 0 0 3px #15171d,
+    0 0 0 6px #3a3f4b,
+    0 0 0 9px #15171d,
+    0 28px 80px rgba(0, 0, 0, 0.6);
+}
+
+.ui-tv__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-family: var(--font-px);
+  font-size: 14px;
+  color: #9aa4b8;
+}
+
+.ui-tv__led {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: #e05a5a;
+  box-shadow: 0 0 8px #e05a5a;
+}
+
+.ui-tv__room {
+  flex: none;
+  color: #c9d1e2;
+}
+
+.ui-tv__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-tv__screen {
+  position: relative;
+  outline: none;
+  container-type: inline-size;
+  aspect-ratio: 16 / 9;
+  max-height: calc(100dvh - 150px);
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 40%, #1d2a44, #0d1220 75%);
+  box-shadow:
+    inset 0 0 0 2px #0a0c11,
+    inset 0 0 40px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+/* linhas de varredura sutis por cima de tudo */
+.ui-tv__screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
+}
+
+/* chiado enquanto liga ou enquanto o agente prepara */
+.ui-tv__screen.is-static::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  background:
+    repeating-radial-gradient(circle at 17% 32%, #fff 0 1px, transparent 1px 3px),
+    repeating-radial-gradient(circle at 73% 61%, #fff 0 1px, transparent 1px 4px);
+  animation: ui-tv-static 0.18s steps(3) infinite;
+}
+
+@keyframes ui-tv-static {
+  to {
+    background-position:
+      7px 3px,
+      -5px 9px;
+  }
+}
+
+.ui-tv__content {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: clamp(16px, 5cqw, 56px) clamp(18px, 6cqw, 72px);
+}
+
+.ui-tv__progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: var(--st-waiting);
+  pointer-events: none;
+}
+
+/* ---- slides */
+.ui-tv__slide {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.6cqw, 18px);
+  min-height: 100%;
+  justify-content: center;
+  font-size: clamp(14px, 2.3cqw, 26px);
+  line-height: 1.4;
+  color: #e8ecf5;
+  overflow-wrap: anywhere;
+}
+
+.ui-tv__slide.is-cover {
+  align-items: center;
+  text-align: center;
+}
+
+.ui-tv__slide h1,
+.ui-tv__slide h2,
+.ui-tv__slide h3 {
+  margin: 0;
+  font-family: var(--font-px);
+  font-weight: 600;
+  line-height: 1.15;
+  color: #fff3df;
+}
+
+.ui-tv__slide h1 {
+  font-size: clamp(26px, 5.6cqw, 64px);
+  color: var(--st-waiting);
+  text-shadow: 3px 3px 0 #000;
+}
+
+.ui-tv__slide h2 {
+  font-size: clamp(20px, 3.8cqw, 44px);
+  padding-bottom: 0.25em;
+  border-bottom: 3px solid rgba(255, 181, 71, 0.45);
+}
+
+.ui-tv__slide h3 {
+  font-size: clamp(17px, 2.9cqw, 32px);
+  color: var(--ui-accent);
+}
+
+.ui-tv__slide p,
+.ui-tv__slide ul,
+.ui-tv__slide ol,
+.ui-tv__slide blockquote,
+.ui-tv__slide figure {
+  margin: 0;
+}
+
+.ui-tv__slide ul,
+.ui-tv__slide ol {
+  padding-left: 1.3em;
+  list-style: square outside;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+
+.ui-tv__slide ol {
+  list-style: decimal outside;
+}
+
+.ui-tv__slide li {
+  display: list-item;
+}
+
+.ui-tv__slide li::marker {
+  color: var(--st-waiting);
+}
+
+.ui-tv__slide li.is-sub {
+  margin-left: 1.3em;
+  font-size: 0.88em;
+  color: #c9d1e2;
+}
+
+.ui-tv__slide blockquote {
+  padding: 0.4em 0.9em;
+  border-left: 4px solid var(--ui-accent);
+  background: rgba(124, 200, 255, 0.08);
+  font-style: italic;
+}
+
+.ui-tv__slide code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.05em 0.35em;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 3px;
+}
+
+.ui-tv__slide a {
+  color: var(--ui-accent);
+}
+
+.ui-tv__code {
+  margin: 0;
+  padding: 0.7em 0.9em;
+  max-height: 50cqw;
+  overflow: auto;
+  background: #0a0d14;
+  border: 2px solid #2a3040;
+  font-size: 0.72em;
+  line-height: 1.45;
+  cursor: auto;
+}
+
+.ui-tv__code code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+}
+
+.ui-tv__table {
+  overflow-x: auto;
+  cursor: auto;
+}
+
+.ui-tv__table table {
+  border-collapse: collapse;
+  font-size: 0.82em;
+}
+
+.ui-tv__table th,
+.ui-tv__table td {
+  padding: 0.35em 0.75em;
+  border: 2px solid #2a3040;
+  text-align: left;
+}
+
+.ui-tv__table th {
+  background: rgba(255, 181, 71, 0.14);
+  color: #fff3df;
+}
+
+.ui-tv__figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.ui-tv__figure img {
+  max-width: 100%;
+  max-height: 34cqw;
+  object-fit: contain;
+  border: 3px solid #0a0c11;
+  background: #0a0c11;
+}
+
+.ui-tv__figure figcaption {
+  font-size: 0.7em;
+  color: var(--ui-muted);
+}
+
+.ui-tv__inline-img {
+  max-height: 1.6em;
+  vertical-align: middle;
+}
+
+/* ---- lista, pedido e mensagens */
+.ui-tv__msg {
+  margin: 0;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-family: var(--font-px);
+  font-size: clamp(16px, 2.6cqw, 28px);
+  color: #c9d1e2;
+}
+
+.ui-tv__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+  margin: 0 auto;
+  font-size: 14px;
+  cursor: auto;
+}
+
+.ui-tv__panel h2 {
+  margin: 0;
+  font-family: var(--font-px);
+  font-size: clamp(20px, 3.2cqw, 30px);
+  color: #fff3df;
+}
+
+.ui-tv__note,
+.ui-tv__status {
+  margin: 0;
+  color: #c9d1e2;
+  line-height: 1.45;
+}
+
+.ui-tv__status {
+  color: var(--st-waiting);
+}
+
+.ui-tv__label {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.ui-tv__items,
+.ui-tv__agents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-tv__item,
+.ui-tv__agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 2px solid #2a3040;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-tv__item:hover,
+.ui-tv__agent:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #3a4256;
+}
+
+.ui-tv__agent.is-on {
+  border-color: var(--st-waiting);
+  background: rgba(255, 181, 71, 0.1);
+}
+
+.ui-tv__agent:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ui-tv__item-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.ui-tv__item-meta {
+  flex: none;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.ui-tv__badge {
+  flex: none;
+  padding: 1px 7px;
+  background: var(--st-waiting);
+  color: #1a1206;
+  font: 700 11px/1.5 var(--font-ui);
+  text-transform: uppercase;
+}
+
+.ui-tv__agent-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ui-tv__agent-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.ui-tv__cta {
+  align-self: flex-start;
+}
+
+/* ---- controles (na moldura, embaixo da tela) */
+.ui-tv__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-tv__spacer {
+  flex: 1;
+}
+
+.ui-tv__btn {
+  color: #c9d1e2;
+}
+
+.ui-tv__btn:disabled {
+  opacity: 0.35;
+}
+
+.ui-tv__counter {
+  min-width: 52px;
+  text-align: center;
+  font-family: var(--font-px);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #c9d1e2;
+}
+
+/* pezinho da TV */
+.ui-tv__stand {
+  width: 160px;
+  height: 14px;
+  margin-top: 9px;
+  background: #23262f;
+  box-shadow: inset 0 3px 0 #3a3f4b;
+  clip-path: polygon(14% 0, 86% 0, 100% 100%, 0 100%);
+}
+
+/* Celular em pé: a tela ocupa a largura e cresce em altura (o texto rola dentro dela). */
+@media (max-aspect-ratio: 1/1) {
+  .ui-tv {
+    width: calc(100vw - 20px);
+  }
+
+  .ui-tv__screen {
+    aspect-ratio: auto;
+    height: min(72dvh, 160vw);
+  }
+
+  .ui-tv__slide {
+    font-size: clamp(15px, 4.4cqw, 22px);
+    justify-content: flex-start;
+  }
+
+  .ui-tv__slide.is-cover {
+    justify-content: center;
+  }
+
+  .ui-tv__slide h1 {
+    font-size: clamp(26px, 9cqw, 44px);
+  }
+
+  .ui-tv__slide h2 {
+    font-size: clamp(20px, 6.5cqw, 32px);
+  }
+
+  .ui-tv__figure img {
+    max-height: 60cqw;
+  }
+
+  .ui-tv__stand {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-tv[open],
+  .ui-tv__screen.is-static::before {
+    animation: none;
+  }
+}

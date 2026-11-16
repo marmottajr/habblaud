@@ -22,12 +22,14 @@ import {
   PERMISSIONS_PLUGIN,
   planInstall,
   planMigration,
+  planTvRule,
   planUninstall,
   planUpdate,
   run,
   updateInstalledMods,
   verifyInstall,
   versionAtLeast,
+  TV_RULE,
   type AccountState,
   type ClaudeResult,
   type ClaudeRunner,
@@ -396,6 +398,19 @@ describe('mod-install.ts (funções puras)', () => {
     expect(() => parseArgs([])).toThrow(/install, uninstall ou status/);
     expect(() => parseArgs(['install', '--conta'])).toThrow(/--conta/);
     expect(() => parseArgs(['install', '--xyz'])).toThrow(/opção desconhecida/);
+  });
+
+  it('TV das salas: --tv / --sem-tv e a regra que libera só ~/.habblaud/apresentacoes (sem duplicar, sai no uninstall)', () => {
+    expect(parseArgs(['install', '--tv'])).toMatchObject({ tv: true });
+    expect(parseArgs(['install', '--sem-tv'])).toMatchObject({ tv: false });
+    expect(parseArgs(['install'])).not.toHaveProperty('tv');
+    const added = planTvRule({ permissions: { allow: ['Bash(ls)'], deny: ['Read(.env)'] } }, true);
+    expect(added.settings).toEqual({ permissions: { allow: ['Bash(ls)', TV_RULE], deny: ['Read(.env)'] } });
+    expect(planTvRule(added.settings!, true)).toEqual({});
+    expect(planTvRule({}, true).settings).toEqual({ permissions: { allow: [TV_RULE] } });
+    expect(planTvRule({ permissions: { allow: [TV_RULE] } }, false).settings).toEqual({});
+    expect(planTvRule(added.settings!, false).settings).toEqual({ permissions: { allow: ['Bash(ls)'], deny: ['Read(.env)'] } });
+    expect(planTvRule({}, false)).toEqual({});
   });
 });
 

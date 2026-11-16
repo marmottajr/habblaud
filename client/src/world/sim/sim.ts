@@ -32,6 +32,7 @@ import { Character, dirOf, facing } from './character';
 import { Elevator } from './elevator';
 import { RoomFxState } from './github';
 import { PartyState } from './party';
+import { TvAudience } from './tv';
 import { RoomState } from './room-state';
 import { countShells, latestShellDone, shellLabel, shellStage, shellWaitSince, spinDir, spinPhase, yawnPhase } from './shell';
 import { SpotRegistry } from './spots';
@@ -130,6 +131,8 @@ export class Sim {
   readonly roomFx = new RoomFxState();
   /** Festa no escritório (POST /api/party; sim/party.ts): todos vão comemorar na sala anfitriã. */
   readonly party = new PartyState();
+  /** Plateia da TV de uma sala (apresentação aberta na tela; sim/tv.ts). */
+  readonly tvAudience = new TvAudience();
   private lastSnapshot: OfficeSnapshot | null = null;
   /** Desde quando há uma vaga livre antes da última sala (0 = não há). */
   private gapSince = 0;
@@ -583,6 +586,7 @@ export class Sim {
     this.social.update(now);
     if (this.roomFx.active.size) this.roomFx.update(this, now);
     this.party.update(this, now);
+    this.tvAudience.update(this);
     for (const ch of this.chars.values()) {
       if (ch.missingSince !== null && !ch.leaving && now - ch.missingSince >= MISSING_DEBOUNCE_MS) this.refreshMode(ch);
       this.runCharacter(ch, dt, now);
@@ -1184,6 +1188,8 @@ export class Sim {
     if (ch.mode === 'deliver') return this.planDeliver(ch, now);
     // festa no escritório: todo mundo que pode vai para a sala anfitriã (no fim, segue daqui para casa)
     if (this.party.plan(this, ch, now)) return true;
+    // apresentação aberta na TV da sala: quem está disponível vai assistir
+    if (this.tvAudience.plan(this, ch, now)) return true;
     const room = this.rooms.get(ch.roomId);
     if (!room || !room.present) return this.planLobby(ch, room);
     this.assignHome(ch);
