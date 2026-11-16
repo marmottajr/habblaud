@@ -50,6 +50,13 @@ export interface ServerConfig {
    * docker-up passa) fica desligado.
    */
   presentations?: { dir: string; hostDir: string };
+  /**
+   * Imagens nas mensagens (server/messages/images.ts): `dir` = onde o servidor grava (no Docker, a montagem gravável
+   * só desta pasta); `hostDir` = a mesma pasta no computador do usuário (vai no texto da mensagem). Padrão
+   * ~/.habblaud/attachments; HABBLAUD_MESSAGE_IMAGES=0 desliga. No Docker, sem HABBLAUD_MESSAGE_IMAGES_HOST_DIR (o
+   * docker-up passa) fica desligado.
+   */
+  messageImages?: { dir: string; hostDir: string };
   /** Raiz do projeto (onde fica o package.json); serve dist/client a partir daqui. */
   rootDir: string;
   version: string;
@@ -229,6 +236,15 @@ export function worldSocketUrl(base: string): string {
   return `${base.replace(/^http/, 'ws').replace(/\/+$/, '')}/v1/socket`;
 }
 
+/** Pastas das imagens das mensagens (ServerConfig.messageImages), ou undefined (desligadas). */
+export function messageImagesConfig(env: NodeJS.ProcessEnv, home: string, inDocker: boolean): { dir: string; hostDir: string } | undefined {
+  if (env.HABBLAUD_MESSAGE_IMAGES?.trim() && !isTruthy(env.HABBLAUD_MESSAGE_IMAGES)) return undefined;
+  const local = env.HABBLAUD_ATTACHMENTS_DIR?.trim() || join(home, '.habblaud', 'attachments');
+  const dir = env.HABBLAUD_MESSAGE_IMAGES_DIR?.trim() || local;
+  const hostDir = env.HABBLAUD_MESSAGE_IMAGES_HOST_DIR?.trim() || (inDocker ? '' : dir);
+  return hostDir ? { dir: resolve(dir), hostDir } : undefined;
+}
+
 /** Pastas das apresentações (ServerConfig.presentations), ou undefined (desligadas). */
 export function presentationsConfig(env: NodeJS.ProcessEnv, home: string, inDocker: boolean): { dir: string; hostDir: string } | undefined {
   if (env.HABBLAUD_PRESENTATIONS?.trim() && !isTruthy(env.HABBLAUD_PRESENTATIONS)) return undefined;
@@ -261,6 +277,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     messages: messagesOffReason(env, host, inDocker) === undefined,
     timeline: !env.HABBLAUD_TIMELINE?.trim() || isTruthy(env.HABBLAUD_TIMELINE),
     presentations: presentationsConfig(env, home, inDocker),
+    messageImages: messageImagesConfig(env, home, inDocker),
     rootDir,
     version: pkg.version,
     repo: pkg.repo,

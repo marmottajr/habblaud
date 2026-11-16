@@ -51,6 +51,7 @@ import { createWhisperTranscriber, findWhisper } from './dictation/whisper';
 import { DeliveryIndex } from './deliveries/deliveries';
 import { FileFetcher } from './deliveries/fetcher';
 import { PresentationStore } from './presentations/store';
+import { MessageImages } from './messages/images';
 import { WorldClient } from './world/client';
 import { createWorldRoutes } from './world/http';
 import { WorldService } from './world/service';
@@ -279,6 +280,8 @@ const messages = config.messages
     })
   : undefined;
 late.messages = messages;
+// Imagens nas mensagens (messages/images.ts): gravadas em ~/.habblaud/attachments (no Docker, na montagem gravável).
+const messageImages = messages && config.messageImages ? new MessageImages(config.messageImages) : undefined;
 
 // Apresentações na TV das salas (server/presentations/store.ts): lidas de ~/.habblaud/apresentacoes (no Docker, da
 // montagem que o docker-up faz); o pedido pela TV vai ao agente pelas mensagens do escritório.
@@ -385,7 +388,8 @@ const api = createApiHandler({
   sessions: history,
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
-  messages: messages ? createMessageRoutes(messages) : undefined,
+  messages: messages ? createMessageRoutes(messages, messageImages) : undefined,
+  messageImages: !!messages && !!messageImages,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   attachments,

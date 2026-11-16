@@ -589,6 +589,13 @@ ventana correcta.
   `HABBLAUD_MENSAGENS=0`. Lee el aviso en [Privacidad y seguridad](#privacidad-y-seguridad).
   Desde el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes), solo con `messages` en `HABBLAUD_REMOTE_ALLOW`.
 - En el modo demostración, los agentes ficticios también reciben mensajes (de mentira).
+- **Imágenes:** el clip junto al cuadro adjunta imágenes, `Ctrl+V` pega una captura y puedes arrastrarlas y soltarlas
+  sobre el cuadro (en el celular, el clip abre la galería o la cámara). Hasta 6 por mensaje, con miniaturas (la × quita
+  una); las grandes se reducen a 2000 px antes de salir. Habblaud las guarda en `~/.habblaud/attachments` y el mensaje
+  termina con sus rutas, que el agente abre con la herramienta de lectura para verlas; puedes enviar imágenes sin texto.
+  `npm run mod:install` pregunta antes de poner la regla `Read(~/.habblaud/attachments/**)` (lectura solo de esa
+  carpeta), para que el agente no pida permiso por cada imagen. En Docker, `npm run docker:up` monta esa carpeta **con
+  escritura** (el único montaje escribible). `HABBLAUD_MESSAGE_IMAGES=0` desactiva las imágenes.
 
 ### TV de las salas (presentaciones)
 
@@ -786,6 +793,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Lo que puede hacer el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes): `permissions`, `messages`, `terminal`, `spawn` (separados por comas) o `none`. La fiesta en la oficina funciona siempre, menos con `none`. Las demás `HABBLAUD_REMOTE_*` las escribe `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activados (con la terminal) | `0` desactiva solo los mensajes desde la oficina (el cuadro en la terminal y en los detalles del agente). |
 | `HABBLAUD_PRESENTATIONS` | activado | `0` apaga la [TV de las salas](#tv-de-las-salas-presentaciones) (presentaciones). |
+| `HABBLAUD_MESSAGE_IMAGES` | activado | `0` desactiva las imágenes en los [mensajes desde la oficina](#enviar-mensajes). |
 | `HABBLAUD_CODEX` | activado | `0` desactiva Codex en la oficina. |
 | `HABBLAUD_CODEX_DIRS` | detección automática | Carpetas de Codex, separadas por comas (en lugar de `~/.codex*` y `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` del PATH (en Windows, `codex.exe`) | El binario de Codex que entrega los mensajes (`codex queue`), en modo Node o en `npm run codex:bridge`. |
@@ -958,6 +966,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/demo` | `{"enabled": true \| false}` activa o desactiva los agentes simulados. |
 | `POST /api/party` | Fiesta en la oficina: `{"room": sala, "seconds": 120}` (los dos opcionales; por defecto: la sala con más agentes, durante 2 min). Todos los personajes van a celebrar a la sala y después vuelven; solo visual, las sesiones no cambian. `DELETE /api/party` la termina antes. Desde el acceso local o el celular con inicio de sesión (menos con `none` en `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/presentations…` | TV de las salas: `GET ?room=` lista las presentaciones de una sala, `GET /:id` devuelve el Markdown, `GET /:id/image?src=` una imagen citada en las diapositivas, `POST /:id/seen` la marca como vista y `POST /request` `{roomId, agentId}` le pide una al agente principal (por los mensajes desde la oficina; acceso local, o el celular con `messages`). |
+| `POST /api/messages/images` | Imágenes en los mensajes: `{name, type, data}` (base64, PNG/JPEG/GIF/WebP comprobado por los primeros bytes) devuelve un `id`; `POST /api/messages` con `images: [id…]` las guarda en `~/.habblaud/attachments` y pone sus rutas al final del texto. |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` cambia el nombre de la sala (vacío vuelve al nombre de la carpeta); el nombre queda en `rooms.json`, en la carpeta de datos. Solo con acceso local. |
 | `GET /api/mod/summary` | Para el mod de Claude Code: versión, cuántos agentes hay, cuántos trabajan y quién te necesita (sin la demo y, con `?account=&session=`, sin la propia sesión). |
 | `/api/permissions…` | Responder desde la oficina: el hook de permisos registra la solicitud (permiso o pregunta) y espera; la página busca el detalle y decide o responde. Solo con acceso local. |

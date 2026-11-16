@@ -433,6 +433,11 @@ export interface AccessInfo {
    * apresentações não precisa disto. Ausente em servidores antigos.
    */
   presentations?: boolean;
+  /**
+   * Pode mandar imagens nas mensagens pelo escritório (POST /api/messages/images): as mensagens liberadas e as imagens
+   * ligadas (no Docker, com a pasta montada pelo docker-up). Ausente em servidores antigos.
+   */
+  messageImages?: boolean;
 }
 
 export interface FeedItem {

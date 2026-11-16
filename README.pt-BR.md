@@ -559,6 +559,13 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
   Leia o aviso em [Privacidade e segurança](#privacidade-e-segurança).
   Pelo [celular com login](#celular-com-login-e-https-aprovando-pedidos), só com `messages` no `HABBLAUD_REMOTE_ALLOW`.
 - No modo demonstração, os agentes fictícios também recebem mensagens (de mentira).
+- **Imagens:** o clipe ao lado da caixa anexa imagens, o `Ctrl+V` cola um print e dá para arrastar e soltar em cima
+  da caixa (no celular, o clipe abre a galeria ou a câmera). Até 6 por mensagem, com miniaturas (o × tira); as grandes
+  são reduzidas para 2000 px antes de sair. O Habblaud as grava em `~/.habblaud/attachments` e a mensagem termina com os
+  caminhos delas, que o agente abre com a ferramenta de leitura para ver; dá para mandar imagem sem texto. O
+  `npm run mod:install` pergunta antes de pôr a regra `Read(~/.habblaud/attachments/**)` (leitura só dessa pasta), para
+  o agente não pedir permissão a cada imagem. No Docker, o `npm run docker:up` monta essa pasta **com escrita** (a única
+  montagem gravável). `HABBLAUD_MESSAGE_IMAGES=0` desliga as imagens.
 
 ### TV das salas (apresentações)
 
@@ -747,6 +754,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | O que o [celular com login](#celular-com-login-e-https-aprovando-pedidos) pode fazer: `permissions`, `messages`, `terminal`, `spawn` (separados por vírgula) ou `none`. A festa no escritório vale sempre, menos com `none`. Os outros `HABBLAUD_REMOTE_*` são escritos pelo `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0` desliga só as mensagens pelo escritório (a caixa no terminal e nos detalhes do agente). |
 | `HABBLAUD_PRESENTATIONS` | ligado | `0` desliga a [TV das salas](#tv-das-salas-apresentações) (apresentações). |
+| `HABBLAUD_MESSAGE_IMAGES` | ligado | `0` desliga as imagens nas [mensagens pelo escritório](#mandar-mensagens). |
 | `HABBLAUD_CODEX` | ligado | `0` desliga o Codex no escritório. |
 | `HABBLAUD_CODEX_DIRS` | detecção automática | Pastas do Codex, separadas por vírgula (no lugar de `~/.codex*` e `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH (no Windows, `codex.exe`) | O binário do Codex que entrega as mensagens (`codex queue`), no modo Node ou no `npm run codex:bridge`. |
@@ -917,6 +925,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/demo` | `{"enabled": true \| false}` liga ou desliga os agentes simulados. |
 | `POST /api/party` | Festa no escritório: `{"room": sala, "seconds": 120}` (os dois opcionais; padrão: a sala com mais agentes, por 2 min). Todos os personagens vão comemorar na sala e depois voltam; só visual, as sessões não mudam. `DELETE /api/party` encerra antes. Pelo acesso local ou pelo celular com login (menos com `none` no `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/presentations…` | TV das salas: `GET ?room=` lista as apresentações de uma sala, `GET /:id` devolve o Markdown, `GET /:id/image?src=` uma imagem citada nos slides, `POST /:id/seen` marca como assistida e `POST /request` `{roomId, agentId}` pede uma ao agente principal (pelas mensagens pelo escritório; acesso local, ou o celular com `messages`). |
+| `POST /api/messages/images` | Imagens nas mensagens: `{name, type, data}` (base64, PNG/JPEG/GIF/WebP conferido pelos primeiros bytes) devolve um `id`; o `POST /api/messages` com `images: [id…]` grava em `~/.habblaud/attachments` e põe os caminhos no fim do texto. |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renomeia a sala (vazio volta ao nome da pasta); o nome fica em `rooms.json`, na pasta de dados. Só com acesso local. |
 | `GET /api/mod/summary` | Para o mod do Claude Code: versão, quantos agentes, quantos trabalham e quem precisa de você (sem o demo e, com `?account=&session=`, sem a própria sessão). |
 | `/api/permissions…` | Responder pelo escritório: o hook de permissão registra o pedido (permissão ou pergunta) e espera; a página busca o detalhe e decide ou responde. Só com acesso local. |

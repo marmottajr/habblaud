@@ -16,6 +16,7 @@ import { Office } from '../model/office';
 import { request } from '../test/permission-server';
 import { tempDir } from '../test/fixtures';
 import { createMessageRoutes } from './http';
+import { MessageImages } from './images';
 import { MessageRegistry, type MessageRegistryOptions } from './registry';
 
 setQuiet(true);
@@ -31,7 +32,7 @@ interface MessageServer {
 }
 
 /** Office + Hub + rotas de verdade numa porta livre do 127.0.0.1, com um agente principal na sessão "sess-1". */
-async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry?: Partial<MessageRegistryOptions> } = {}): Promise<MessageServer> {
+async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry?: Partial<MessageRegistryOptions>; images?: MessageImages } = {}): Promise<MessageServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
   const late: { registry?: MessageRegistry } = {};
@@ -66,7 +67,8 @@ async function serveMessages(opts: { enabled?: boolean; demo?: boolean; registry
     version: 't',
     inDocker: false,
     terminal: true,
-    messages: registry ? createMessageRoutes(registry) : undefined,
+    messages: registry ? createMessageRoutes(registry, opts.images) : undefined,
+    messageImages: !!opts.images,
   });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {
@@ -271,5 +273,34 @@ describe('rotas', () => {
   it('demo com o recurso desligado: os agentes fictícios também não recebem', async () => {
     srv = await serveMessages({ enabled: false, demo: true });
     expect((await snapshot(srv)).agents.filter((a) => a.canMessage)).toEqual([]);
+  });
+});
+
+describe('imagens nas mensagens', () => {
+  const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(16)]).toString('base64');
+
+  it('sobe a imagem, manda sem texto e a sessão recebe os caminhos; a atividade conta as imagens', async () => {
+    const tmp = tempDir();
+    srv = await serveMessages({ images: new MessageImages({ dir: tmp.dir, hostDir: '/home/ana/.habblaud/attachments' }) });
+    const up = await post(srv, '/api/messages/images', { name: 'print.png', type: 'image/png', data: PNG });
+    expect(up.status).toBe(201);
+    const id = (up.json as { id: string }).id;
+    expect((await post(srv, '/api/messages/images', { name: 'x.png', type: 'image/png', data: Buffer.from('oi').toString('base64') })).status).toBe(400);
+    await post(srv, '/api/mod/inbox', { session: SESSION }); // a sessão marca presença (plugin conectado)
+    const sent = await post(srv, '/api/messages', { agentId: MAIN, text: '', images: [id] });
+    expect(sent.status).toBe(201);
+    const inbox = (await post(srv, '/api/mod/inbox', { session: SESSION })).json as { messages: InboxMessage[] };
+    expect(inbox.messages[0]!.text).toMatch(/^Veja a imagem que mandei\.\n\n\[Imagem anexada pelo Habblaud/);
+    expect(inbox.messages[0]!.text).toMatch(/- \/home\/ana\/\.habblaud\/attachments\/\d{8}-\d{6}-msg[0-9a-f]+\/print\.png$/);
+    // o mesmo id não serve duas vezes; sem texto e sem imagem continua sendo erro
+    expect((await post(srv, '/api/messages', { agentId: MAIN, text: '', images: [id] })).status).toBe(400);
+    expect((await post(srv, '/api/messages', { agentId: MAIN, text: '' })).status).toBe(400);
+    tmp.cleanup();
+  });
+
+  it('com as imagens desligadas, a subida é 404 e a mensagem com imagens é 400', async () => {
+    srv = await serveMessages();
+    expect((await post(srv, '/api/messages/images', { name: 'print.png', type: 'image/png', data: PNG })).status).toBe(404);
+    expect((await post(srv, '/api/messages', { agentId: MAIN, text: 'oi', images: ['x'] })).status).toBe(400);
   });
 });

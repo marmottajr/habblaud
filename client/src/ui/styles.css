@@ -11694,3 +11694,115 @@ html.is-replay #world {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------------------------------------
+   Imagens na caixa de mensagem (ui/composer.ts, ui/message-images.ts): o clipe ao lado do microfone,
+   as miniaturas acima da caixa (com o X para tirar) e o destaque ao arrastar uma imagem por cima.
+   ------------------------------------------------------------------------------------------------ */
+
+/* No terminal, o prompt é uma grade: o clipe, o microfone e o Enter entram como colunas extras só quando aparecem. */
+.ui-msg--terminal .ui-term__prompt {
+  grid-template-columns: 2ch minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+}
+
+.ui-msg__attach {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 7px;
+  color: var(--ui-muted);
+  touch-action: manipulation;
+}
+
+.ui-msg__attach:hover {
+  color: var(--ui-text);
+}
+
+.ui-msg--terminal .ui-msg__attach {
+  align-self: end;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--ui-line-strong);
+  background: none;
+  cursor: pointer;
+}
+
+.ui-msg--terminal .ui-msg__attach .ui-px-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.ui-msg__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ui-msg__images[hidden] {
+  display: none;
+}
+
+.ui-msg__thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--ui-line-strong);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.ui-msg__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ui-msg__thumb-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(10, 12, 18, 0.82);
+  color: #fff;
+  font: 700 14px/20px var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-msg__thumb-x:hover,
+.ui-msg__thumb-x:focus-visible {
+  background: #d9534f;
+}
+
+/* soltando uma imagem em cima da caixa */
+.ui-msg.is-drop {
+  outline: 2px dashed rgba(124, 200, 255, 0.7);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+@media (pointer: coarse) {
+  .ui-msg__thumb {
+    width: 64px;
+    height: 64px;
+  }
+
+  .ui-msg__thumb-x {
+    width: 26px;
+    height: 26px;
+    line-height: 26px;
+  }
+}

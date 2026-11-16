@@ -589,6 +589,14 @@ son tour et attend la demande suivante, donner une nouvelle instruction ou corri
   Lisez l'avertissement dans [Confidentialité et sécurité](#confidentialité-et-sécurité).
   Depuis le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes), seulement avec `messages` dans `HABBLAUD_REMOTE_ALLOW`.
 - En mode démonstration, les agents fictifs reçoivent aussi des messages (pour de faux).
+- **Images :** le trombone à côté de la zone joint des images, `Ctrl+V` colle une capture et vous pouvez les glisser-
+  déposer sur la zone (sur le téléphone, le trombone ouvre la galerie ou l'appareil photo). Jusqu'à 6 par message, avec
+  des miniatures (le × en retire une) ; les grandes sont réduites à 2000 px avant l'envoi. Habblaud les enregistre dans
+  `~/.habblaud/attachments` et le message se termine par leurs chemins, que l'agent ouvre avec son outil de lecture pour
+  les voir ; vous pouvez envoyer des images sans texte. `npm run mod:install` demande avant d'ajouter la règle
+  `Read(~/.habblaud/attachments/**)` (lecture de ce dossier seulement), pour que l'agent ne demande pas la permission à
+  chaque image. Dans Docker, `npm run docker:up` monte ce dossier **en écriture** (le seul montage modifiable).
+  `HABBLAUD_MESSAGE_IMAGES=0` désactive les images.
 
 ### TV des salles (présentations)
 
@@ -790,6 +798,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. La fête au bureau marche toujours, sauf avec `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activé (avec le terminal) | `0` désactive seulement les messages depuis le bureau (la zone dans le terminal et dans les détails de l'agent). |
 | `HABBLAUD_PRESENTATIONS` | activé | `0` éteint la [TV des salles](#tv-des-salles-présentations) (présentations). |
+| `HABBLAUD_MESSAGE_IMAGES` | activé | `0` désactive les images dans les [messages depuis le bureau](#envoyer-des-messages). |
 | `HABBLAUD_CODEX` | activé | `0` désactive Codex dans le bureau. |
 | `HABBLAUD_CODEX_DIRS` | détection automatique | Dossiers de Codex, séparés par des virgules (à la place de `~/.codex*` et `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` du PATH (sous Windows, `codex.exe`) | Le binaire de Codex qui remet les messages (`codex queue`), en mode Node ou dans `npm run codex:bridge`. |
@@ -967,6 +976,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `POST /api/demo` | `{"enabled": true \| false}` active ou désactive les agents simulés. |
 | `POST /api/party` | Fête au bureau : `{"room": salle, "seconds": 120}` (les deux facultatifs ; par défaut : la salle qui a le plus d'agents, pendant 2 min). Tous les personnages vont faire la fête dans la salle puis reviennent ; purement visuel, les sessions ne changent pas. `DELETE /api/party` l'arrête plus tôt. Depuis l'accès local ou le téléphone avec connexion (sauf avec `none` dans `HABBLAUD_REMOTE_ALLOW`). |
 | `/api/presentations…` | TV des salles : `GET ?room=` liste les présentations d'une salle, `GET /:id` renvoie le Markdown, `GET /:id/image?src=` une image citée dans les diapositives, `POST /:id/seen` la marque comme vue et `POST /request` `{roomId, agentId}` en demande une à l'agent principal (par les messages depuis le bureau ; accès local, ou le téléphone avec `messages`). |
+| `POST /api/messages/images` | Images dans les messages : `{name, type, data}` (base64, PNG/JPEG/GIF/WebP vérifié par les premiers octets) renvoie un `id` ; `POST /api/messages` avec `images: [id…]` les enregistre dans `~/.habblaud/attachments` et ajoute leurs chemins à la fin du texte. |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renomme la salle (vide = retour au nom du dossier) ; le nom est enregistré dans `rooms.json`, dans le dossier de données. En accès local uniquement. |
 | `GET /api/mod/summary` | Pour le mod de Claude Code : version, nombre d'agents, combien travaillent et qui a besoin de vous (sans la démo et, avec `?account=&session=`, sans la session elle-même). |
 | `/api/permissions…` | Répondre depuis le bureau : le hook de permission enregistre la demande (permission ou question) et attend ; la page récupère le détail et décide ou répond. En accès local uniquement. |

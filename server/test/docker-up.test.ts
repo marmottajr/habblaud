@@ -106,6 +106,16 @@ describe('docker-up', () => {
     expect(renderOverride(mounts)).not.toContain('PRESENTATIONS');
   });
 
+  it('imagens nas mensagens: SÓ a pasta dos anexos é gravável, em /attachments, com o caminho do host', () => {
+    const mounts = planMounts(['/Users/fulano/.claude'], [acc('.claude')], slash);
+    const yml = renderOverride(mounts, new Date(0), '/Users/fulano/.habblaud/usage', undefined, [], undefined, [], undefined, '/Users/fulano/.habblaud/attachments');
+    expect(yml).toContain('HABBLAUD_MESSAGE_IMAGES_DIR: "/attachments"');
+    expect(yml).toContain('HABBLAUD_MESSAGE_IMAGES_HOST_DIR: "/Users/fulano/.habblaud/attachments"');
+    expect(yml).toContain('source: "/Users/fulano/.habblaud/attachments"\n        target: "/attachments"\n        read_only: false');
+    expect(yml.match(/read_only: false/g)).toHaveLength(1);
+    expect(renderOverride(mounts)).not.toContain('read_only: false');
+  });
+
   it('Codex: monta SÓ sessions/, archived_sessions/ e thread-writer-locks/ (somente leitura) e passa as contas com a pasta do host', () => {
     expect([...CODEX_MOUNTED_SUBDIRS]).toEqual(['sessions', 'archived_sessions', 'thread-writer-locks']);
     const host = '/Users/fulano/.codex';

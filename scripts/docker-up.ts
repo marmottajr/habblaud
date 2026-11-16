@@ -61,6 +61,10 @@ const CONTAINER_USAGE_DIR = '/usage';
 const PRESENTATIONS_DIR = join(STATE_DIR, 'apresentacoes');
 /** Onde essa pasta aparece no container. */
 const CONTAINER_PRESENTATIONS_DIR = '/presentations';
+/** Imagens das mensagens pelo escritório: o container GRAVA aqui (a única montagem gravável; server/messages/images.ts). */
+const ATTACHMENTS_DIR = process.env.HABBLAUD_ATTACHMENTS_DIR?.trim() ? resolve(process.env.HABBLAUD_ATTACHMENTS_DIR.trim()) : join(STATE_DIR, 'attachments');
+/** Onde essa pasta aparece no container. */
+const CONTAINER_ATTACHMENTS_DIR = '/attachments';
 /** Onde o container lê o certificado do acesso remoto (server/http/remote.ts). */
 const CONTAINER_REMOTE_TLS_DIR = '/remote-tls';
 const SERVICE = 'habblaud';
@@ -151,6 +155,8 @@ export interface BindMount {
   source: string;
   /** Caminho dentro do container. */
   target: string;
+  /** Montagem com escrita (só a pasta dos anexos); as outras são somente leitura. */
+  writable?: boolean;
 }
 
 export interface AccountMount {
@@ -321,6 +327,7 @@ export function renderOverride(
   remoteTlsDir?: string,
   extraPorts: string[] = [],
   presentationsDir?: string,
+  attachmentsDir?: string,
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
@@ -331,10 +338,13 @@ export function renderOverride(
   if (timeZone) env.push(['TZ', timeZone]);
   // Apresentações: o container lê da montagem e manda ao agente o caminho do host (onde ele grava).
   if (presentationsDir) env.push(['HABBLAUD_PRESENTATIONS_DIR', CONTAINER_PRESENTATIONS_DIR], ['HABBLAUD_PRESENTATIONS_HOST_DIR', presentationsDir]);
+  // Imagens das mensagens: o container grava na montagem e manda ao agente o caminho do host.
+  if (attachmentsDir) env.push(['HABBLAUD_MESSAGE_IMAGES_DIR', CONTAINER_ATTACHMENTS_DIR], ['HABBLAUD_MESSAGE_IMAGES_HOST_DIR', attachmentsDir]);
   const lines = [
     `# Gerado por scripts/docker-up.ts em ${generatedAt.toISOString()} — não edite: é recriado a cada \`npm run docker:up\`.`,
     '# Contém caminhos do host e e-mails das contas: fica fora do git e com permissão 600.',
     `# Montagens: SOMENTE <conta>/projects, <conta>/sessions, a pasta do uso do statusline${presentationsDir ? ' e a das apresentações' : ''}, todas somente leitura.`,
+    ...(attachmentsDir ? ['# Gravável: SÓ a pasta dos anexos (as imagens das mensagens pelo escritório).'] : []),
     ...(codex.length ? ['# Codex: SOMENTE <pasta>/sessions, <pasta>/archived_sessions e <pasta>/thread-writer-locks, somente leitura.'] : []),
     'services:',
     `  ${SERVICE}:`,
@@ -346,6 +356,7 @@ export function renderOverride(
   const binds = [...mounts, ...codex].flatMap((m) => m.binds);
   if (usageDir) binds.push({ source: usageDir, target: CONTAINER_USAGE_DIR });
   if (presentationsDir) binds.push({ source: presentationsDir, target: CONTAINER_PRESENTATIONS_DIR });
+  if (attachmentsDir) binds.push({ source: attachmentsDir, target: CONTAINER_ATTACHMENTS_DIR, writable: true });
   // Acesso remoto: SÓ a pasta do certificado do servidor (a chave da CA fica no host).
   if (remoteTlsDir) binds.push({ source: remoteTlsDir, target: CONTAINER_REMOTE_TLS_DIR });
   if (binds.length) {
@@ -355,7 +366,7 @@ export function renderOverride(
         '      - type: bind',
         `        source: ${yamlString(b.source)}`,
         `        target: ${yamlString(b.target)}`,
-        '        read_only: true',
+        `        read_only: ${b.writable ? 'false' : 'true'}`,
         '        bind:',
         '          create_host_path: false',
       );
@@ -505,6 +516,22 @@ function migrateStateDir(): void {
   const result = migrateLegacyStateDir(HOME);
   const msg = describeStateMigration(result);
   if (msg) (result.error ? warn : say)(msg);
+}
+
+/**
+ * Cria a pasta dos anexos (imagens das mensagens) se faltar e devolve o caminho real; undefined com
+ * HABBLAUD_MESSAGE_IMAGES=0 ou se falhar.
+ */
+function ensureAttachmentsDir(): string | undefined {
+  const flag = process.env.HABBLAUD_MESSAGE_IMAGES?.trim();
+  if (flag && !/^(1|true|yes|sim|on)$/i.test(flag)) return undefined;
+  try {
+    mkdirSync(ATTACHMENTS_DIR, { recursive: true, mode: 0o700 });
+    return realDir(ATTACHMENTS_DIR);
+  } catch (err) {
+    warn(tr('não consegui criar {0} ({1}); as imagens nas mensagens ficam desligadas no container.', [tildify(ATTACHMENTS_DIR), (err as Error).message]));
+    return undefined;
+  }
 }
 
 /**
@@ -736,10 +763,12 @@ async function up(opts: Options, port: number): Promise<void> {
   if (usageDir) say(tr('Uso ao vivo (mod ou tap de statusline): monta {0} em {1}, somente leitura.', [tildify(USAGE_DIR), CONTAINER_USAGE_DIR]));
   const presentationsDir = ensurePresentationsDir();
   if (presentationsDir) say(tr('TV das salas: monta {0} em {1}, somente leitura.', [tildify(PRESENTATIONS_DIR), CONTAINER_PRESENTATIONS_DIR]));
+  const attachmentsDir = ensureAttachmentsDir();
+  if (attachmentsDir) say(tr('Imagens nas mensagens: monta {0} em {1}, com escrita (só esta pasta).', [tildify(ATTACHMENTS_DIR), CONTAINER_ATTACHMENTS_DIR]));
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, presentationsDir), { mode: 0o600 });
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, presentationsDir, attachmentsDir), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say(tr('docker-compose.override.yml gerado.'));

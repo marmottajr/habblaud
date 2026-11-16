@@ -75,6 +75,8 @@ export interface ApiDeps {
   dictation?: DictationService;
   /** Entregas (GET /api/deliveries e os anexos em /api/deliveries/file/:id; deliveries/deliveries.ts). */
   deliveries?: DeliveryIndex;
+  /** Imagens nas mensagens ligadas (POST /api/messages/images; messages/images.ts). */
+  messageImages?: boolean;
   /** Apresentações na TV das salas (/api/presentations*; presentations/store.ts). Ausente = desligadas. */
   presentations?: PresentationStore;
   /** Quem lê os arquivos das entregas (e, para o auxiliar do host, /api/host/files/*; deliveries/fetcher.ts). */
@@ -479,6 +481,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
           party: trusted(req, 'party'),
           presentations: !!deps.presentations?.canRequest && trusted(req, 'messages'),
+          messageImages: !!deps.messages && !!deps.messageImages && trusted(req, 'messages'),
         };
         sendJson(res, 200, access);
       }

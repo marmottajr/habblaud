@@ -31,6 +31,13 @@ do meio (0.**3**.0).
   pergunta antes de liberar os agentes para gravar só nessa pasta sem pedir permissão (`--tv`/`--sem-tv` respondem
   sem perguntar), e o `npm run docker:up` a monta no container, somente leitura. `HABBLAUD_PRESENTATIONS=0` desliga.
   Nas salas, a TV fica sobre o canto de reunião, no lugar do relógio e do pôster.
+- **Imagens nas mensagens.** A caixa de mensagem (na gaveta do agente e no terminal) ganhou o clipe para anexar
+  imagens, o `Ctrl+V` cola um print e dá para arrastar e soltar; no celular, o clipe abre a galeria ou a câmera. Até 6
+  por mensagem, com miniaturas (o × tira), e as grandes são reduzidas para 2000 px antes de sair. As imagens são
+  gravadas em `~/.habblaud/attachments` e a mensagem termina com os caminhos delas, que o agente abre para ver (dá para
+  mandar só a imagem, sem texto). O `npm run mod:install` pergunta antes de liberar a leitura só dessa pasta sem pedir
+  permissão (`--imagens`/`--sem-imagens` respondem sem perguntar); no Docker, o `npm run docker:up` monta essa pasta com
+  escrita, a única montagem gravável. `HABBLAUD_MESSAGE_IMAGES=0` desliga.
 
 ### Corrigido
 

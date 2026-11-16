@@ -94,7 +94,8 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/permissions/:id/wait` | (hook) long-poll de até 25 s (`?timeout=` em segundos): `{status: 'pending' \| 'decided' \| 'released', ...}` |
 | `GET /api/permissions/:id` | (página) detalhe do pedido com os argumentos (`PermissionRequestInfo` com `input`) |
 | `POST /api/permissions/:id/decision` | (página) `PermissionDecision`: `{behavior: 'allow' \| 'deny' \| 'terminal' \| 'answer', message?, interrupt?, suggestion?, answers?}` |
-| `POST /api/messages` | (página) `{agentId, text}`: manda uma mensagem a um agente principal; `201 OutboxMessage`; só com bind local (ver abaixo) |
+| `POST /api/messages` | (página) `{agentId, text, images?: id[]}`: manda uma mensagem a um agente principal; `201 OutboxMessage`; só com bind local (ver abaixo). Com `images`, o texto pode vir vazio: as imagens são gravadas em `~/.habblaud/attachments` e os caminhos vão no fim (`shared/messages.ts`, `messageWithImages`) |
+| `POST /api/messages/images` | (página) `{name, type, data (base64)}`: uma imagem para a próxima mensagem (`messages/images.ts`: só PNG/JPEG/GIF/WebP pelos primeiros bytes, até 15 MB, até 6 por mensagem); `201 {id}`. Desligada (`HABBLAUD_MESSAGE_IMAGES=0`, ou no Docker sem a montagem gravável): 404 |
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |

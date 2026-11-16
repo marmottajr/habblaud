@@ -256,7 +256,7 @@ export class MessageRegistry {
    * o motivo: subagente, saiu/concluiu, sessão sem o plugin ou Codex sem entregador) ou com mensagens demais esperando
    * (too-many). Corpo inválido: lança InvalidRequest.
    */
-  send(raw: unknown): SendResult {
+  send(raw: unknown, opts: { images?: number } = {}): SendResult {
     const { agentId, text } = parseSend(raw);
     const real = this.opts.office.get(agentId);
     const demo = real ? undefined : this.opts.demoAgent?.(agentId);
@@ -270,7 +270,7 @@ export class MessageRegistry {
 
     const now = this.now();
     const id = `m-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    const entry: Entry = { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, text, activity: describeMessage(text), target: agent.sessionId };
+    const entry: Entry = { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, text, activity: describeMessage(text, opts.images ?? 0), target: agent.sessionId };
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
     this.messages.set(id, entry);

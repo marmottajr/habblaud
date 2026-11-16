@@ -1,7 +1,9 @@
 // Rotas das mensagens pelo escritório. A trava (recurso ligado + Host local) já foi conferida em http/app.ts; o
 // guard (http/guard.ts) já exigiu JSON e Origin local nos POST (contra CSRF).
 //
-//   POST /api/messages          (página)  {agentId, text}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
+//   POST /api/messages          (página)  {agentId, text, images?: id[]}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
+//                                         (com imagens, o texto pode vir vazio: elas são gravadas e os caminhos vão no fim)
+//   POST /api/messages/images   (página)  {name, type, data (base64)}: 201 {id} | 400 | 404 (imagens desligadas)
 //   GET  /api/messages/:id      (página)  situação da mensagem: 200 OutboxMessage | 404
 //   POST /api/mod/inbox         (plugin)  {session, account?}: 200 {messages: InboxMessage[]} (e marca a presença)
 //   POST /api/mod/inbox/ack     (plugin)  {session, results: [{id, ok, error?}]}: 200 {ok: true}
@@ -11,6 +13,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { InvalidRequest, MAX_OPEN, type MessageRegistry } from './registry';
+import type { MessageImages } from './images';
+import { messageWithImages } from '../../shared/messages';
+import { ATTACHMENT_BODY_MAX } from '../spawn/attachments';
 import { tr } from '../../shared/i18n';
 
 const ITEM = /^\/api\/messages\/([^/]+)$/;
@@ -27,9 +32,47 @@ function fail(res: ServerResponse, err: unknown): void {
   else sendJson(res, 500, { error: tr('erro interno') });
 }
 
-export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMessage, res: ServerResponse, path: string) => void {
+export function createMessageRoutes(registry: MessageRegistry, images?: MessageImages): (req: IncomingMessage, res: ServerResponse, path: string) => void {
+  const upload = async (req: IncomingMessage, res: ServerResponse) => {
+    if (!images) {
+      req.resume();
+      return sendJson(res, 404, { error: tr('imagens nas mensagens desligadas') });
+    }
+    const r = images.put(await readJson(req, ATTACHMENT_BODY_MAX));
+    if ('error' in r) return sendJson(res, 400, { error: r.error });
+    sendJson(res, 201, r);
+  };
+
   const send = async (req: IncomingMessage, res: ServerResponse) => {
-    const r = registry.send(await readJson(req));
+    const body = await readJson(req);
+    const ids = body && typeof body === 'object' ? (body as { images?: unknown }).images : undefined;
+    let raw = body;
+    let count = 0;
+    let folder: string | undefined;
+    if (ids !== undefined && !(Array.isArray(ids) && ids.length === 0)) {
+      // com imagens: grava agora e o texto leva os caminhos (pode vir vazio)
+      if (!images) return sendJson(res, 400, { error: tr('imagens nas mensagens desligadas') });
+      const files = images.take(ids);
+      if ('error' in files) return sendJson(res, 400, { error: files.error });
+      const text = typeof (body as { text?: unknown }).text === 'string' ? (body as { text: string }).text : '';
+      let written: { paths: string[]; folder?: string };
+      try {
+        written = images.write(files);
+      } catch {
+        return sendJson(res, 500, { error: tr('não deu para gravar as imagens no computador') });
+      }
+      folder = written.folder;
+      count = written.paths.length;
+      raw = { ...(body as object), text: messageWithImages(text, written.paths) };
+    }
+    let r: ReturnType<MessageRegistry['send']>;
+    try {
+      r = registry.send(raw, { images: count });
+    } catch (err) {
+      images?.discard(folder);
+      throw err;
+    }
+    if (!('message' in r)) images?.discard(folder);
     if ('message' in r) return sendJson(res, 201, r.message);
     switch (r.error) {
       case 'not-found':
@@ -66,6 +109,7 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
 
   return (req, res, path) => {
     if (path === '/api/messages') return post(req, res, send);
+    if (path === '/api/messages/images') return post(req, res, upload);
     if (path === '/api/mod/inbox') return post(req, res, inbox);
     if (path === '/api/mod/inbox/ack') return post(req, res, ack);
     if (path === '/api/codex/bridge/poll') return post(req, res, codexPoll);

@@ -63,23 +63,47 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * mod:uninstall tira.
  */
 export const TV_RULE = 'Edit(~/.habblaud/apresentacoes/**)';
+/**
+ * Regra das imagens nas mensagens: deixa o agente LER as imagens que você manda pelo escritório (gravadas em
+ * ~/.habblaud/attachments) sem pedir. Só leitura e só essa pasta; mesma pergunta e mesma remoção da regra da TV.
+ */
+export const ATTACHMENTS_RULE = 'Read(~/.habblaud/attachments/**)';
 
-/** settings.json com a regra da TV posta (`want`) ou tirada; `settings` ausente = nada a mudar. */
-export function planTvRule(settings: Settings, want: boolean): { settings?: Settings; message?: string } {
+/** settings.json com `rule` posta (`want`) ou tirada de permissions.allow; `settings` ausente = nada a mudar. */
+export function planAllowRule(settings: Settings, rule: string, want: boolean): { settings?: Settings } {
   const perms = settings.permissions && typeof settings.permissions === 'object' && !Array.isArray(settings.permissions) ? (settings.permissions as Record<string, unknown>) : undefined;
   const allow = Array.isArray(perms?.allow) ? (perms!.allow as unknown[]) : [];
-  const has = allow.includes(TV_RULE);
+  const has = allow.includes(rule);
   if (want === has) return {};
-  const nextAllow = want ? [...allow, TV_RULE] : allow.filter((r) => r !== TV_RULE);
+  const nextAllow = want ? [...allow, rule] : allow.filter((r) => r !== rule);
   const nextPerms: Record<string, unknown> = { ...(perms ?? {}), allow: nextAllow };
   if (!want && !nextAllow.length) delete nextPerms.allow;
   const next: Settings = { ...settings, permissions: nextPerms };
   if (!want && !Object.keys(nextPerms).length) delete (next as Record<string, unknown>).permissions;
+  return { settings: next };
+}
+
+/** settings.json com a regra da TV posta (`want`) ou tirada; `settings` ausente = nada a mudar. */
+export function planTvRule(settings: Settings, want: boolean): { settings?: Settings; message?: string } {
+  const r = planAllowRule(settings, TV_RULE, want);
+  if (!r.settings) return {};
   return {
-    settings: next,
+    settings: r.settings,
     message: want
       ? tr('TV das salas: os agentes gravam as apresentações em ~/.habblaud/apresentacoes sem pedir permissão ({0})', [TV_RULE])
       : tr('TV das salas: regra {0} removida', [TV_RULE]),
+  };
+}
+
+/** settings.json com a regra das imagens posta (`want`) ou tirada; `settings` ausente = nada a mudar. */
+export function planAttachmentsRule(settings: Settings, want: boolean): { settings?: Settings; message?: string } {
+  const r = planAllowRule(settings, ATTACHMENTS_RULE, want);
+  if (!r.settings) return {};
+  return {
+    settings: r.settings,
+    message: want
+      ? tr('Imagens nas mensagens: os agentes leem as imagens em ~/.habblaud/attachments sem pedir permissão ({0})', [ATTACHMENTS_RULE])
+      : tr('Imagens nas mensagens: regra {0} removida', [ATTACHMENTS_RULE]),
   };
 }
 
@@ -104,7 +128,7 @@ const SCOPE = 'user';
 /** Tempo máximo de cada chamada ao CLI (o add/update de um diretório local leva poucos segundos). */
 const CLI_TIMEOUT_MS = 120_000;
 
-const USAGE = tr('Uso: npm run mod:<install|uninstall|status> [-- opções]\n\n  install     instala o mod do Habblaud no Claude Code de cada conta (marketplace desta pasta + plugins)\n              e tira o que ele substitui: o tap de statusline e o hook de permissão antigos e o mod do\n              nome antigo (codetown)\n  uninstall   tira os plugins e o marketplace do Habblaud de cada conta (e os do nome antigo, se sobraram)\n  status      mostra, por conta, o marketplace, os plugins (e versões) e o que sobrou do jeito antigo\n\nOpções:\n  --sem-permissoes   não instala o plugin de responder permissões pelo escritório (e mantém o hook antigo)\n  --sem-mensagens    não instala o plugin de mandar mensagens pelo escritório (um já instalado continua)\n  --tv / --sem-tv    põe (ou não) a regra da TV das salas sem perguntar: os agentes gravam as apresentações\n                     em ~/.habblaud/apresentacoes sem pedir permissão (só essa pasta)\n  --conta <pasta>    só esta conta (ex.: --conta ~/.claude-conta2); pode repetir\n  --dry-run          mostra o que faria, sem instalar nem gravar nada\n  --claude <cmd>     comando do Claude Code (padrão: claude, do PATH)\n  -h, --help         mostra esta ajuda\n\nPrecisa do Claude Code {0} ou mais novo. Em versões anteriores, use o jeito antigo:\nnpm run usage:install (uso ao vivo) e npm run hooks:install (responder permissões); mandar mensagens pelo\nescritório só existe com o mod.\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).', [MIN_CLAUDE_VERSION]);
+const USAGE = tr('Uso: npm run mod:<install|uninstall|status> [-- opções]\n\n  install     instala o mod do Habblaud no Claude Code de cada conta (marketplace desta pasta + plugins)\n              e tira o que ele substitui: o tap de statusline e o hook de permissão antigos e o mod do\n              nome antigo (codetown)\n  uninstall   tira os plugins e o marketplace do Habblaud de cada conta (e os do nome antigo, se sobraram)\n  status      mostra, por conta, o marketplace, os plugins (e versões) e o que sobrou do jeito antigo\n\nOpções:\n  --sem-permissoes   não instala o plugin de responder permissões pelo escritório (e mantém o hook antigo)\n  --sem-mensagens    não instala o plugin de mandar mensagens pelo escritório (um já instalado continua)\n  --tv / --sem-tv    põe (ou não) a regra da TV das salas sem perguntar: os agentes gravam as apresentações\n                     em ~/.habblaud/apresentacoes sem pedir permissão (só essa pasta)\n  --imagens / --sem-imagens  põe (ou não) a regra das imagens nas mensagens sem perguntar: os agentes leem\n                     as imagens em ~/.habblaud/attachments sem pedir permissão (só leitura, só essa pasta)\n  --conta <pasta>    só esta conta (ex.: --conta ~/.claude-conta2); pode repetir\n  --dry-run          mostra o que faria, sem instalar nem gravar nada\n  --claude <cmd>     comando do Claude Code (padrão: claude, do PATH)\n  -h, --help         mostra esta ajuda\n\nPrecisa do Claude Code {0} ou mais novo. Em versões anteriores, use o jeito antigo:\nnpm run usage:install (uso ao vivo) e npm run hooks:install (responder permissões); mandar mensagens pelo\nescritório só existe com o mod.\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).', [MIN_CLAUDE_VERSION]);
 // ---------------------------------------------------------------------------------------------
 // O CLI do Claude Code (injetável: os testes nunca chamam o de verdade)
 // ---------------------------------------------------------------------------------------------
@@ -609,6 +633,8 @@ export interface RunOptions {
   claudeCmd?: string;
   /** Regra da TV das salas (TV_RULE): true com --tv, false com --sem-tv; ausente = pergunta (ou pula sem terminal). */
   tv?: boolean;
+  /** Regra das imagens nas mensagens (ATTACHMENTS_RULE): true com --imagens, false com --sem-imagens; ausente = pergunta. */
+  images?: boolean;
 }
 
 export interface RunContext {
@@ -657,6 +683,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
   let permissions = true;
   let messages = true;
   let tv: boolean | undefined;
+  let images: boolean | undefined;
   let claudeCmd: string | undefined;
   const accounts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -667,6 +694,8 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
     else if (a === '--sem-mensagens') messages = false;
     else if (a === '--tv') tv = true;
     else if (a === '--sem-tv') tv = false;
+    else if (a === '--imagens') images = true;
+    else if (a === '--sem-imagens') images = false;
     else if (a === '--conta') {
       const dir = argv[++i];
       if (!dir) throw new FatalError(tr('--conta precisa da pasta da conta (ex.: --conta ~/.claude-conta2).'));
@@ -678,7 +707,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
     else throw new FatalError(tr('opção desconhecida: {0}\n\n{1}', [a, USAGE]));
   }
   if (!command) throw new FatalError(tr('diga o que fazer: install, uninstall ou status.\n\n{0}', [USAGE]));
-  return { command, dryRun, permissions, messages, accounts, claudeCmd, ...(tv !== undefined ? { tv } : {}) };
+  return { command, dryRun, permissions, messages, accounts, claudeCmd, ...(tv !== undefined ? { tv } : {}), ...(images !== undefined ? { images } : {}) };
 }
 
 /** Versão do package.json da raiz. */
@@ -793,6 +822,16 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
       out(tr('! TV das salas: a regra {0} não foi posta (sem terminal para perguntar). Rode com --tv para pôr, ou aprove a gravação a cada apresentação.', [TV_RULE]));
     }
   }
+  // Imagens nas mensagens: a regra que libera só a LEITURA de ~/.habblaud/attachments, com a mesma confirmação.
+  let imagesRule = opts.images;
+  if (opts.command === 'install' && imagesRule === undefined) {
+    if (ctx.confirm) {
+      imagesRule = await ctx.confirm(tr('Imagens nas mensagens: liberar os agentes para ler as imagens que você manda pelo escritório em ~/.habblaud/attachments sem pedir permissão (só leitura, só essa pasta: {0})? [S/n] ', [ATTACHMENTS_RULE]));
+    } else {
+      imagesRule = false;
+      out(tr('! Imagens nas mensagens: a regra {0} não foi posta (sem terminal para perguntar). Rode com --imagens para pôr, ou aprove a leitura a cada imagem.', [ATTACHMENTS_RULE]));
+    }
+  }
 
   let failures = 0;
   let changed = 0;
@@ -855,15 +894,18 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     if (stepFailed) failures++;
     for (const n of plan.notes) out(`  ! ${n}`);
     if (opts.command === 'uninstall') {
-      // A regra da TV sai junto com o mod.
+      // As regras da TV e das imagens saem junto com o mod (uma gravação só).
       const read = readSettings(file);
-      const tv = 'error' in read ? {} : planTvRule(read.settings, false);
-      if (tv.settings && !('error' in read)) {
-        if (opts.dryRun) out(tr('  ~ {0} (simulação: nada gravado)', [tv.message!]));
-        else
+      if (!('error' in read)) {
+        const tv = planTvRule(read.settings, false);
+        const img = planAttachmentsRule(tv.settings ?? read.settings, false);
+        const next = img.settings ?? tv.settings;
+        const msgs = [tv.message, img.message].filter((m): m is string => !!m);
+        if (next && opts.dryRun) for (const m of msgs) out(tr('  ~ {0} (simulação: nada gravado)', [m]));
+        else if (next)
           try {
-            writeSettings(file, tv.settings, read.raw, ctx.now);
-            out(`  ✓ ${tv.message}`);
+            writeSettings(file, next, read.raw, ctx.now);
+            for (const m of msgs) out(`  ✓ ${m}`);
             changed++;
           } catch (err) {
             out(tr('  ✗ não consegui gravar o settings.json ({0}); a regra da TV continua', [(err as Error).message]));
@@ -901,7 +943,10 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     const tv = tvRule ? planTvRule(mig.settings ?? read.settings, true) : {};
     if (tv.settings) mig.done.push(tv.message!);
     else if (tvRule) out(tr('  = TV das salas: a regra {0} já estava', [TV_RULE]));
-    const nextSettings = tv.settings ?? mig.settings;
+    const img = imagesRule ? planAttachmentsRule(tv.settings ?? mig.settings ?? read.settings, true) : {};
+    if (img.settings) mig.done.push(img.message!);
+    else if (imagesRule) out(tr('  = Imagens nas mensagens: a regra {0} já estava', [ATTACHMENTS_RULE]));
+    const nextSettings = img.settings ?? tv.settings ?? mig.settings;
     if (!nextSettings) continue;
     if (opts.dryRun) {
       for (const d of mig.done) out(tr('  ~ {0} (simulação: nada gravado)', [d]));
