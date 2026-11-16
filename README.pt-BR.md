@@ -553,7 +553,8 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
   prompt digitado com o agente trabalhando.
 - O plugin roda dentro de cada sessão e só fala com o Habblaud em `127.0.0.1`. Sem ele (ou numa sessão aberta antes
   da instalação: use `/reload-plugins`), aparece a dica de instalação no lugar da caixa. Subagentes não recebem
-  mensagens.
+  mensagens. Sessões não interativas (`claude -p`, SDK) também não: rodam o pedido que receberam e saem, sem prompt
+  onde a mensagem entrar.
 - Funciona com a mesma trava do terminal (só com acesso local) e pode ser desligado com `HABBLAUD_MENSAGENS=0`.
   Leia o aviso em [Privacidade e segurança](#privacidade-e-segurança).
   Pelo [celular com login](#celular-com-login-e-https-aprovando-pedidos), só com `messages` no `HABBLAUD_REMOTE_ALLOW`.
@@ -1157,7 +1158,8 @@ diz em que pasta ela está (só cria a trava da sessão), e sem a pasta não há
 A caixa só aparece para agentes principais cuja sessão tem o plugin `habblaud-mensagens` conectado: rode
 `npm run mod:status` (diz, por conta, se o plugin está instalado e se o Habblaud está com as mensagens ligadas) e, nas
 sessões abertas antes da instalação, `/reload-plugins`. Sem o plugin, os detalhes do agente mostram a dica de
-instalação. As mensagens seguem a trava do terminal e `HABBLAUD_MENSAGENS=0` as desliga; o log de inicialização
+instalação. Uma sessão não interativa (`claude -p`, SDK) nunca recebe mensagens, com ou sem o plugin: o terminal dela
+mostra "Sessão não interativa" no lugar da caixa. As mensagens seguem a trava do terminal e `HABBLAUD_MENSAGENS=0` as desliga; o log de inicialização
 (`npm run docker:logs`) diz se estão ligadas e, se não estiverem, por quê. Uma mensagem que fica **na fila** e falha
 com "a sessão não buscou a mensagem" quer dizer que a sessão parou de perguntar ao Habblaud (fechou, ou o plugin foi
 desligado).

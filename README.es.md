@@ -583,7 +583,8 @@ ventana correcta.
   escrito con el agente trabajando.
 - El plugin se ejecuta dentro de cada sesión y solo habla con Habblaud en `127.0.0.1`. Sin él (o en una sesión abierta
   antes de la instalación: usa `/reload-plugins`), aparece la sugerencia de instalación en lugar del cuadro. Los
-  subagentes no reciben mensajes.
+  subagentes no reciben mensajes. Las sesiones no interactivas (`claude -p`, SDK) tampoco: ejecutan la petición que
+  recibieron y terminan, sin un prompt donde entre el mensaje.
 - Funciona con el mismo bloqueo que la terminal (solo con acceso local) y se puede desactivar con
   `HABBLAUD_MENSAGENS=0`. Lee el aviso en [Privacidad y seguridad](#privacidad-y-seguridad).
   Desde el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes), solo con `messages` en `HABBLAUD_REMOTE_ALLOW`.
@@ -1206,7 +1207,8 @@ sesión), y sin la carpeta no hay sala.
 El cuadro solo aparece para los agentes principales cuya sesión tiene el plugin `habblaud-mensagens` conectado:
 ejecuta `npm run mod:status` (dice, por cuenta, si el plugin está instalado y si Habblaud tiene los mensajes
 activados) y, en las sesiones abiertas antes de la instalación, `/reload-plugins`. Sin el plugin, los detalles del
-agente muestran la sugerencia de instalación. Los mensajes siguen el bloqueo de la terminal y `HABBLAUD_MENSAGENS=0`
+agente muestran la sugerencia de instalación. Una sesión no interactiva (`claude -p`, SDK) nunca recibe mensajes, con o
+sin el plugin: su terminal muestra "Sesión no interactiva" en lugar del cuadro. Los mensajes siguen el bloqueo de la terminal y `HABBLAUD_MENSAGENS=0`
 los desactiva; el log de inicio (`npm run docker:logs`) dice si están activados y, si no lo están, por qué. Un mensaje
 que se queda **en cola** y falla con "la sesión no recogió el mensaje" significa que la sesión dejó de consultar a
 Habblaud (se cerró, o el plugin se desactivó).

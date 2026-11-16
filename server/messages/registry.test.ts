@@ -8,6 +8,7 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import {
   ERR_GONE,
+  ERR_HEADLESS,
   ERR_NOT_CONFIRMED,
   ERR_NOT_FETCHED,
   ERR_REFUSED,
@@ -130,6 +131,17 @@ describe('MessageRegistry: mandar', () => {
     registry.inbox({ session: SESSION });
     office.closeMain(MAIN);
     expect(registry.send({ agentId: MAIN, text: 'oi' })).toEqual({ error: 'unavailable', reason: expect.stringMatching(/saiu/) });
+  });
+
+  it('sessão não interativa (claude -p, SDK): o motivo é esse, não a falta do plugin; se ela perguntar pela caixa, recebe', () => {
+    const { office, registry } = setup();
+    office.addMain({ id: 'acc:3', account: 'acc', sessionId: 'sess-3', cwd: '/p/robo', role: 'Agente principal', startedAt: 0, status: 'working', headless: true });
+    expect(snapAgent(office, 'acc:3')?.headless).toBe(true);
+    expect(snapAgent(office, MAIN)?.headless).toBeUndefined();
+    expect(registry.send({ agentId: 'acc:3', text: 'oi' })).toEqual({ error: 'unavailable', reason: ERR_HEADLESS });
+    expect(ERR_HEADLESS).not.toMatch(/habblaud-mensagens/);
+    registry.inbox({ session: 'sess-3' });
+    expect('message' in registry.send({ agentId: 'acc:3', text: 'oi' })).toBe(true);
   });
 
   it(`no máximo ${MAX_OPEN} mensagens não resolvidas por agente (too-many); resolvidas não contam`, () => {

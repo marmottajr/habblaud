@@ -8,6 +8,7 @@ import {
   composerTip,
   DELIVERED_SHOW_MS,
   enterSends,
+  HEADLESS_OFF,
   isSettled,
   messageText,
   PLUGIN_HINT,
@@ -66,6 +67,21 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(off(agent({ canMessage: undefined }), { enabled: false })).toMatch(/terminal do Claude Code/);
     expect(off(agent(), { local: false })).toMatch(/localhost/);
     expect(off(agent(), { replaying: true })).toMatch(/timelapse/);
+  });
+
+  it('composerMode: sessão não interativa (claude -p, SDK) diz que não recebe, em vez da dica de instalar o plugin', () => {
+    const headless = agent({ canMessage: undefined, headless: true });
+    expect(composerMode(headless, ON)).toEqual({ kind: 'off', text: HEADLESS_OFF });
+    expect(HEADLESS_OFF).toBe('Sessão não interativa (claude -p ou SDK): não recebe mensagens');
+    // Trabalhando ou esperando, o motivo é o mesmo; com o recurso desligado também (não há terminal onde responder).
+    for (const status of ['working', 'waiting', 'shell'] as const) expect(composerMode(agent({ canMessage: undefined, headless: true, status }), ON)).toEqual({ kind: 'off', text: HEADLESS_OFF });
+    expect(composerMode(headless, { ...ON, enabled: false })).toEqual({ kind: 'off', text: HEADLESS_OFF });
+    // Encerrada e timelapse continuam na frente.
+    expect(composerMode(agent({ canMessage: undefined, headless: true, status: 'offline' }), ON)).toEqual({ kind: 'off', text: 'Sessão encerrada' });
+    expect(composerMode(headless, { ...ON, replaying: true }).kind).toBe('off');
+    expect(composerMode(headless, { ...ON, replaying: true })).not.toEqual({ kind: 'off', text: HEADLESS_OFF });
+    // Se a sessão perguntou pela caixa de entrada, ela recebe: a presença vale mais que o entrypoint.
+    expect(composerMode(agent({ headless: true }), ON)).toEqual({ kind: 'ready' });
   });
 
   it('texto: sai sem os espaços do fim; vazio ou longo demais não manda', () => {

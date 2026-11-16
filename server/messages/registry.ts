@@ -46,6 +46,8 @@ export const ERR_NOT_CONFIRMED = tr('a sessão não confirmou a entrega');
 export const ERR_GONE = tr('o agente saiu do escritório');
 export const ERR_REFUSED = tr('a sessão não aceitou a mensagem');
 export const ERR_SESSION_CHANGED = tr('a conversa do agente mudou (/clear ou /resume) antes da entrega');
+/** Sessão sem prompt onde digitar (AgentInfo.headless): instalar o plugin não muda isso. */
+export const ERR_HEADLESS = tr('sessões não interativas (claude -p ou SDK) não recebem mensagens');
 export const ERR_CODEX_UNAVAILABLE =
   tr('não há como entregar ao Codex agora: rode o Habblaud fora do Docker com o `codex` no PATH (ou HABBLAUD_CODEX_BIN) ou, no Docker, deixe o npm run codex:bridge rodando no Mac');
 export const ERR_CODEX_NOT_FETCHED = tr('o auxiliar do Codex não buscou a mensagem: o npm run codex:bridge está rodando no Mac?');
@@ -152,8 +154,9 @@ const isFinal = (e: Entry) => e.msg.status === 'delivered' || e.msg.status === '
 function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined {
   if (a.kind !== 'main') return tr('subagentes não recebem mensagens: mande para o agente principal');
   if (!present(a)) return tr('o agente já saiu do escritório');
-  if (!reachable) return a.provider === 'codex' ? ERR_CODEX_UNAVAILABLE : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
-  return undefined;
+  if (reachable) return undefined;
+  if (a.provider === 'codex') return ERR_CODEX_UNAVAILABLE;
+  return a.headless ? ERR_HEADLESS : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
 }
 
 /** Corpo de POST /api/messages: `{agentId, text}`. O texto não é alterado (nem aparado). */
@@ -253,7 +256,7 @@ export class MessageRegistry {
 
   /**
    * Mensagem vinda da página. `{error}`: agente desconhecido (not-found), que não recebe mensagens (unavailable, com
-   * o motivo: subagente, saiu/concluiu, sessão sem o plugin ou Codex sem entregador) ou com mensagens demais esperando
+   * o motivo: subagente, saiu/concluiu, sessão não interativa ou sem o plugin, Codex sem entregador) ou com mensagens demais esperando
    * (too-many). Corpo inválido: lança InvalidRequest.
    */
   send(raw: unknown): SendResult {

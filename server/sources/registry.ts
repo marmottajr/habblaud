@@ -94,6 +94,15 @@ export function registryStatus(e: RegistryEntry): { status?: AgentStatus; waitin
   }
 }
 
+/**
+ * Sessão não interativa (AgentInfo.headless): `claude -p` grava `entrypoint: "sdk-cli"` (visto no Claude Code
+ * 2.1.325) e os outros valores "sdk-…" são do Agent SDK. Elas rodam o pedido que receberam e saem, sem prompt onde
+ * digitar. O app desktop também roda como SDK, mas grava "claude-desktop" e é interativo.
+ */
+export function isHeadless(e: RegistryEntry): boolean {
+  return e.entrypoint?.startsWith('sdk-') === true;
+}
+
 export function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);

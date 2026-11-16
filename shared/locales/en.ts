@@ -86,6 +86,7 @@ export const EN: Readonly<Record<string, string>> = {
 
   // client/src/ui/composer-model.ts
   "Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)": "To send messages from here: npm run mod:install (plugin habblaud-mensagens)",
+  "Sessão não interativa (claude -p ou SDK): não recebe mensagens": "Non-interactive session (claude -p or SDK): it doesn't receive messages",
   "Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho": "To send messages to Codex: with Habblaud in Docker, keep npm run codex:bridge running; in Node mode it works on its own",
   "Sem mensagens no timelapse: o escritório mostrado é o de outro momento": "No messages in timelapse: the office shown is from another moment",
   "Subagentes não recebem mensagens: escreva para o agente principal": "Subagents don't receive messages: write to the main agent",
@@ -1774,6 +1775,7 @@ export const EN: Readonly<Record<string, string>> = {
   "subagentes não recebem mensagens: mande para o agente principal": "subagents don't receive messages: send it to the main agent",
   "o agente já saiu do escritório": "the agent has already left the office",
   "a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)": "the session doesn't have the habblaud-mensagens plugin connected (npm run mod:install)",
+  "sessões não interativas (claude -p ou SDK) não recebem mensagens": "non-interactive sessions (claude -p or SDK) don't receive messages",
   "a mensagem está vazia": "the message is empty",
   "a mensagem passa de 20.000 caracteres": "the message exceeds 20,000 characters",
   "Mensagens: falha no relógio ({0}).": "Messages: clock failed ({0}).",

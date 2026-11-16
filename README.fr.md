@@ -583,7 +583,8 @@ son tour et attend la demande suivante, donner une nouvelle instruction ou corri
   prompt tapé pendant que l'agent travaille.
 - Le plugin tourne dans chaque session et ne parle à Habblaud que sur `127.0.0.1`. Sans lui (ou dans une session ouverte
   avant l'installation : utilisez `/reload-plugins`), l'astuce d'installation apparaît à la place de la zone. Les
-  sous-agents ne reçoivent pas de messages.
+  sous-agents ne reçoivent pas de messages. Les sessions non interactives (`claude -p`, SDK) non plus, car elles
+  exécutent la demande reçue puis se terminent, sans prompt où le message pourrait entrer.
 - Cela fonctionne avec le même verrou que le terminal (accès local uniquement) et peut être désactivé avec `HABBLAUD_MENSAGENS=0`.
   Lisez l'avertissement dans [Confidentialité et sécurité](#confidentialité-et-sécurité).
   Depuis le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes), seulement avec `messages` dans `HABBLAUD_REMOTE_ALLOW`.
@@ -1219,7 +1220,8 @@ de la session), et sans dossier, pas de salle.
 La zone n'apparaît que pour les agents principaux dont la session a le plugin `habblaud-mensagens` connecté : lancez
 `npm run mod:status` (il indique, par compte, si le plugin est installé et si Habblaud a les messages activés) et, dans
 les sessions ouvertes avant l'installation, `/reload-plugins`. Sans le plugin, les détails de l'agent affichent l'astuce
-d'installation. Les messages suivent le verrou du terminal et `HABBLAUD_MENSAGENS=0` les désactive ; le journal de
+d'installation. Une session non interactive (`claude -p`, SDK) ne reçoit jamais de messages, avec ou sans le plugin, et
+son terminal l'indique à la place de la zone. Les messages suivent le verrou du terminal et `HABBLAUD_MENSAGENS=0` les désactive ; le journal de
 démarrage (`npm run docker:logs`) indique s'ils sont activés et, sinon, pourquoi. Un message qui reste **en file** puis
 échoue avec « la session n'a pas récupéré le message » signifie que la session a cessé d'interroger Habblaud (elle a été
 fermée, ou le plugin a été désactivé).

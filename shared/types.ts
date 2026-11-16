@@ -186,6 +186,12 @@ export interface AgentInfo {
    * e perguntou pela caixa de entrada há pouco. Ver POST /api/messages.
    */
   canMessage?: boolean;
+  /**
+   * Sessão não interativa do Claude Code (`claude -p` ou SDK: `entrypoint` "sdk-…" no registro de sessões): roda o
+   * pedido que recebeu e sai, sem prompt onde digitar. Não recebe mensagens, com ou sem o plugin habblaud-mensagens
+   * (ele só pergunta pela caixa de entrada onde a sessão desenha): a página diz isso em vez da dica de instalação.
+   */
+  headless?: true;
 }
 
 export interface RoomInfo {

@@ -128,6 +128,15 @@ describe('ClaudeWatcher', () => {
     expect(c.office.recentFeed(10).map((f) => f.activity.kind)).toEqual(['prompt', 'read']);
   });
 
+  it('sessão do claude -p (entrypoint sdk-cli no registro) chega como não interativa; a do terminal, não', () => {
+    c.openSession(100, 'sess-a', { entrypoint: 'cli' });
+    c.openSession(101, 'sess-robo', { entrypoint: 'sdk-cli' });
+    c.watcher.boot();
+    expect(c.agent('.claude:101')?.headless).toBe(true);
+    expect(c.agent('.claude:100')).toBeDefined();
+    expect(c.agent('.claude:100')?.headless).toBeUndefined();
+  });
+
   it('acompanha appends do transcript e o status do registro', () => {
     const id = bootWithSession();
     appendLines(c.transcript('sess-a'), [L.assistant([L.tool('e1', 'Edit', { file_path: `${CWD}/src/Cart.tsx` })])]);

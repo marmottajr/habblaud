@@ -8,13 +8,19 @@ import { tr } from '../../../shared/i18n';
 
 /** Dica para quem tem o recurso ligado, mas a sessão do agente não está com o plugin conectado. */
 export const PLUGIN_HINT = tr('Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)');
+/**
+ * Sessão não interativa (`claude -p`, SDK: AgentInfo.headless): não há prompt onde a mensagem entrar, com ou sem o
+ * plugin. A dica de instalação mandaria instalar o que já está instalado.
+ */
+export const HEADLESS_OFF = tr('Sessão não interativa (claude -p ou SDK): não recebe mensagens');
 /** A mesma dica para um agente do Codex sem entregador (no modo Node o próprio servidor entrega). */
 export const CODEX_BRIDGE_HINT = tr('Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho');
 
 /**
  * - ready: dá para mandar (principal com o plugin conectado, recurso ligado, página local);
  * - hint: recurso ligado e principal presente, mas a sessão não está com o plugin (`text` diz como instalar);
- * - off: não dá (`text` diz por quê). A gaveta esconde a caixa; o terminal mostra o motivo no lugar dela.
+ * - off: não dá (`text` diz por quê: timelapse, subagente, sessão encerrada ou não interativa, recurso desligado,
+ *   acesso que não é local). A gaveta esconde a caixa; o terminal mostra o motivo no lugar dela.
  */
 export type ComposerMode = { kind: 'ready' } | { kind: 'hint'; text: string } | { kind: 'off'; text: string };
 
@@ -32,6 +38,8 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (agent?.kind === 'sub') return { kind: 'off', text: tr('Subagentes não recebem mensagens: escreva para o agente principal') };
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: tr('Sessão encerrada') };
   const codex = agent.provider === 'codex';
+  // Antes do recurso desligado: nesta sessão também não há terminal do Claude Code onde responder.
+  if (agent.headless && !agent.canMessage) return { kind: 'off', text: HEADLESS_OFF };
   if (!env.enabled) return { kind: 'off', text: codex ? tr('Para responder, use o Codex') : tr('Para responder, use o terminal do Claude Code') };
   if (!env.local) return { kind: 'off', text: tr('Para mandar mensagens por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1)') };
   if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : PLUGIN_HINT };

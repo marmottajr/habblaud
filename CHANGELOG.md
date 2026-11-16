@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Mensagens: a sessão não interativa (`claude -p`, SDK) diz que não recebe mensagens, em vez de mandar instalar o
+  plugin.** Um agente rodando por `claude -p` (uma tarefa agendada, um script) mostrava no rodapé do terminal "Para
+  mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)", mesmo com o plugin instalado: ele só
+  pergunta pela caixa de entrada nas sessões com prompt, e essa não tem onde a mensagem entrar. Agora o rodapé diz
+  "Sessão não interativa (claude -p ou SDK): não recebe mensagens" e os detalhes do agente não mostram a dica de
+  instalação.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

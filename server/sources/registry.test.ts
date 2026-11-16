@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
-import { compareVersions, parseRegistryEntry, registryStatus, RegistryReader } from './registry';
+import { compareVersions, isHeadless, parseRegistryEntry, registryStatus, RegistryReader } from './registry';
 
 const entry = (pid: number, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ pid, sessionId: `s-${pid}`, cwd: '/projetos/app', startedAt: 1, kind: 'interactive', status: 'idle', ...extra });
@@ -44,6 +44,15 @@ describe('registro de sessões', () => {
     expect(parseRegistryEntry('{"pid":1}')).toBeUndefined();
     expect(parseRegistryEntry('não é json')).toBeUndefined();
     expect(parseRegistryEntry(entry(7, { agent: 'frinus' }))).toMatchObject({ pid: 7, sessionId: 's-7', agent: 'frinus' });
+  });
+
+  it('sessão não interativa: entrypoint "sdk-…" (claude -p grava "sdk-cli"); cli, app desktop e registro sem o campo não', () => {
+    const headless = (extra: Record<string, unknown>) => isHeadless(parseRegistryEntry(entry(1, extra))!);
+    expect(headless({ entrypoint: 'sdk-cli' })).toBe(true);
+    expect(headless({ entrypoint: 'sdk-ts' })).toBe(true);
+    expect(headless({ entrypoint: 'cli' })).toBe(false);
+    expect(headless({ entrypoint: 'claude-desktop' })).toBe(false);
+    expect(headless({})).toBe(false);
   });
 
   it('lista sessões vivas, ignora .key e confere o PID fora do Docker', () => {

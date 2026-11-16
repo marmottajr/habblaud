@@ -555,7 +555,8 @@ and waits for the next request, give a new instruction or correct its course, wi
   prompt typed while the agent is working.
 - The plugin runs inside each session and only talks to Habblaud at `127.0.0.1`. Without it (or in a session opened before
   the install: use `/reload-plugins`), an install hint shows up in place of the box. Subagents don't receive
-  messages.
+  messages. Neither do non-interactive sessions (`claude -p`, SDK): they run the request they were given and exit, with
+  no prompt for the message to go into.
 - It works under the same safeguard as the terminal (local access only) and can be turned off with `HABBLAUD_MENSAGENS=0`.
   Read the warning in [Privacy and security](#privacy-and-security).
   From the [phone with login](#phone-with-login-and-https-approving-requests), only with `messages` in `HABBLAUD_REMOTE_ALLOW`.
@@ -1162,7 +1163,8 @@ say which folder it's in (it only creates the session lock), and without the fol
 The box only shows up for main agents whose session has the `habblaud-mensagens` plugin connected: run
 `npm run mod:status` (it says, per account, whether the plugin is installed and whether Habblaud has messages turned on) and, in
 sessions opened before the install, `/reload-plugins`. Without the plugin, the agent's details show the install
-hint. Messages follow the terminal's safeguard and `HABBLAUD_MENSAGENS=0` turns them off; the startup log
+hint. A non-interactive session (`claude -p`, SDK) never receives messages, with or without the plugin: its terminal
+shows "Non-interactive session" in place of the box. Messages follow the terminal's safeguard and `HABBLAUD_MENSAGENS=0` turns them off; the startup log
 (`npm run docker:logs`) says whether they're on and, if they aren't, why. A message that stays **queued** and fails
 with "the session didn't fetch the message" means the session stopped asking Habblaud (it closed, or the plugin was
 turned off).
