@@ -274,9 +274,10 @@ comprobando la huella digital que mostró el setup.
   el contenedor.
 - **Dirección propia** (p. ej., `meuclaude.home`): entra en el certificado, pero el celular solo la encuentra con una
   entrada en el DNS del router que apunte a la IP de la computadora. `<nome>.local` funciona sin configurar nada.
-- **Qué puede hacer el celular:** por defecto, aprobar y rechazar solicitudes de permiso. `HABBLAUD_REMOTE_ALLOW` en
-  el `.env` acepta `permissions`, `messages`, `terminal` y `spawn`, separados por comas, o `none` (solo ver). La
-  terminal interactiva nunca funciona desde el celular.
+- **Qué puede hacer el celular:** por defecto, aprobar y rechazar solicitudes de permiso y empezar la fiesta en la
+  oficina. `HABBLAUD_REMOTE_ALLOW` en el `.env` acepta `permissions`, `messages`, `terminal` y `spawn`, separados por
+  comas, o `none` (solo ver, sin fiesta). La fiesta funciona con cualquier lista, menos `none`. La terminal interactiva
+  nunca funciona desde el celular.
 - **Entregas** (celular, con `terminal` permitido): el botón de la cajita en la barra superior lista lo que terminó
   cada agente, con un resumen y adjuntos (capturas de pantalla, PDFs, archivos que envió) que se abren con un toque.
 - **Nuevo agente** (el botón **+**): inicia una sesión de Claude Code en segundo plano en la computadora (`claude --bg`,
@@ -758,7 +759,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_TERMINAL` | activada (solo con acceso local) | `0` desactiva la terminal, responder y enviar mensajes desde la oficina y el editor de personajes. Con el puerto expuesto ya quedan desactivados, sin opción de activarlos. |
 | `HABBLAUD_PTY` | desactivada | `1` activa la terminal interactiva (abrir, tomar el control y cerrar sesiones de Claude Code desde la oficina; solo con acceso local y fuera de Docker) y **Nuevo agente** (también en Docker, a través de `npm run codex:bridge`). Lee el aviso en [Privacidad y seguridad](#privacidad-y-seguridad). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` del PATH | El ejecutable de Claude Code que ejecutan la terminal interactiva y Nuevo agente. |
-| `HABBLAUD_REMOTE_ALLOW` | `permissions` | Lo que puede hacer el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes): `permissions`, `messages`, `terminal`, `spawn` (separados por comas) o `none`. Las demás `HABBLAUD_REMOTE_*` las escribe `npm run remote:setup`. |
+| `HABBLAUD_REMOTE_ALLOW` | `permissions` | Lo que puede hacer el [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes): `permissions`, `messages`, `terminal`, `spawn` (separados por comas) o `none`. La fiesta en la oficina funciona siempre, menos con `none`. Las demás `HABBLAUD_REMOTE_*` las escribe `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activados (con la terminal) | `0` desactiva solo los mensajes desde la oficina (el cuadro en la terminal y en los detalles del agente). |
 | `HABBLAUD_CODEX` | activado | `0` desactiva Codex en la oficina. |
 | `HABBLAUD_CODEX_DIRS` | detección automática | Carpetas de Codex, separadas por comas (en lugar de `~/.codex*` y `CODEX_HOME`). |
@@ -930,6 +931,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/timeline/:dia` | Línea de tiempo de un día (`AAAA-MM-DD`), en JSONL (con gzip). |
 | `GET /api/health` | Salud: versión, demostración, Docker, terminal, responder y enviar mensajes desde la oficina, fuentes y estado del uso de cada cuenta. |
 | `POST /api/demo` | `{"enabled": true \| false}` activa o desactiva los agentes simulados. |
+| `POST /api/party` | Fiesta en la oficina: `{"room": sala, "seconds": 120}` (los dos opcionales; por defecto: la sala con más agentes, durante 2 min). Todos los personajes van a celebrar a la sala y después vuelven; solo visual, las sesiones no cambian. `DELETE /api/party` la termina antes. Desde el acceso local o el celular con inicio de sesión (menos con `none` en `HABBLAUD_REMOTE_ALLOW`). |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` cambia el nombre de la sala (vacío vuelve al nombre de la carpeta); el nombre queda en `rooms.json`, en la carpeta de datos. Solo con acceso local. |
 | `GET /api/mod/summary` | Para el mod de Claude Code: versión, cuántos agentes hay, cuántos trabajan y quién te necesita (sin la demo y, con `?account=&session=`, sin la propia sesión). |
 | `/api/permissions…` | Responder desde la oficina: el hook de permisos registra la solicitud (permiso o pregunta) y espera; la página busca el detalle y decide o responde. Solo con acceso local. |

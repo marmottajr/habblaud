@@ -451,17 +451,23 @@ export class Overlay {
     return this.sim.roomFx.active.size && this.sim.roomFx.alarmOwner(ch.id, this.sim.now) ? Math.max(lift, 13) : lift;
   }
 
-  /** Faixa da festa/alarme (eventos do GitHub) no alto do piso de cada sala com efeito. */
+  /**
+   * Faixa da festa/alarme (eventos do GitHub) no alto do piso de cada sala com efeito, e a da festa no escritório na
+   * sala anfitriã (logo abaixo da faixa da própria sala, se ela também tiver uma).
+   */
   private drawFxBanners(now: number, zoom: number): void {
     const fxs = this.sim.roomFx.active;
-    if (!fxs.size) return;
+    const office = this.sim.party.fx;
+    if (!fxs.size && !office) return;
     const { camera } = this;
-    for (const fx of fxs.values()) {
+    const all = office ? [...fxs.values(), office] : fxs.values();
+    for (const fx of all) {
       const room = this.sim.rooms.get(fx.roomId);
       if (!room || !room.present || now >= fx.end) continue;
       const r = room.layout.rect;
+      const below = fx === office && !!this.sim.roomFx.get(fx.roomId, now);
       const cx = this.sx((r.x + r.w / 2) * TILE);
-      const top = this.sy((r.y + 2) * TILE) + 4;
+      const top = this.sy((r.y + 2) * TILE) + 4 + (below ? 26 : 0);
       if (cx < -200 || cx > camera.viewW + 200 || top < -40 || top > camera.viewH + 40) continue;
       const b = drawFxBanner(this.ctx, fx, cx, top, r.w * TILE * zoom - 12, now, (f, t, w) => this.fit(f, t, w), (f, t) => this.measure(f, t));
       if (b) this.place(b.x, b.y, b.w, b.h);

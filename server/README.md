@@ -79,6 +79,8 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/timeline/:dia` | o arquivo do dia (`AAAA-MM-DD`) em JSONL (`application/x-ndjson`, gzip se aceito); 400 para dia inválido, 404 sem gravação |
 | `GET /api/health` | `{ok, version, demo, docker, terminal, permissions, messages, updates:{state, latest, available}, sources, accounts:[{id, usageStatus}]}` |
 | `POST /api/demo` | `{enabled: boolean}` liga/desliga agentes simulados (misturados aos reais) |
+| `POST /api/party` | festa no escritório (`shared/party.ts`): `{room?: id ou nome, seconds?: 10..600}` (padrão: a sala com mais agentes, 120 s); `200 {ok, party: OfficeParty, room}` e o snapshot passa a levar `party` até o fim. Só visual: agentes e sessões não mudam. Porta local com `Host` local; pela remota, com qualquer `HABBLAUD_REMOTE_ALLOW` menos `none` |
+| `DELETE /api/party` | encerra a festa antes da hora: `{ok, ended}`; mesma trava |
 | `GET /api/mod/summary?account=&session=` | `ModSummary` para o mod do Claude Code: `{version, agents, working, waiting:[{id, name, room, account, waitingFor, since, answerable}]}`, sem o demo e sem a sessão de quem pergunta (ver abaixo) |
 | `GET /api/updates` | `{version, ...UpdateStatus}`: versão em uso e o resultado da verificação de versão nova (ver abaixo) |
 | `POST /api/updates/check` | "Verificar agora": consulta o GitHub (no máximo uma vez a cada 30 s) e devolve `{version, ...UpdateStatus}` |

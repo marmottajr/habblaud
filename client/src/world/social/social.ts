@@ -107,6 +107,8 @@ export class Social {
   canJoin(c: Character, now: number): boolean {
     if (c.gone || c.leaving || c.arriving || c.inside || c.gathering) return false;
     if (c.mode !== 'idle' && c.mode !== 'shell') return false;
+    // festa no escritório: ninguém começa uma roda (todos estão na festa)
+    if (this.sim.party.on(now)) return false;
     if (c.step || c.queue.length) return false;
     if (!c.homeSpot || c.atSpot !== c.homeSpot) return false;
     if (now < c.reactUntil) return false;

@@ -22,6 +22,7 @@ import { AUDIO_BODY_MAX, type DictationService } from '../dictation/dictation';
 import type { DeliveryIndex } from '../deliveries/deliveries';
 import type { FileFetcher } from '../deliveries/fetcher';
 import { HOST_WAIT_MS } from '../host-wait';
+import { parsePartyRequest } from '../../shared/party';
 
 export interface ApiDeps {
   office: Office;
@@ -399,6 +400,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           terminal: !!terminals && trusted(req, 'terminal'),
           spawn: !!deps.spawn && trusted(req, 'spawn'),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
+          party: trusted(req, 'party'),
         };
         sendJson(res, 200, access);
       }
@@ -675,6 +677,31 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
             const name = deps.renameRoom?.(b.id, b.name);
             if (name === undefined) throw new HttpError(404, tr('sala não encontrada'));
             sendJson(res, 200, { name });
+          })
+          .catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/party') {
+      // Festa no escritório (só visual: não mexe nas sessões). Muda o que todos veem, então a trava das outras ações:
+      // porta local com Host local; pela porta remota, com qualquer HABBLAUD_REMOTE_ALLOW menos "none" (só ver).
+      if (method !== 'POST' && method !== 'DELETE') methodNotAllowed(res, 'POST, DELETE');
+      else if (!trusted(req, 'party')) {
+        req.resume();
+        sendJson(res, 403, { error: denied(req, tr('a festa só é começada pelo próprio computador (http://localhost)')) });
+      } else if (method === 'DELETE') {
+        req.resume();
+        sendJson(res, 200, { ok: true, ended: office.endParty() });
+      } else
+        readJson(req)
+          .then((body) => {
+            const r = parsePartyRequest(body);
+            if ('error' in r) throw new HttpError(400, r.error);
+            const started = office.startParty(r);
+            if ('error' in started) {
+              if (started.error === 'unknown') throw new HttpError(404, tr('sala não encontrada'));
+              throw new HttpError(409, tr('nenhuma sala no escritório para a festa'));
+            }
+            sendJson(res, 200, { ok: true, party: started.party, room: started.roomName });
           })
           .catch((err) => fail(res, err));
       return true;

@@ -268,9 +268,10 @@ Install a certificate › CA certificate), checking the fingerprint the setup sh
   address creates a new CA (install the certificate on the phone again). The CA key never goes into the container.
 - **Own address** (e.g. `meuclaude.home`): goes into the certificate, but the phone only finds it with an entry in the
   router's DNS pointing to the computer's IP. `<nome>.local` works without configuring anything.
-- **What the phone can do:** by default, approve and deny permission requests. `HABBLAUD_REMOTE_ALLOW` in `.env`
-  accepts `permissions`, `messages`, `terminal` and `spawn`, separated by commas, or `none` (view only). The
-  interactive terminal never works from the phone.
+- **What the phone can do:** by default, approve and deny permission requests and start the office party.
+  `HABBLAUD_REMOTE_ALLOW` in `.env` accepts `permissions`, `messages`, `terminal` and `spawn`, separated by commas, or
+  `none` (view only, no party). The party works with any list except `none`. The interactive terminal never works from
+  the phone.
 - **Deliveries** (phone, with `terminal` allowed): the box button in the top bar lists what each agent finished, with
   a summary and attachments (screenshots, PDFs, files it sent) that open with a tap.
 - **New agent** (the **+** button): starts a Claude Code session in the background on the computer (`claude --bg`, in
@@ -724,7 +725,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_TERMINAL` | on (local access only) | `0` turns off the terminal, answering and sending messages from the office, and the character editor. With the port exposed they're already off, with no way to turn them on. |
 | `HABBLAUD_PTY` | off | `1` turns on the interactive terminal (open, take over and end Claude Code sessions from the office; local access only and outside Docker) and **New agent** (also in Docker, through `npm run codex:bridge`). Read the warning in [Privacy and security](#privacy-and-security). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` from PATH | The Claude Code executable that the interactive terminal and New agent run. |
-| `HABBLAUD_REMOTE_ALLOW` | `permissions` | What the [phone with login](#phone-with-login-and-https-approving-requests) can do: `permissions`, `messages`, `terminal`, `spawn` (comma-separated) or `none`. The other `HABBLAUD_REMOTE_*` are written by `npm run remote:setup`. |
+| `HABBLAUD_REMOTE_ALLOW` | `permissions` | What the [phone with login](#phone-with-login-and-https-approving-requests) can do: `permissions`, `messages`, `terminal`, `spawn` (comma-separated) or `none`. The office party always works, except with `none`. The other `HABBLAUD_REMOTE_*` are written by `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | on (with the terminal) | `0` turns off only messages from the office (the box in the terminal and in the agent's details). |
 | `HABBLAUD_CODEX` | on | `0` turns off Codex in the office. |
 | `HABBLAUD_CODEX_DIRS` | automatic detection | Codex folders, comma-separated (instead of `~/.codex*` and `CODEX_HOME`). |
@@ -896,6 +897,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/timeline/:dia` | A day's timeline (`AAAA-MM-DD`), in JSONL (gzipped). |
 | `GET /api/health` | Health: version, demo, Docker, terminal, answering and sending messages from the office, sources and usage status of each account. |
 | `POST /api/demo` | `{"enabled": true \| false}` turns the simulated agents on or off. |
+| `POST /api/party` | Office party: `{"room": room, "seconds": 120}` (both optional; default: the room with the most agents, for 2 min). Every character goes to celebrate in that room and then goes back; visual only, the sessions don't change. `DELETE /api/party` ends it early. From local access or the phone with login (except with `none` in `HABBLAUD_REMOTE_ALLOW`). |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renames the room (empty goes back to the folder name); the name is stored in `rooms.json`, in the data folder. Local access only. |
 | `GET /api/mod/summary` | For the Claude Code mod: version, how many agents, how many are working and who needs you (without the demo and, with `?account=&session=`, without its own session). |
 | `/api/permissions…` | Answering from the office: the permission hook registers the request (permission or question) and waits; the page fetches the details and decides or answers. Local access only. |

@@ -234,6 +234,20 @@ export interface RoomEffect {
 }
 
 /**
+ * Festa no escritório (POST /api/party; shared/party.ts): até `until`, todos os personagens presentes vão para a sala
+ * `roomId` comemorar e depois voltam cada um para a sua. Só visual: as sessões e os agentes não mudam (o `roomId` de
+ * cada agente continua o da sala dele).
+ */
+export interface OfficeParty {
+  /** Sala anfitriã. */
+  roomId: string;
+  /** Início (epoch ms, relógio do servidor): uma festa nova tem outro `at`. */
+  at: number;
+  /** Fim previsto (epoch ms, relógio do servidor). */
+  until: number;
+}
+
+/**
  * Verificação de versão nova: o servidor consulta a release mais recente do repositório no GitHub
  * (server/updates/checker.ts) e compara com a versão em uso.
  */
@@ -345,6 +359,8 @@ export interface OfficeSnapshot {
   ptys?: PtyInfo[];
   /** Contas do Claude detectadas (com uso de 5h/semanal quando disponível). */
   accounts: AccountInfo[];
+  /** Festa no escritório em andamento (POST /api/party). Ausente = nenhuma. */
+  party?: OfficeParty;
   meta: {
     demo: boolean;
     sources: SourceInfo[];
@@ -403,6 +419,11 @@ export interface AccessInfo {
    * com Host local. Ausente em servidores antigos.
    */
   world?: boolean;
+  /**
+   * Pode começar e encerrar a festa no escritório (POST/DELETE /api/party): porta local com Host local ou, pela porta
+   * remota, só com `party` em HABBLAUD_REMOTE_ALLOW. Ausente em servidores antigos.
+   */
+  party?: boolean;
 }
 
 export interface FeedItem {

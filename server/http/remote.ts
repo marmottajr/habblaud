@@ -8,8 +8,8 @@
 // Configuração (escrita por `npm run remote:setup`, scripts/remote-setup.ts):
 //   HABBLAUD_REMOTE_USER + HABBLAUD_REMOTE_PASSWORD_HASH  ligam a porta (o hash é scrypt, ver remote/password.ts;
 //                                                         senha em texto puro não é aceita)
-//   HABBLAUD_REMOTE_ALLOW   o que a sessão remota pode fazer além de ver: permissions, messages, terminal ("none" = só
-//                           ver). Padrão: permissions.
+//   HABBLAUD_REMOTE_ALLOW   o que a sessão remota pode fazer além de ver: permissions, messages, terminal, spawn
+//                           ("none" = só ver). Padrão: permissions. A festa (party) vale sempre, menos com "none".
 //   HABBLAUD_REMOTE_TLS_DIR pasta com server.key, server.crt (e ca.crt, servido em /remote/ca.crt). Padrão:
 //                           /remote-tls no Docker, ~/.habblaud/remote-tls/server no Node. Sem certificado a porta não
 //                           sobe, a menos que HABBLAUD_REMOTE_INSECURE_HTTP=1 (HTTP puro: senha e cookie à vista na rede).
@@ -29,9 +29,9 @@ import { parsePasswordHash, verifyPassword, type PasswordHash } from '../remote/
 import { hostAllowed } from './guard';
 import { getLocale, tr } from '../../shared/i18n';
 
-export type RemoteFeature = 'permissions' | 'messages' | 'terminal' | 'spawn';
+export type RemoteFeature = 'permissions' | 'messages' | 'terminal' | 'spawn' | 'party';
 
-const FEATURES: readonly RemoteFeature[] = ['permissions', 'messages', 'terminal', 'spawn'];
+const FEATURES: readonly RemoteFeature[] = ['permissions', 'messages', 'terminal', 'spawn', 'party'];
 
 export interface RemoteTls {
   dir: string;
@@ -95,12 +95,12 @@ export function parseRemoteConfig(
 }
 
 export function parseAllow(raw: string | undefined): Set<RemoteFeature> {
-  if (raw === undefined || !raw.trim()) return new Set<RemoteFeature>(['permissions']);
+  if (raw === undefined || !raw.trim()) return new Set<RemoteFeature>(['permissions', 'party']);
   const out = new Set<RemoteFeature>();
-  for (const part of raw.split(',')) {
-    const p = part.trim().toLowerCase();
-    if ((FEATURES as readonly string[]).includes(p)) out.add(p as RemoteFeature);
-  }
+  const parts = raw.split(',').map((part) => part.trim().toLowerCase());
+  for (const p of parts) if ((FEATURES as readonly string[]).includes(p)) out.add(p as RemoteFeature);
+  // A festa é só visual (não mexe nas sessões): vale em toda sessão do celular, menos com "none" (só ver).
+  if (!parts.includes('none')) out.add('party');
   return out;
 }
 

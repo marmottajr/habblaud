@@ -36,6 +36,7 @@ import { TimelapsePlayer } from './timelapse';
 import { Toasts } from './toasts';
 import { UpdateToaster } from './version';
 import { TopBar } from './topbar';
+import { PartyButton } from './party';
 import { UpdateBanner } from './update';
 import { WorldPopups } from './world/world-popups';
 import { WorldChip } from './world/world-chip';
@@ -273,6 +274,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     };
   }
   help = new HelpDialog();
+  // Festa no escritório: todos os personagens comemoram juntos numa sala (só para quem pode começar a festa).
+  const party = new PartyButton(ctx, (n) => toasts.push(n));
+  topbar.addPanelButton(party.button);
   const day = new DayLauncher(ctx, (el) => root.append(el));
   topbar.addPanelButton(day.button);
   // Botão direito numa sala (lista lateral ou escritório): renomear.
@@ -297,7 +301,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster, worldDialog, popups, worldChip];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, pty, history, deliveries, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, party, updateToaster, worldDialog, popups, worldChip];
   if (scene) components.push(scene);
   root.append(worldSocial.el);
   components.push(worldSocial);

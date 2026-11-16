@@ -11,6 +11,7 @@ import type {
   FeedItem,
   Notice,
   NoticeLevel,
+  OfficeParty,
   OfficeSnapshot,
   PermissionDecision,
   PermissionRequestInfo,
@@ -28,6 +29,7 @@ import { nameKey, type AppearanceParts } from '../../shared/appearance';
 import { DemoSimulator } from '../../shared/demo/simulator';
 import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } from '../../shared/github';
 import { hash32 } from '../../shared/hash';
+import { pickPartyRoom, type PartyRequest } from '../../shared/party';
 import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
@@ -158,7 +160,7 @@ export interface CommitResult {
   notices: Notice[];
 }
 
-type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character';
+type NoticeKind = 'arrive' | 'room' | 'wait' | 'deliver' | 'done' | 'leave' | 'shell' | 'shellDone' | 'github' | 'character' | 'party';
 
 /** Pergunta ainda sem resposta (o balão dela já diz que o agente espera você). */
 function isOpenQuestion(a: Activity | undefined): boolean {
@@ -215,6 +217,8 @@ export class Office {
   private bootFeed: FeedItem[] = [];
   /** Festa/alarme das salas (eventos do GitHub). */
   private effects = new RoomEffects();
+  /** Festa no escritório (POST /api/party; shared/party.ts): só visual, não mexe nos agentes. */
+  private party: OfficeParty | null = null;
   private seq = 0;
   private readonly now: () => number;
 
@@ -903,6 +907,39 @@ export class Office {
     return undefined;
   }
 
+  // ---------------------------------------------------------------- festa no escritório
+
+  /**
+   * Começa a festa no escritório (uma festa em andamento recomeça, na sala pedida): todos os personagens presentes vão
+   * comemorar na sala anfitriã até o fim e depois voltam. Só o snapshot muda (OfficeParty); sessões e agentes, não.
+   */
+  startParty(req: PartyRequest): { party: OfficeParty; roomName: string } | { error: 'unknown' | 'empty' } {
+    const now = this.now();
+    const rooms = this.partyRooms();
+    const agents = [...[...this.agents.values()].map((r) => r.info), ...(this.demoSnap?.agents ?? [])];
+    const pick = pickPartyRoom(rooms, agents, req.room);
+    if ('error' in pick) return pick;
+    this.party = { roomId: pick.roomId, at: now, until: now + req.ms };
+    const roomName = this.roomName(pick.roomId);
+    this.notice('party', pick.roomId, 'success', tr('🎉 Festa no escritório em {0}!', [roomName]), pick.roomId, { dedupeKey: `party:${now}` });
+    this.markDirty();
+    return { party: { ...this.party }, roomName };
+  }
+
+  /** Encerra a festa antes da hora; false se não havia festa. */
+  endParty(): boolean {
+    if (!this.party) return false;
+    this.party = null;
+    this.markDirty();
+    return true;
+  }
+
+  /** Salas do escritório agora (reais e do demo), para escolher a anfitriã. */
+  private partyRooms(): { id: string; name: string; slot: number }[] {
+    const ids = new Set([...this.rooms.keys(), ...(this.demoSnap?.rooms ?? []).map((r) => r.id)]);
+    return [...ids].map((id) => ({ id, name: this.roomName(id), slot: this.slots.slotOf(id) ?? Number.MAX_SAFE_INTEGER }));
+  }
+
   // ---------------------------------------------------------------- relógio
 
   /** Avança o demo e remove quem já cumpriu o período de graça. Chamar a cada ~250 ms. */
@@ -928,6 +965,11 @@ export class Office {
     }
     // festa acabou / alarme expirou: o snapshot sai sem o efeito
     if (this.effects.prune(now)) this.markDirty();
+    // festa no escritório acabou (ou a sala anfitriã fechou)
+    if (this.party && (now >= this.party.until || !this.partyRooms().some((r) => r.id === this.party!.roomId))) {
+      this.party = null;
+      this.markDirty();
+    }
     if (removed) {
       const occupied = new Set([...this.agents.values()].map((r) => r.info.roomId));
       for (const id of [...this.rooms.keys()]) if (!occupied.has(id)) this.rooms.delete(id);
@@ -992,6 +1034,7 @@ export class Office {
       rooms,
       agents: [...real, ...demoAgents].map(trim),
       accounts: [...this.deps.accounts(sessions), ...(this.demoSnap?.accounts ?? [])],
+      ...(this.party && this.party.until > now && rooms.some((r) => r.id === this.party!.roomId) ? { party: { ...this.party } } : {}),
       ...(ptys ? { ptys: ptys.list } : {}),
       meta: {
         demo: this.isDemo(),

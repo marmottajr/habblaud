@@ -10,6 +10,17 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Festa no escritório.** Um botão novo na barra do topo (e `POST /api/party`) chama todos os personagens presentes,
+  principais e subagentes, para comemorar juntos numa sala: por padrão a que tem mais agentes, por 2 minutos (`room` e
+  `seconds` escolhem outra sala e outra duração). Cada um vai até um lugar livre, dá pulinhos, ri e conversa debaixo
+  de confete, com uma faixa “Festa no escritório!” na sala; no fim, todos voltam para a própria sala e retomam o que
+  faziam. Quem está esperando você (mão levantada) fica na mesa. É só visual: as sessões, os agentes e o que vai ao
+  Habblaud World não mudam. A festa aparece para todo mundo, celular inclusive; começar e encerrar (`DELETE
+  /api/party`, ou o mesmo botão) pelo próprio computador ou pelo celular com login: o botão cabe na barra do celular
+  e a festa vale com qualquer `HABBLAUD_REMOTE_ALLOW`, menos `none` (só ver).
+
 ### Corrigido
 
 - **Perguntas dos agentes chegam inteiras ao escritório.** No cartão “Pergunta para você” e no alerta da gaveta, a

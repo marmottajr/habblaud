@@ -278,9 +278,10 @@ en vérifiant l'empreinte que le setup a affichée.
   la CA n'entre jamais dans le conteneur.
 - **Adresse propre** (ex. : `meuclaude.home`) : elle figure dans le certificat, mais le téléphone ne la trouve qu'avec
   une entrée dans le DNS du routeur pointant vers l'IP de l'ordinateur. `<nome>.local` fonctionne sans rien configurer.
-- **Ce que le téléphone peut faire :** par défaut, valider et refuser les demandes de permission.
-  `HABBLAUD_REMOTE_ALLOW` dans le `.env` accepte `permissions`, `messages`, `terminal` et `spawn`, séparés par des
-  virgules, ou `none` (consultation seule). Le terminal interactif ne fonctionne jamais depuis le téléphone.
+- **Ce que le téléphone peut faire :** par défaut, valider et refuser les demandes de permission et lancer la fête au
+  bureau. `HABBLAUD_REMOTE_ALLOW` dans le `.env` accepte `permissions`, `messages`, `terminal` et `spawn`, séparés par
+  des virgules, ou `none` (consultation seule, sans fête). La fête marche avec n'importe quelle liste, sauf `none`. Le
+  terminal interactif ne fonctionne jamais depuis le téléphone.
 - **Livraisons** (téléphone, avec `terminal` autorisé) : le bouton en forme de boîte dans la barre du haut liste ce que
   chaque agent a terminé, avec un résumé et des pièces jointes (captures d'écran, PDF, fichiers qu'il a envoyés) qui
   s'ouvrent d'un simple toucher.
@@ -761,7 +762,7 @@ Tout fonctionne sans rien configurer. Si vous avez besoin d'ajuster quelque chos
 | `HABBLAUD_TERMINAL` | activé (en accès local uniquement) | `0` désactive le terminal, la réponse et l'envoi de messages depuis le bureau, et l'éditeur de personnage. Avec le port exposé, ils sont déjà désactivés, sans possibilité de les activer. |
 | `HABBLAUD_PTY` | désactivé | `1` active le terminal interactif (ouvrir, reprendre et fermer des sessions Claude Code depuis le bureau ; uniquement en accès local et hors Docker) et **Nouvel agent** (aussi dans Docker, via `npm run codex:bridge`). Lisez l'avertissement dans [Confidentialité et sécurité](#confidentialité-et-sécurité). |
 | `HABBLAUD_CLAUDE_BIN` | `claude` du PATH | L'exécutable de Claude Code que lancent le terminal interactif et Nouvel agent. |
-| `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
+| `HABBLAUD_REMOTE_ALLOW` | `permissions` | Ce que peut faire le [téléphone avec connexion](#téléphone-avec-connexion-et-https-valider-les-demandes) : `permissions`, `messages`, `terminal`, `spawn` (séparés par des virgules) ou `none`. La fête au bureau marche toujours, sauf avec `none`. Les autres `HABBLAUD_REMOTE_*` sont écrites par `npm run remote:setup`. |
 | `HABBLAUD_MENSAGENS` | activé (avec le terminal) | `0` désactive seulement les messages depuis le bureau (la zone dans le terminal et dans les détails de l'agent). |
 | `HABBLAUD_CODEX` | activé | `0` désactive Codex dans le bureau. |
 | `HABBLAUD_CODEX_DIRS` | détection automatique | Dossiers de Codex, séparés par des virgules (à la place de `~/.codex*` et `CODEX_HOME`). |
@@ -938,6 +939,7 @@ mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins 
 | `GET /api/timeline/:dia` | Chronologie d'un jour (`AAAA-MM-DD`), en JSONL (avec gzip). |
 | `GET /api/health` | Santé : version, démonstration, Docker, terminal, réponse et envoi de messages depuis le bureau, sources et statut de l'utilisation de chaque compte. |
 | `POST /api/demo` | `{"enabled": true \| false}` active ou désactive les agents simulés. |
+| `POST /api/party` | Fête au bureau : `{"room": salle, "seconds": 120}` (les deux facultatifs ; par défaut : la salle qui a le plus d'agents, pendant 2 min). Tous les personnages vont faire la fête dans la salle puis reviennent ; purement visuel, les sessions ne changent pas. `DELETE /api/party` l'arrête plus tôt. Depuis l'accès local ou le téléphone avec connexion (sauf avec `none` dans `HABBLAUD_REMOTE_ALLOW`). |
 | `POST /api/rooms/rename` | `{"id": sala, "name": nome}` renomme la salle (vide = retour au nom du dossier) ; le nom est enregistré dans `rooms.json`, dans le dossier de données. En accès local uniquement. |
 | `GET /api/mod/summary` | Pour le mod de Claude Code : version, nombre d'agents, combien travaillent et qui a besoin de vous (sans la démo et, avec `?account=&session=`, sans la session elle-même). |
 | `/api/permissions…` | Répondre depuis le bureau : le hook de permission enregistre la demande (permission ou question) et attend ; la page récupère le détail et décide ou répond. En accès local uniquement. |

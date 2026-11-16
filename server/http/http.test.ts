@@ -338,6 +338,54 @@ describe('personagem do projeto (PUT/DELETE /api/agents/:id/character)', () => {
   });
 });
 
+describe('festa no escritório (POST/DELETE /api/party)', () => {
+  let env: Awaited<ReturnType<typeof start>>;
+  beforeEach(async () => {
+    env = await start();
+  });
+  afterEach(async () => {
+    await env.close();
+    env.cleanup();
+  });
+
+  const party = (method: string, body: unknown = {}, headers: Record<string, string> = {}) =>
+    fetch(`${env.base}/api/party`, { method, headers: { ...JSON_HEADERS, ...headers }, body: JSON.stringify(body) });
+
+  it('POST começa na sala com mais agentes (ou na pedida) e o snapshot leva a festa; DELETE encerra', async () => {
+    let res = await party('POST');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; room: string; party: { roomId: string; at: number; until: number } };
+    expect(body).toMatchObject({ ok: true, room: 'loja', party: { roomId: '/p/loja' } });
+    expect(body.party.until - body.party.at).toBe(120_000);
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await snapshotOf(env.base)).party).toEqual(body.party);
+    res = await party('POST', { room: 'loja', seconds: 30 });
+    expect(((await res.json()) as { party: { at: number; until: number } }).party).toSatisfy((p: { at: number; until: number }) => p.until - p.at === 30_000);
+    res = await party('DELETE');
+    expect(await res.json()).toEqual({ ok: true, ended: true });
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await snapshotOf(env.base)).party).toBeUndefined();
+    expect(await (await party('DELETE')).json()).toEqual({ ok: true, ended: false });
+  });
+
+  it('400 para duração inválida, 404 para sala desconhecida, 405 para GET', async () => {
+    expect((await party('POST', { seconds: 5 })).status).toBe(400);
+    expect((await party('POST', { room: 'cozinha' })).status).toBe(404);
+    const get = await fetch(`${env.base}/api/party`);
+    expect(get.status).toBe(405);
+    expect(get.headers.get('allow')).toBe('POST, DELETE');
+  });
+
+  it('mesma proteção dos outros POST: JSON, Origin local e Host local (nem um nome de HABBLAUD_ALLOWED_HOSTS)', async () => {
+    const noJson = await fetch(`${env.base}/api/party`, { method: 'POST', body: '{}' });
+    expect(noJson.status).toBe(415);
+    expect((await party('POST', {}, { Origin: 'http://evil.example' })).status).toBe(403);
+    const lan = await raw(env.base, '/api/party', { method: 'POST', headers: { ...JSON_HEADERS, Host: 'habblaud.lan:4747' }, body: '{}' });
+    expect(lan.status).toBe(403);
+    expect((await snapshotOf(env.base)).party).toBeUndefined();
+  });
+});
+
 describe('GET /api/mod/summary (mod do Claude Code)', () => {
   let env: Awaited<ReturnType<typeof start>>;
   const perms = new Map<string, PermissionRequestInfo>();

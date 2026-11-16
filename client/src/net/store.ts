@@ -5,8 +5,9 @@
 // Também cuida da reconexão: quando o navegador desiste do stream (EventSource fechado após erro HTTP,
 // ex.: servidor reiniciando atrás de um proxy), tenta de novo com espera crescente.
 import type { AppearanceParts } from '../../../shared/appearance';
-import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
+import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeParty, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
+import { PARTY_DEFAULT_MS, pickPartyRoom } from '../../../shared/party';
 import { tr } from '../../../shared/i18n';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
@@ -251,7 +252,7 @@ export class OfficeStore {
     if (this.mock) {
       const sim = this.mockSim;
       if (!sim?.decidePermission(id, d)) return tr('Este pedido já foi respondido.');
-      this.applySnapshot(sim.snapshot());
+      this.applySnapshot(this.mockSnapshot(sim));
       return undefined;
     }
     const res = await fetch(`/api/permissions/${encodeURIComponent(id)}/decision`, {
@@ -304,6 +305,67 @@ export class OfficeStore {
     return tr('Não foi possível salvar o personagem (erro {0}).', [res.status]);
   }
 
+  // ---------------------------------------------------------------- festa no escritório
+
+  /**
+   * Começa a festa no escritório (POST /api/party; sem `room`, na sala com mais agentes). Devolve undefined se deu
+   * certo, ou a mensagem de erro (celular com HABBLAUD_REMOTE_ALLOW=none...). No ?mock=1 a festa é local.
+   */
+  async startParty(body: { room?: string; seconds?: number } = {}): Promise<string | undefined> {
+    if (this.mock) return this.mockPartyStart(body.room, body.seconds);
+    if (this.replay) return tr('A festa só funciona com o escritório ao vivo.');
+    return this.partyRequest('POST', body);
+  }
+
+  /** Encerra a festa antes da hora (DELETE /api/party). */
+  async endParty(): Promise<string | undefined> {
+    if (this.mock) {
+      this.mockParty = null;
+      if (this.mockSim) this.applySnapshot(this.mockSnapshot(this.mockSim));
+      return undefined;
+    }
+    return this.partyRequest('DELETE', {});
+  }
+
+  private async partyRequest(method: 'POST' | 'DELETE', body: object): Promise<string | undefined> {
+    let res: Response;
+    try {
+      res = await fetch('/api/party', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } catch {
+      return tr('Sem conexão com o Habblaud.');
+    }
+    if (res.ok) return undefined;
+    try {
+      const data = (await res.json()) as { error?: unknown };
+      if (typeof data.error === 'string') return data.error;
+    } catch {
+      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+    }
+    return tr('erro {0}', [res.status]);
+  }
+
+  /** Festa do ?mock=1 (só nesta página, como o resto do simulador). */
+  private mockParty: OfficeParty | null = null;
+
+  private mockPartyStart(room: string | undefined, seconds: number | undefined): string | undefined {
+    const sim = this.mockSim;
+    if (!sim) return tr('erro {0}', [409]);
+    const snap = sim.snapshot();
+    const pick = pickPartyRoom(snap.rooms, snap.agents, room);
+    if ('error' in pick) return pick.error === 'unknown' ? tr('sala não encontrada') : tr('nenhuma sala no escritório para a festa');
+    const now = Date.now();
+    this.mockParty = { roomId: pick.roomId, at: now, until: now + (seconds ? seconds * 1000 : PARTY_DEFAULT_MS) };
+    this.applySnapshot(this.mockSnapshot(sim, now));
+    return undefined;
+  }
+
+  /** Snapshot do simulador do ?mock=1, com a festa local (se houver). */
+  private mockSnapshot(sim: DemoSimulator, now = Date.now()): OfficeSnapshot {
+    const snap = sim.snapshot(now);
+    const party = this.mockParty;
+    return party && party.until > now && snap.rooms.some((r) => r.id === party.roomId) ? { ...snap, party: { ...party } } : snap;
+  }
+
   // ---------------------------------------------------------------- mensagens pelo escritório
 
   /**
@@ -352,7 +414,7 @@ export class OfficeStore {
       const sim = this.mockSim;
       const ok = !!sim?.receiveMessage(agentId, text);
       Object.assign(msg, { status: ok ? 'delivered' : 'failed', updatedAt: Date.now() }, ok ? {} : { error: tr('o agente saiu do escritório') });
-      if (ok && sim) this.applySnapshot(sim.snapshot());
+      if (ok && sim) this.applySnapshot(this.mockSnapshot(sim));
     }, 1_000);
     return { message: { ...msg } };
   }
@@ -505,11 +567,14 @@ export class OfficeStore {
     this.setConnection('mock');
     const sim = new DemoSimulator(mockOptionsFrom(this.search));
     this.mockSim = sim;
-    this.applySnapshot(sim.snapshot());
+    this.applySnapshot(this.mockSnapshot(sim));
     this.mockTimer = setInterval(() => {
       const now = Date.now();
       const r = sim.tick(now);
-      if (r.changed) this.applySnapshot(sim.snapshot(now));
+      // a festa local acabou: o snapshot sai sem ela
+      const partyOver = !!this.mockParty && this.mockParty.until <= now;
+      if (partyOver) this.mockParty = null;
+      if (r.changed || partyOver) this.applySnapshot(this.mockSnapshot(sim, now));
       this.applyFeed(r.feed);
       r.notices.forEach((n) => this.emit('notice', n));
     }, 250);

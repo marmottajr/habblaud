@@ -52,11 +52,11 @@ describe('parseRemoteConfig', () => {
     const insecure = parseRemoteConfig({ ...base, HABBLAUD_REMOTE_INSECURE_HTTP: '1' }, false, () => false).config;
     expect(insecure?.tls).toBeUndefined();
   });
-  it('liga com padrões: porta 4748, só permissões, certificado da pasta padrão', () => {
+  it('liga com padrões: porta 4748, só permissões (e a festa), certificado da pasta padrão', () => {
     const { config } = parseRemoteConfig({ ...base, HOME: '/h' }, false, TLS_FILES);
     expect(config).toMatchObject({ port: 4748, host: '0.0.0.0', user: 'ana' });
+    expect([...config!.allow]).toEqual(['permissions', 'party']);
     expect(config?.tls?.certFile).toBe('/h/.habblaud/remote-tls/server/server.crt');
-    expect([...config!.allow]).toEqual(['permissions']);
   });
   it('no Docker ignora porta e host (o container escuta sempre em 0.0.0.0:4748) e lê o certificado de /remote-tls', () => {
     const env = { ...base, HABBLAUD_REMOTE_PORT: '9999', HABBLAUD_REMOTE_HOST: '10.0.0.1' };
@@ -66,9 +66,13 @@ describe('parseRemoteConfig', () => {
     expect(parseRemoteConfig(env, false, TLS_FILES).config).toMatchObject({ port: 9999, host: '10.0.0.1' });
   });
   it('HABBLAUD_REMOTE_ALLOW: lista, ignora nomes desconhecidos, "none" = só ver', () => {
-    expect([...parseAllow('messages, Terminal, bogus')]).toEqual(['messages', 'terminal']);
+    // A festa (só visual) vale com qualquer lista, menos "none" (só ver).
+    expect([...parseAllow('messages, Terminal, bogus')]).toEqual(['messages', 'terminal', 'party']);
     expect([...parseAllow('none')]).toEqual([]);
-    expect([...parseAllow('')]).toEqual(['permissions']);
+    expect([...parseAllow(' None ')]).toEqual([]);
+    expect([...parseAllow('')]).toEqual(['permissions', 'party']);
+    expect([...parseAllow(undefined)]).toEqual(['permissions', 'party']);
+    expect([...parseAllow('party')]).toEqual(['party']);
   });
 });
 
@@ -522,6 +526,31 @@ describe('porta remota', () => {
   });
 });
 
+describe('festa no escritório pela porta remota', () => {
+  it('vale em toda sessão do celular, menos só ver (nem com Host imitando localhost); /api/access diz quem pode', async () => {
+    const closed = await start([...parseAllow('none')]);
+    const c1 = await login(closed.remoteBase);
+    for (const method of ['POST', 'DELETE']) {
+      // Connection: close: o Node fecha o socket depois de um DELETE com corpo e o próximo pedido pegaria um socket morto
+      const r = await request(closed.remoteBase, '/api/party', { method, headers: { Cookie: c1, Host: 'localhost', Connection: 'close' }, body: {} });
+      expect(r.status, method).toBe(403);
+      expect(JSON.parse(r.body).error).toMatch(/HABBLAUD_REMOTE_ALLOW/);
+    }
+    expect(JSON.parse((await request(closed.remoteBase, '/api/access', { headers: { Cookie: c1 } })).body).party).toBe(false);
+    // na porta local, sem login, vale o Host local
+    expect(JSON.parse((await request(closed.localBase, '/api/access')).body).party).toBe(true);
+    expect((await request(closed.localBase, '/api/party', { method: 'DELETE', headers: { Connection: 'close' }, body: {} })).status).toBe(200);
+
+    // Lista do .env sem `party` (como a do remote:setup): a festa vale do mesmo jeito.
+    const open = await start([...parseAllow('permissions,messages,terminal,spawn')]);
+    const c2 = await login(open.remoteBase);
+    expect(JSON.parse((await request(open.remoteBase, '/api/access', { headers: { Cookie: c2 } })).body).party).toBe(true);
+    // passou pela trava: escritório sem salas, então não há onde fazer a festa
+    expect((await request(open.remoteBase, '/api/party', { method: 'POST', headers: { Cookie: c2 }, body: {} })).status).toBe(409);
+    expect((await request(open.remoteBase, '/api/party', { method: 'DELETE', headers: { Cookie: c2, Connection: 'close' }, body: {} })).status).toBe(200);
+  });
+});
+
 describe('porta local (inalterada)', () => {
   it('sem login, vale a trava do Host local como antes', async () => {
     const h = await start();
@@ -585,14 +614,16 @@ describe('GET /api/access (o que a página pode fazer)', () => {
       terminal: false,
       spawn: false,
       world: false,
+      party: false,
     });
-    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, terminal: false, spawn: true, world: true });
+    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, terminal: false, spawn: true, world: true, party: true });
     expect(JSON.parse((await request(h.localBase, '/api/access', { headers: { Host: '192.168.1.5:4747' } })).body)).toMatchObject({
       local: false,
       permissions: false,
       messages: false,
       spawn: false,
       world: false,
+      party: false,
     });
     expect((await request(h.remoteBase, '/api/access')).status).toBe(401);
   });

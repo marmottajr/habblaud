@@ -56,7 +56,8 @@ Liga o acesso pelo celular (https://<nome>.local) com usuário, senha e HTTPS.
   --name <nome>        endereço <nome>.local (padrão: habblaud)
   --domain <endereço>  endereço próprio, ex.: meuclaude.home (precisa de uma entrada no DNS do roteador)
   --port <n>           porta no computador (padrão: 443 se estiver livre, senão 4748)
-  --allow <lista>      o que o celular pode fazer: permissions, messages, terminal, spawn, none (padrão: permissions)
+  --allow <lista>      o que o celular pode fazer: permissions, messages, terminal, spawn, none (padrão: permissions;
+                       a festa no escritório vale sempre, menos com none)
   --password-stdin     lê a senha da entrada padrão (automação), em vez de perguntar
   --no-service         não instala o serviço do anúncio <nome>.local (rode npm run remote:mdns você mesmo)
   --off                desliga o acesso pelo celular (tira as linhas do .env e o serviço; mantém a CA)`);

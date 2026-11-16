@@ -31,6 +31,7 @@ import {
 import { Character, dirOf, facing } from './character';
 import { Elevator } from './elevator';
 import { RoomFxState } from './github';
+import { PartyState } from './party';
 import { RoomState } from './room-state';
 import { countShells, latestShellDone, shellLabel, shellStage, shellWaitSince, spinDir, spinPhase, yawnPhase } from './shell';
 import { SpotRegistry } from './spots';
@@ -127,6 +128,8 @@ export class Sim {
   readonly effects: WorldEffect[] = [];
   /** Festa e alarme das salas (eventos do GitHub; sim/github.ts). */
   readonly roomFx = new RoomFxState();
+  /** Festa no escritório (POST /api/party; sim/party.ts): todos vão comemorar na sala anfitriã. */
+  readonly party = new PartyState();
   private lastSnapshot: OfficeSnapshot | null = null;
   /** Desde quando há uma vaga livre antes da última sala (0 = não há). */
   private gapSince = 0;
@@ -200,6 +203,7 @@ export class Sim {
     }
     if (layoutDirty) this.relayout();
     this.roomFx.sync(snap.rooms, input.serverTime, now);
+    this.party.sync(input.party, input.serverTime, now);
 
     // ---- agentes
     const seen = new Set<string>();
@@ -578,6 +582,7 @@ export class Sim {
     this.updateRooms(now);
     this.social.update(now);
     if (this.roomFx.active.size) this.roomFx.update(this, now);
+    this.party.update(this, now);
     for (const ch of this.chars.values()) {
       if (ch.missingSince !== null && !ch.leaving && now - ch.missingSince >= MISSING_DEBOUNCE_MS) this.refreshMode(ch);
       this.runCharacter(ch, dt, now);
@@ -1177,6 +1182,8 @@ export class Sim {
     if (ch.gone) return false;
     if (ch.mode === 'leave') return this.planLeave(ch, now);
     if (ch.mode === 'deliver') return this.planDeliver(ch, now);
+    // festa no escritório: todo mundo que pode vai para a sala anfitriã (no fim, segue daqui para casa)
+    if (this.party.plan(this, ch, now)) return true;
     const room = this.rooms.get(ch.roomId);
     if (!room || !room.present) return this.planLobby(ch, room);
     this.assignHome(ch);
@@ -1912,6 +1919,8 @@ export class Sim {
         ch.nextOutingAt = now + idleSitMs(ch.rng, this.options().liveliness);
       }
     }
+    // festa no escritório: quem vai já está lá
+    this.party.settle(this, now);
     for (const room of this.rooms.values()) {
       if (room.present && this.occupants(room) > 0) room.setLight(true, now - 10_000);
       room.switchClaim = null;

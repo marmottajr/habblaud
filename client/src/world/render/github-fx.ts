@@ -18,6 +18,8 @@ const BANNER_H = 22;
 const SPIN_MS = 900;
 /** Confetes por segundo em cada sala em festa (~160 no ar por sala; o pool tem 600). */
 const CONFETTI_RATE = 42;
+/** Chave do acumulador de confete da festa no escritório (sim/party.ts), separada das salas. */
+const OFFICE_PARTY = '@festa-no-escritorio';
 
 let reducedMq: MediaQueryList | null | undefined;
 
@@ -157,33 +159,37 @@ export class RoomFxRenderer {
     ctx.globalAlpha = 1;
   }
 
-  /** Confete caindo nas salas em festa (antes de as partículas andarem). */
+  /** Confete caindo nas salas em festa e na sala da festa no escritório (antes de as partículas andarem). */
   emit(particles: Particles, sim: Sim, now: number, dt: number, v: View): void {
-    if (!sim.roomFx.active.size) {
+    const office = sim.party.fx;
+    if (!sim.roomFx.active.size && !office) {
       if (this.acc.size) this.acc.clear();
       return;
     }
     const still = reducedMotion();
-    for (const [id, fx] of sim.roomFx.active) {
-      if (fx.kind !== 'party' || now >= fx.end || still) {
-        this.acc.delete(id);
-        continue;
-      }
-      const rects = this.visibleRoom(sim, fx, v);
-      if (!rects) continue;
-      // começa forte e rareia nos últimos 2 s
-      const k = Math.min(1, (fx.end - now) / 2000) * (now - fx.start < 1500 ? 1.6 : 1);
-      let a = (this.acc.get(id) ?? 0) + Math.min(0.1, dt) * CONFETTI_RATE * k;
-      const f = rects.floor;
-      const top = rects.room.y + 4;
-      while (a >= 1) {
-        a -= 1;
-        const y = top + Math.random() * 6;
-        particles.confettiFall(f.x + 2 + Math.random() * (f.w - 4), y, f.y + f.h - 4 - y);
-      }
-      this.acc.set(id, a);
+    for (const [id, fx] of sim.roomFx.active) this.rain(particles, sim, id, fx, now, dt, v, still);
+    if (office) this.rain(particles, sim, OFFICE_PARTY, office, now, dt, v, still);
+    for (const id of this.acc.keys()) if (!sim.roomFx.active.has(id) && !(id === OFFICE_PARTY && office)) this.acc.delete(id);
+  }
+
+  private rain(particles: Particles, sim: Sim, id: string, fx: RoomFx, now: number, dt: number, v: View, still: boolean): void {
+    if (fx.kind !== 'party' || now >= fx.end || still) {
+      this.acc.delete(id);
+      return;
     }
-    for (const id of this.acc.keys()) if (!sim.roomFx.active.has(id)) this.acc.delete(id);
+    const rects = this.visibleRoom(sim, fx, v);
+    if (!rects) return;
+    // começa forte e rareia nos últimos 2 s
+    const k = Math.min(1, (fx.end - now) / 2000) * (now - fx.start < 1500 ? 1.6 : 1);
+    let a = (this.acc.get(id) ?? 0) + Math.min(0.1, dt) * CONFETTI_RATE * k;
+    const f = rects.floor;
+    const top = rects.room.y + 4;
+    while (a >= 1) {
+      a -= 1;
+      const y = top + Math.random() * 6;
+      particles.confettiFall(f.x + 2 + Math.random() * (f.w - 4), y, f.y + f.h - 4 - y);
+    }
+    this.acc.set(id, a);
   }
 
   /**
