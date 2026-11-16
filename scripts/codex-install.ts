@@ -75,11 +75,30 @@ function rec(v: unknown): Rec | undefined {
 }
 
 /**
+ * Caminho entre aspas para o shell em que o Codex roda os hooks. Fora do Windows é `$SHELL -lc` (quotePath). No
+ * Windows é `%COMSPEC% /C "<comando>"` (o cmd.exe), em que aspas simples não são aspas: iriam para o Node como parte
+ * do nome do arquivo e o hook falharia sempre. Lá, aspas duplas sempre (um caminho do Windows nunca tem `"`). Fica
+ * sem tratamento um `%NOME%` no caminho, que o cmd.exe trocaria pelo valor da variável mesmo entre aspas.
+ */
+export function quoteForHookShell(p: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? `"${p}"` : quotePath(p);
+}
+
+/**
  * `node "<hook>"` (ou `"<node>" "<hook>"` com um Node escolhido, ver chooseNode), sem opções: o comando entra no hash
  * da confiança do Codex.
  */
-export function hookCommand(scriptPath: string, nodeBin?: string): string {
-  return `${nodeBin ? quotePath(nodeBin) : 'node'} ${quotePath(scriptPath)}`;
+export function hookCommand(scriptPath: string, nodeBin?: string, platform: NodeJS.Platform = process.platform): string {
+  return `${nodeBin ? quoteForHookShell(nodeBin, platform) : 'node'} ${quoteForHookShell(scriptPath, platform)}`;
+}
+
+/**
+ * Como perguntar a versão do `node` ao shell em que o Codex roda os hooks: `$SHELL -lc` (um shell de login) e, no
+ * Windows, `%COMSPEC% /C` (o cmd.exe, com o PATH do processo; `/d` só pula o AutoRun do registro).
+ */
+export function hookShellProbe(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): { file: string; args: string[] } {
+  if (platform === 'win32') return { file: env.COMSPEC || env.ComSpec || 'cmd.exe', args: ['/d', '/c', 'node --version'] };
+  return { file: env.SHELL || '/bin/sh', args: ['-lc', 'node --version'] };
 }
 
 /** Major de uma versão como `node --version` imprime ("v24.17.0" → 24). */
@@ -90,7 +109,8 @@ export function nodeMajor(version: string | undefined): number | undefined {
 
 /**
  * O Node dos hooks. O Codex roda o hook por `$SHELL -lc`: um shell de LOGIN, que no zsh não lê o .zshrc (onde o nvm
- * costuma estar), então o `node` dele pode ser outro, e antigo. `probe(undefined)` = versão do `node` desse shell;
+ * costuma estar), então o `node` dele pode ser outro, e antigo (no Windows, pelo cmd.exe: ver hookShellProbe).
+ * `probe(undefined)` = versão do `node` desse shell;
  * `probe(caminho)` = versão daquele binário. Shell de login com Node 22+: `node` (comando curto, sobrevive a trocas de
  * versão). Senão, o primeiro candidato 22+ com caminho absoluto; nenhum: `node` mesmo, com aviso.
  */
@@ -555,12 +575,13 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
   return failures ? 1 : 0;
 }
 
-/** Versão de um Node: o do shell de login do Codex (`$SHELL -lc`, bin ausente) ou de um caminho. Falha = undefined. */
+/** Versão de um Node: o do shell em que o Codex roda os hooks (hookShellProbe, bin ausente) ou de um caminho. Falha = undefined. */
 function probeNode(bin: string | undefined): string | undefined {
   try {
     const opts = { encoding: 'utf8' as const, timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] as ['ignore', 'pipe', 'ignore'] };
-    const out = bin ? execFileSync(bin, ['--version'], opts) : execFileSync(process.env.SHELL || '/bin/sh', ['-lc', 'node --version'], opts);
-    return out.trim().split('\n').pop();
+    const shell = hookShellProbe();
+    const out = bin ? execFileSync(bin, ['--version'], opts) : execFileSync(shell.file, shell.args, opts);
+    return out.trim().split('\n').pop()?.trim();
   } catch {
     return undefined;
   }

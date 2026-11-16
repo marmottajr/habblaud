@@ -1145,7 +1145,7 @@ O log de inicialização (`npm run docker:logs`) diz quantas contas do Codex o H
 pasta com `HABBLAUD_CODEX_DIRS` (e rode `npm run docker:up` de novo: no Docker, só as pastas que existiam no
 `docker:up` são montadas). Sem os hooks, o Codex aparece pelos arquivos dele, que só são gravados depois de cada passo:
 rode `npm run codex:install`, **aprove os hooks em `/hooks` no Codex** e confira com `npm run codex:status`. O Codex roda
-os hooks pelo shell de login, que pode ter um Node antigo; o `codex:install` escolhe um Node 22+ e diz qual (ou use
+os hooks pelo shell de login (no Windows, pelo `cmd.exe`), que pode ter um Node antigo; o `codex:install` escolhe um Node 22+ e diz qual (ou use
 `--node <caminho>`). Uma sessão da CLI recém-aberta só aparece com a **primeira mensagem**: antes disso o Codex não
 diz em que pasta ela está (só cria a trava da sessão), e sem a pasta não há sala.
 

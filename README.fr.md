@@ -1206,7 +1206,7 @@ Le journal de démarrage (`npm run docker:logs`) indique combien de comptes Code
 aucun, indiquez le dossier avec `HABBLAUD_CODEX_DIRS` (et relancez `npm run docker:up` : dans Docker, seuls les dossiers
 qui existaient au moment du `docker:up` sont montés). Sans les hooks, Codex apparaît via ses fichiers, qui ne sont écrits
 qu'après chaque étape : lancez `npm run codex:install`, **validez les hooks dans `/hooks` dans Codex** et vérifiez avec
-`npm run codex:status`. Codex lance les hooks via le shell de connexion, qui peut avoir un vieux Node ; `codex:install`
+`npm run codex:status`. Codex lance les hooks via le shell de connexion (sous Windows, via `cmd.exe`), qui peut avoir un vieux Node ; `codex:install`
 choisit un Node 22+ et indique lequel (ou utilisez `--node <caminho>`). Une session de CLI tout juste ouverte n'apparaît
 qu'au **premier message** : avant cela, Codex n'indique pas dans quel dossier elle se trouve (il crée seulement le verrou
 de la session), et sans dossier, pas de salle.

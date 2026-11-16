@@ -1150,7 +1150,7 @@ The startup log (`npm run docker:logs`) says how many Codex accounts Habblaud fo
 folder with `HABBLAUD_CODEX_DIRS` (and run `npm run docker:up` again: in Docker, only the folders that existed at
 `docker:up` are mounted). Without the hooks, Codex shows up through its files, which are only written after each step:
 run `npm run codex:install`, **approve the hooks in `/hooks` in Codex** and check with `npm run codex:status`. Codex runs
-the hooks through the login shell, which may have an old Node; `codex:install` picks a Node 22+ and tells you which one (or use
+the hooks through the login shell (on Windows, through `cmd.exe`), which may have an old Node; `codex:install` picks a Node 22+ and tells you which one (or use
 `--node <caminho>`). A freshly opened CLI session only shows up with the **first message**: before that, Codex doesn't
 say which folder it's in (it only creates the session lock), and without the folder there's no room.
 

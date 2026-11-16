@@ -1193,7 +1193,7 @@ El log de inicio (`npm run docker:logs`) dice cuántas cuentas de Codex encontr�
 indica la carpeta con `HABBLAUD_CODEX_DIRS` (y vuelve a ejecutar `npm run docker:up`: en Docker, solo se montan las
 carpetas que existían al ejecutar `docker:up`). Sin los hooks, Codex aparece por sus archivos, que solo se guardan
 después de cada paso: ejecuta `npm run codex:install`, **aprueba los hooks en `/hooks` en Codex** y compruébalo con
-`npm run codex:status`. Codex ejecuta los hooks con el shell de inicio de sesión, que puede tener un Node antiguo;
+`npm run codex:status`. Codex ejecuta los hooks con el shell de inicio de sesión (en Windows, con `cmd.exe`), que puede tener un Node antiguo;
 `codex:install` elige un Node 22+ y dice cuál (o usa `--node <caminho>`). Una sesión de la CLI recién abierta solo
 aparece con el **primer mensaje**: antes de eso, Codex no dice en qué carpeta está (solo crea el bloqueo de la
 sesión), y sin la carpeta no hay sala.

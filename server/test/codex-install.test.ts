@@ -13,6 +13,7 @@ import {
   handlerFor,
   HOOK_SCRIPT,
   hookCommand,
+  hookShellProbe,
   installState,
   isOurHandler,
   nodeMajor,
@@ -147,6 +148,38 @@ describe('codex-install.ts (funções puras)', () => {
     expect(chooseNode(() => undefined, ['/x/node'])).toEqual({ login: undefined });
     expect(hookCommand('/repo/mod/habblaud-codex/hook.mjs', '/opt/homebrew/bin/node')).toBe('"/opt/homebrew/bin/node" "/repo/mod/habblaud-codex/hook.mjs"');
     expect(scriptPathOf('"/opt/homebrew/bin/node" "/repo/mod/habblaud-codex/hook.mjs"')).toBe('/repo/mod/habblaud-codex/hook.mjs');
+  });
+
+  it('Windows: o Codex roda o hook pelo cmd.exe, então o comando leva aspas duplas (nunca simples) e o Node é o do cmd', () => {
+    const hook = 'C:\\Users\\a b\\habblaud\\mod\\habblaud-codex\\hook.mjs';
+    expect(hookCommand(hook, undefined, 'win32')).toBe(`node "${hook}"`);
+    expect(hookCommand(hook, 'C:\\Program Files\\nodejs\\node.exe', 'win32')).toBe(`"C:\\Program Files\\nodejs\\node.exe" "${hook}"`);
+    expect(scriptPathOf(hookCommand(hook, undefined, 'win32'))).toBe(hook);
+    expect(isOurHandler({ command: hookCommand(hook, undefined, 'win32') })).toBe(true);
+    // Fora do Windows nada muda: caminho com `$` ou `\` vai entre aspas simples (shell POSIX).
+    expect(hookCommand('/a/$b/habblaud-codex/hook.mjs', undefined, 'linux')).toBe("node '/a/$b/habblaud-codex/hook.mjs'");
+    expect(hookShellProbe('win32', { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' })).toEqual({ file: 'C:\\Windows\\System32\\cmd.exe', args: ['/d', '/c', 'node --version'] });
+    expect(hookShellProbe('win32', {})).toEqual({ file: 'cmd.exe', args: ['/d', '/c', 'node --version'] });
+    expect(hookShellProbe('linux', { SHELL: '/bin/zsh' })).toEqual({ file: '/bin/zsh', args: ['-lc', 'node --version'] });
+    expect(hookShellProbe('darwin', {})).toEqual({ file: '/bin/sh', args: ['-lc', 'node --version'] });
+  });
+
+  it.runIf(process.platform === 'win32')('Windows: o comando roda de verdade como o Codex o chama (cmd.exe /C "<comando>")', () => {
+    const t = tempDir();
+    try {
+      const dir = join(t.dir, 'pasta com espaco', 'habblaud-codex');
+      mkdirSync(dir, { recursive: true });
+      const script = join(dir, 'hook.mjs');
+      writeFileSync(script, "process.stdout.write('ok');\n");
+      // O Codex passa o comando inteiro entre um par de aspas, cru (sem escapar as de dentro).
+      const asCodex = (command: string) => spawnSync(process.env.COMSPEC || 'cmd.exe', ['/C', `"${command}"`], { windowsVerbatimArguments: true, encoding: 'utf8', input: '{}' });
+      expect(asCodex(hookCommand(script)).stdout).toBe('ok');
+      expect(asCodex(hookCommand(script, process.execPath)).stdout).toBe('ok');
+      // A forma antiga (aspas simples) é a que falhava: o cmd as entrega ao Node como parte do nome do arquivo.
+      expect(asCodex(`node '${script}'`).status).not.toBe(0);
+    } finally {
+      t.cleanup();
+    }
   });
 });
 

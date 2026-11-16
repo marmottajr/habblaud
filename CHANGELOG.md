@@ -10,6 +10,14 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Codex no Windows: os hooks do Habblaud voltam a rodar.** No Windows o Codex roda os hooks pelo `cmd.exe`, e o
+  `npm run codex:install` gravava o comando com aspas simples, que o `cmd.exe` não entende: todo hook falhava e o
+  Codex só aparecia no escritório pelos arquivos dele, com atraso e sem pedir aprovação. O instalador agora grava o
+  comando com aspas duplas e confere o Node pelo `cmd.exe` (antes procurava por `/bin/sh` e dizia "nenhum Node").
+  Quem já instalou no Windows: rode `npm run codex:install` de novo e aprove os hooks em `/hooks` no Codex.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
