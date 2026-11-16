@@ -236,8 +236,10 @@ describe('PermissionRegistry: perguntas (AskUserQuestion)', () => {
     expect(qs[0]!.question).not.toContain('abcdef123456');
     expect(qs[0]!.multiSelect).toBeUndefined();
     expect(qs[1]).toMatchObject({ header: 'Testes', multiSelect: true, options: [{ index: 0, label: 'Unidade' }, { index: 2, label: 'E2E' }] });
-    expect(commit.feed.map((f) => f.activity)).toEqual([expect.objectContaining({ icon: '❓', text: expect.stringMatching(/^Pergunta: Qual banco usar\?/) })]);
-    expect(commit.notices.map((n) => n.text)).toEqual([expect.stringMatching(/^❓ .+ tem uma pergunta em loja: Qual banco usar\?/)]);
+    // Sem "…": o feed diz que há perguntas; o detalhe, a linha do tempo e o aviso levam as perguntas inteiras.
+    const all = `${qs[0]!.question}\n\n${qs[1]!.question}`;
+    expect(commit.feed.map((f) => f.activity)).toEqual([expect.objectContaining({ icon: '❓', text: 'Perguntas para você', detail: all, questions: qs })]);
+    expect(commit.notices.map((n) => n.text)).toEqual([`❓ ${a.name} tem uma pergunta em loja: ${all}`]);
     expect(commit.notices[0]!.text).not.toContain('abcdef123456');
   });
 

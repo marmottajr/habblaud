@@ -192,9 +192,9 @@ function fitsTitle(v: string): boolean {
   return !v.includes('\n') && v.trim().length <= TITLE_ARG_MAX;
 }
 
-function textInput(raw: string | undefined, kind: TerminalInputKind = 'text'): Pick<ToolView, 'input' | 'inputKind'> {
+function textInput(raw: string | undefined, kind: TerminalInputKind = 'text', max = INPUT_MAX): Pick<ToolView, 'input' | 'inputKind'> {
   if (!raw?.trim()) return {};
-  const input = marked(prepare(raw, INPUT_MAX, Infinity, false));
+  const input = marked(prepare(raw, max, Infinity, false));
   return input ? { input, inputKind: kind } : {};
 }
 
@@ -337,10 +337,10 @@ export function toolView(name: string, input: Rec, cwd?: string): ToolView {
       return { title: titled('Skill', s('skill') ?? s('command')), ...textInput(s('args')) };
     case 'SendMessage':
       return { title: titled('SendMessage', s('to')), ...textInput(s('message') ?? s('content')) };
-    case 'AskUserQuestion': {
-      const first = Array.isArray(input.questions) ? str(rec(input.questions[0])?.question) : undefined;
-      return { title: titled('AskUserQuestion', first), ...textInput(questionsText(input.questions)) };
-    }
+    case 'AskUserQuestion':
+      // As perguntas vão inteiras logo abaixo (o teto dos prompts, não o dos argumentos), então o título não repete a
+      // primeira cortada com "…".
+      return { title: 'AskUserQuestion', ...textInput(questionsText(input.questions), 'text', TEXT_MAX) };
     case 'ExitPlanMode':
       return { title: 'ExitPlanMode', ...textInput(s('plan')) };
     case 'SubagentHandback':

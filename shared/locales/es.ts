@@ -1821,7 +1821,6 @@ export const ES: Readonly<Record<string, string>> = {
   "esperado o JSON do hook PermissionRequest (session_id e tool_name)": "se esperaba el JSON del hook PermissionRequest (session_id y tool_name)",
   "Pedidos de permissão: falha no relógio ({0}).": "Solicitudes de permiso: error en el reloj ({0}).",
   " (subagente {0})": " (subagente {0})",
-  "Pergunta: {0}": "Pregunta: {0}",
   "Pede permissão: {0}": "Pide permiso: {0}",
 
   // server/pty/manager.ts

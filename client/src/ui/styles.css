@@ -2209,10 +2209,13 @@
   color: var(--st-waiting);
 }
 
+/* A pergunta chega inteira, com as quebras de linha (listas, parágrafos): mostra tudo, sem "…". */
 .ui-ask__question {
   font-size: 12.5px;
   font-weight: 600;
   color: #fff3df;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .ui-ask__hint {
@@ -2238,6 +2241,8 @@
   display: block;
   opacity: 0.8;
   font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @keyframes ui-alert-in {
@@ -2411,6 +2416,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A pergunta inteira de um AskUserQuestion, embaixo da linha (sem "…"; no celular não há tooltip). */
+.ui-tl__question {
+  grid-column: 2 / -1;
+  margin: -2px 0 5px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #ffe8c4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .ui-tl.is-error .ui-tl__text {
@@ -2598,11 +2614,18 @@
   padding: 9px 4px 9px 12px;
 }
 
+/* O texto vai inteiro (a pergunta de um agente chega completa, com as quebras de linha); um texto muito longo rola
+   dentro do aviso em vez de cobrir a tela, no computador e no celular. */
 .ui-toast__text {
   flex: 1;
   min-width: 0;
+  max-height: min(40vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   font-size: 12.5px;
   line-height: 1.35;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .ui-toast__count {
@@ -4196,6 +4219,11 @@
     left: var(--gap);
     right: var(--gap);
     width: auto;
+  }
+
+  /* No celular a pergunta inteira rola dentro do aviso, sem tomar a faixa do escritório. */
+  .ui-toast__text {
+    max-height: 30vh;
   }
 
   /* Com a folha de detalhes aberta sobra uma faixa curta do escritório: só o aviso mais novo aparece. */

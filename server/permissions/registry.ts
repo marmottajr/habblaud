@@ -16,7 +16,7 @@
 // sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
 // terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
 import { randomBytes } from 'node:crypto';
-import { describeTool, maskSecrets, truncate } from '../../shared/activity';
+import { askDetail, describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
 import type { Activity, AgentInfo, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
@@ -436,9 +436,13 @@ export class PermissionRegistry {
     const by = target.subagent ? tr(' (subagente {0})', [target.subagent]) : '';
     const first = info.questions?.[0]?.question;
     if (first) {
-      const all = info.questions!.map((q) => q.question).join(' · ');
-      this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '❓', text: truncate(tr('Pergunta: {0}', [first]), 46), detail: truncate(all, 300), tool: 'PermissionRequest' }, false);
-      this.opts.office.noticePermission(target.id, `${truncate(first, 120)}${by}`, 'question');
+      // A pergunta inteira (sem "…"): no detalhe, na linha do tempo e no aviso. A linha curta do feed só diz que há
+      // pergunta, sem cortar o texto dela no meio.
+      const qs = info.questions!;
+      const all = askDetail(qs);
+      const label = qs.length > 1 ? tr('Perguntas para você') : tr('Pergunta para você');
+      this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '❓', text: label, detail: all, questions: qs, tool: 'PermissionRequest' }, false);
+      this.opts.office.noticePermission(target.id, `${all}${by}`, 'question');
     } else {
       this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '🔐', text: truncate(tr('Pede permissão: {0}', [desc.text]), 46), detail: view.title, tool: 'PermissionRequest' }, false);
       this.opts.office.noticePermission(target.id, `${desc.text}${by}`);

@@ -500,6 +500,8 @@ function toolInput(t: ToolEntry): HTMLElement | null {
   if (!showToolInput(t)) return null;
   const kind = t.inputKind ?? 'text';
   const input = t.input!.replace(/\s+$/, '');
+  // A pergunta de um AskUserQuestion aparece inteira, sem recolher atrás do "…".
+  if (t.title === 'AskUserQuestion') return collapsible(input, Infinity, 'ui-term__in ui-term__in--text');
   if (kind === 'diff') return collapsible(input, INPUT_PREVIEW_LINES, 'ui-term__in ui-term__in--diff', fillDiff);
   if (kind === 'command') {
     const box = collapsible(input, INPUT_PREVIEW_LINES, 'ui-term__in ui-term__in--command');

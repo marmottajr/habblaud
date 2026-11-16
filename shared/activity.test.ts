@@ -10,6 +10,7 @@ import {
   shellWords,
   SPECIAL,
   splitShell,
+  truncateBlock,
 } from './activity';
 
 describe('describeCommand', () => {
@@ -203,7 +204,7 @@ describe('AskUserQuestion no escritório', () => {
         { question: 'Quais testes rodar?', multiSelect: true, options: [{ label: 'Unidade' }, { label: 'E2E' }] },
       ],
     });
-    expect(d).toMatchObject({ kind: 'ask', text: 'Fazendo uma pergunta a você', detail: 'Qual banco usar?' });
+    expect(d).toMatchObject({ kind: 'ask', text: 'Fazendo uma pergunta a você', detail: 'Qual banco usar?\n\nQuais testes rodar?' });
     expect(d.questions).toEqual([
       {
         index: 0,
@@ -231,5 +232,31 @@ describe('AskUserQuestion no escritório', () => {
 
   it('sem perguntas válidas, não cria o campo', () => {
     expect(describeTool('AskUserQuestion', {}).questions).toBeUndefined();
+  });
+
+  it('leva a pergunta longa inteira, com as quebras de linha, sem "…" (dá para ler sem abrir o terminal)', () => {
+    const question = `Achei dois jeitos de resolver:\r\n\n\n\n1. ${'trocar o cache de lugar '.repeat(30)}  \n2. reescrever o login\n\nQual prefere?`;
+    const description = `Mais simples.\n${'muda só um arquivo '.repeat(20)}`;
+    const d = describeTool('AskUserQuestion', { questions: [{ question, options: [{ label: 'Cache', description }, { label: 'Login' }] }] });
+    const q = d.questions![0]!;
+    expect(q.question).toBe(`Achei dois jeitos de resolver:\n\n1. ${'trocar o cache de lugar '.repeat(30).trimEnd()}\n2. reescrever o login\n\nQual prefere?`);
+    expect(q.question).not.toContain('…');
+    expect(q.options[0]!.description).toBe(description.trimEnd());
+    // O detalhe (Atividade atual, linha do tempo) também vai inteiro; a linha curta da atividade é um rótulo fixo.
+    expect(d.detail).toBe(q.question);
+    expect(d.text).toBe('Fazendo uma pergunta a você');
+  });
+
+  it('só corta num teto generoso (texto absurdo)', () => {
+    const q = describeTool('AskUserQuestion', { questions: [{ question: 'x'.repeat(50_000), options: [] }] }).questions![0]!;
+    expect(q.question.length).toBe(4_000);
+    expect(q.question.endsWith('…')).toBe(true);
+  });
+});
+
+describe('truncateBlock', () => {
+  it('mantém as linhas, tira espaços do fim e junta as linhas em branco repetidas', () => {
+    expect(truncateBlock('  a  \r\nb\t\n\n\n\nc  ', 100)).toBe('a\nb\n\nc');
+    expect(truncateBlock('abcdef', 4)).toBe('abc…');
   });
 });

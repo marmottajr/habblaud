@@ -113,11 +113,16 @@ function createTimelineItem(): HTMLElement {
     h('span', { class: 'ui-tl__icon', attrs: { 'aria-hidden': 'true' } }),
     h('span', { class: 'ui-tl__text' }),
     h('time', { class: 'ui-tl__time' }),
+    // A pergunta inteira (AskUserQuestion), embaixo da linha: no celular não há o title ao passar o mouse.
+    h('span', { class: 'ui-tl__question', hidden: true }),
   );
 }
 
 function updateTimelineItem(li: HTMLElement, a: Activity, now: number, who?: string): void {
-  const [icon, text, time] = li.children as unknown as HTMLElement[];
+  const [icon, text, time, question] = li.children as unknown as HTMLElement[];
+  const asked = a.questions?.length && a.detail ? a.detail : '';
+  setText(question, asked);
+  setHidden(question, !asked);
   setText(icon, a.icon);
   setText(text, who ? `${who}: ${a.text}` : a.text);
   setText(time, relativeTime(a.at, now));

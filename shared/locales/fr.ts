@@ -1682,7 +1682,6 @@ export const FR: Readonly<Record<string, string>> = {
   "esperado o JSON do hook PermissionRequest (session_id e tool_name)": "JSON du hook PermissionRequest attendu (session_id et tool_name)",
   "Pedidos de permissão: falha no relógio ({0}).": "Demandes de permission : échec de l'horloge ({0}).",
   " (subagente {0})": " (sous-agent {0})",
-  "Pergunta: {0}": "Question : {0}",
   "Pede permissão: {0}": "Demande la permission : {0}",
 
   // server/sources/codex/history.ts

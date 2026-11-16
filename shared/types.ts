@@ -79,7 +79,10 @@ export interface Activity {
   icon: string;
   /** Texto curto em PT-BR (até ~46 caracteres). Ex.: "Editando App.tsx". */
   text: string;
-  /** Detalhe opcional (comando completo, caminho, consulta...), até ~300 caracteres. */
+  /**
+   * Detalhe opcional (comando completo, caminho, consulta...), até ~300 caracteres. Nas perguntas (com `questions`),
+   * as perguntas inteiras, com as quebras de linha.
+   */
   detail?: string;
   /** Nome bruto da ferramenta, quando houver. */
   tool?: string;
@@ -87,17 +90,21 @@ export interface Activity {
   at: number;
   durationMs?: number;
   error?: boolean;
-  /** Perguntas completas de um AskUserQuestion (kind 'ask'), para o escritório mostrar as opções. */
+  /**
+   * Perguntas completas de um AskUserQuestion (kind 'ask', ou o 'wait' do pedido no escritório), para o escritório
+   * mostrar as opções e a pergunta inteira.
+   */
   questions?: AskQuestion[];
 }
 
 /**
- * Uma pergunta do AskUserQuestion, já mascarada e cortada. Com o pedido no escritório (PermissionRequestInfo.questions),
- * dá para responder por lá; senão a resposta é dada no Claude Code.
+ * Uma pergunta do AskUserQuestion, já mascarada (e cortada só num teto generoso). Com o pedido no escritório
+ * (PermissionRequestInfo.questions), dá para responder por lá; senão a resposta é dada no Claude Code.
  */
 export interface AskQuestion {
   /** Posição da pergunta em `tool_input.questions` (entradas inválidas são puladas, então pode haver saltos). */
   index: number;
+  /** O texto inteiro, com as quebras de linha (a página mostra com `white-space: pre-wrap`). */
   question: string;
   header?: string;
   multiSelect?: boolean;

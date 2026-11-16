@@ -10,6 +10,16 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Perguntas dos agentes chegam inteiras ao escritório.** No cartão “Pergunta para você” e no alerta da gaveta, a
+  pergunta do AskUserQuestion parava em 300 caracteres com “…” (e as opções, em 80 e 200), juntando as linhas numa
+  só, e era preciso abrir o terminal para ler o resto. Agora a pergunta e a descrição de cada opção aparecem
+  completas, com as quebras de linha (listas, parágrafos). E não só no cartão: o aviso “tem uma pergunta” (e a
+  notificação do navegador), a linha do tempo da gaveta, os Detalhes da atividade e o terminal também trazem a
+  pergunta inteira, sem “…”, no computador e no celular (um texto muito longo rola dentro do aviso). A linha curta do
+  feed diz só “Pergunta para você”, em vez de cortar a pergunta no meio.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

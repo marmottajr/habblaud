@@ -13,28 +13,56 @@ export interface ActivityDescription {
 
 const MAX_QUESTIONS = 4;
 const MAX_OPTIONS = 6;
+/** A pergunta vai inteira para o escritório (responder sem abrir o terminal); o teto só segura um texto absurdo. */
+const ASK_QUESTION_MAX = 4_000;
+const ASK_LABEL_MAX = 200;
+const ASK_DESCRIPTION_MAX = 1_000;
 
-/** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas e cortadas, como o resto). */
+/**
+ * Texto de várias linhas mascarado e cortado só no teto: mantém as quebras de linha (listas, parágrafos), tira os
+ * espaços do fim de cada linha e junta as linhas em branco repetidas.
+ */
+export function truncateBlock(s: string, n: number): string {
+  const text = s
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/\s+$/, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text.length > n ? `${text.slice(0, Math.max(1, n - 1)).trimEnd()}…` : text;
+}
+
+/** Perguntas de um AskUserQuestion para exibir no escritório (mascaradas; inteiras até um teto generoso). */
 function askQuestions(raw: unknown): AskQuestion[] {
   const clean = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? truncate(maskSecrets(v.slice(0, n * 4)), n) : '');
+  const block = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? truncateBlock(maskSecrets(v.slice(0, n * 2)), n) : '');
   const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object';
   // As posições contam no original (com as entradas inválidas): a resposta pelo escritório volta por elas.
   const qs = Array.isArray(raw) ? raw.slice(0, MAX_QUESTIONS) : [];
   return qs.flatMap((q, index) => {
     if (!obj(q)) return [];
-    const question = clean(q.question, 300);
+    const question = block(q.question, ASK_QUESTION_MAX);
     if (!question) return [];
     const opts = Array.isArray(q.options) ? q.options.slice(0, MAX_OPTIONS) : [];
     const options = opts.flatMap((o, index) => {
       if (!obj(o)) return [];
-      const label = clean(o.label, 80);
+      const label = clean(o.label, ASK_LABEL_MAX);
       if (!label) return [];
-      const description = clean(o.description, 200);
+      const description = block(o.description, ASK_DESCRIPTION_MAX);
       return [{ index, label, ...(description ? { description } : {}) }];
     });
     const header = clean(q.header, 30);
     return [{ index, question, ...(header ? { header } : {}), ...(q.multiSelect === true ? { multiSelect: true } : {}), options }];
   });
+}
+
+/**
+ * As perguntas inteiras num texto só (uma por parágrafo), para o detalhe da atividade, a linha do tempo e o aviso:
+ * já vêm mascaradas e cortadas só no teto generoso de askQuestions, então nada de "…" no meio.
+ */
+export function askDetail(questions: readonly Pick<AskQuestion, 'question'>[]): string {
+  return questions.map((q) => q.question).join('\n\n');
 }
 
 const MAX_TEXT = 46;
@@ -735,7 +763,9 @@ export function describeTool(name: string, rawInput: unknown): ActivityDescripti
     case 'AskUserQuestion': {
       const qs = Array.isArray(input.questions) ? (input.questions as Array<Record<string, unknown>>) : [];
       const questions = askQuestions(qs);
-      return { ...make('ask', '❓', tr('Fazendo uma pergunta a você'), qs[0] ? str(qs[0].question) : undefined), ...(questions.length ? { questions } : {}) };
+      // O detalhe leva as perguntas inteiras (com as quebras de linha), não o resumo de 300 caracteres com "…".
+      const base = make('ask', '❓', tr('Fazendo uma pergunta a você'), questions.length ? undefined : qs[0] ? str(qs[0].question) : undefined);
+      return { ...base, ...(questions.length ? { detail: askDetail(questions), questions } : {}) };
     }
     case 'Skill':
       return make('skill', '🧩', tr('Usando a skill {0}', [str(input.skill) || str(input.command)]));
