@@ -19,6 +19,7 @@ import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { discoverClaudeDirs } from '../server/accounts/detect';
+import { discoverAntigravityDirs } from '../server/sources/antigravity/accounts';
 import { describeStateMigration, LEGACY_NAME, migrateLegacyStateDir } from '../server/legacy';
 import { tr } from '../shared/i18n';
 
@@ -37,8 +38,9 @@ Opções:
   --node <cmd>     comando do node usado no statusline (padrão: detectado no PATH)
   -h, --help       mostra esta ajuda
 
-Contas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou
-HABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).`);
+Contas: Claude Code (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou
+HABBLAUD_CLAUDE_DIRS) e Antigravity CLI (~/.gemini/antigravity-cli* ou HABBLAUD_ANTIGRAVITY_DIRS).
+Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).`);
 
 // ---------------------------------------------------------------------------------------------
 // Funções puras (testadas em server/test/statusline-install.test.ts)
@@ -87,21 +89,27 @@ function unquotePath(q: string): string {
   return shellUnquote(q) ?? q;
 }
 
-/** `node "<tap>" -- <original>` (ou só `node "<tap>"` quando não havia statusline). */
-export function wrapCommand(nodeCmd: string, tapPath: string, original?: string): string {
+/** `node "<tap>" [--dir "<pasta>"] [-- <original>]` */
+export function wrapCommand(nodeCmd: string, tapPath: string, original?: string, accountDir?: string): string {
   const node = SAFE_WORD.test(nodeCmd) ? nodeCmd : quotePath(nodeCmd);
-  const head = `${node} ${quotePath(tapPath)}`;
+  const dirFlag = accountDir?.trim() ? ` --dir ${quotePath(accountDir.trim())}` : '';
+  const head = `${node} ${quotePath(tapPath)}${dirFlag}`;
   return original?.trim() ? `${head} -- ${encodeOriginal(original)}` : head;
 }
 
 const WRAPPED =
-  /^\s*(?:"[^"]*"|'(?:[^']|'\\'')*'|\S+)\s+("[^"]*statusline-tap\.mjs"|'(?:[^']|'\\'')*statusline-tap\.mjs'|\S*statusline-tap\.mjs)(?:\s+--(?:\s+([\s\S]*))?)?\s*$/;
+  /^\s*(?:"[^"]*"|'(?:[^']|'\\'')*'|\S+)\s+("[^"]*statusline-tap\.mjs"|'(?:[^']|'\\'')*statusline-tap\.mjs'|\S*statusline-tap\.mjs)(?:\s+--dir\s+("[^"]*"|'(?:[^']|'\\'')*'|\S+))?(?:\s+--(?:\s+([\s\S]*))?)?\s*$/;
 
 /** Comando original guardado num comando já envolvido ('' = não havia statusline). */
-export function unwrapCommand(cmd: string): { tapPath: string; original: string } | undefined {
+export function unwrapCommand(cmd: string): { tapPath: string; original: string; dir?: string } | undefined {
   const m = WRAPPED.exec(cmd);
   if (!m) return undefined;
-  return { tapPath: unquotePath(m[1]), original: m[2] ? decodeOriginal(m[2]) : '' };
+  const out: { tapPath: string; original: string; dir?: string } = {
+    tapPath: unquotePath(m[1]),
+    original: m[3] ? decodeOriginal(m[3]) : '',
+  };
+  if (m[2]) out.dir = unquotePath(m[2]);
+  return out;
 }
 
 export type Settings = Record<string, unknown>;
@@ -118,14 +126,24 @@ function statusLineOf(settings: Settings): StatusLine | undefined {
   return sl && typeof sl === 'object' && !Array.isArray(sl) ? (sl as StatusLine) : undefined;
 }
 
+export interface PlanInstallOptions {
+  accountDir?: string;
+  stackWithDefault?: boolean;
+}
+
 /** Plano de instalação para um settings.json já lido (não grava nada). */
-export function planInstall(settings: Settings, nodeCmd: string, tapPath: string): PlanAction {
+export function planInstall(settings: Settings, nodeCmd: string, tapPath: string, opts: PlanInstallOptions = {}): PlanAction {
   const sl = statusLineOf(settings);
   if (settings.statusLine !== undefined && !sl) return { action: 'skip', message: tr('statusLine em formato desconhecido; nada foi alterado') };
   if (!sl) {
+    const statusLine: StatusLine = { type: 'command', command: wrapCommand(nodeCmd, tapPath, undefined, opts.accountDir) };
+    if (opts.stackWithDefault) {
+      statusLine.enabled = true;
+      statusLine.stack_with_default = true;
+    }
     return {
       action: 'install',
-      settings: { ...settings, statusLine: { type: 'command', command: wrapCommand(nodeCmd, tapPath) } },
+      settings: { ...settings, statusLine },
       message: tr('sem statusline antes: criado um que só captura o uso (não imprime nada)'),
     };
   }
@@ -134,13 +152,13 @@ export function planInstall(settings: Settings, nodeCmd: string, tapPath: string
   if (isTapCommand(sl.command)) {
     const cur = unwrapCommand(sl.command);
     if (!cur) return { action: 'skip', message: tr('o comando já menciona o tap, mas não no formato esperado; confira à mão') };
-    const next = wrapCommand(nodeCmd, tapPath, cur.original);
+    const next = wrapCommand(nodeCmd, tapPath, cur.original, opts.accountDir ?? cur.dir);
     if (next === sl.command) return { action: 'none', message: tr('já instalado') };
     return { action: 'install', settings: { ...settings, statusLine: { ...sl, command: next } }, message: tr('atualizado (novo caminho do Habblaud ou do node)') };
   }
   return {
     action: 'install',
-    settings: { ...settings, statusLine: { ...sl, command: wrapCommand(nodeCmd, tapPath, sl.command) } },
+    settings: { ...settings, statusLine: { ...sl, command: wrapCommand(nodeCmd, tapPath, sl.command, opts.accountDir) } },
     message: tr('instalado na frente de: {0}', [sl.command]),
   };
 }
@@ -337,23 +355,18 @@ function lastCapture(dir: string, env: NodeJS.ProcessEnv, home: string): { at: n
   }
 }
 
-/** Executa o comando para todas as contas. Devolve o código de saída. */
-export function run(opts: RunOptions, ctx: RunContext): number {
+export interface StatuslineTarget {
+  dir: string;
+  provider: 'claude' | 'antigravity';
+}
+
+/** Executa install/uninstall/status para uma lista de pastas (Claude Code e/ou Antigravity CLI). */
+export function runStatuslineDirs(targets: readonly StatuslineTarget[], opts: RunOptions, ctx: RunContext): number {
   const { env, home, out } = ctx;
-  const dirs = discoverClaudeDirs(env, home);
-  if (!dirs.length) {
-    out(tr('Nenhuma conta do Claude Code encontrada (~/.claude* com projects/ ou sessions/). Use HABBLAUD_CLAUDE_DIRS se estiverem em outro lugar.'));
-    return 1;
-  }
   const nodeCmd = opts.nodeCmd ?? detectNodeCommand(env, home);
-  // Nome antigo: o tap agora grava em ~/.habblaud/usage; o que estava em ~/.codetown vai junto.
-  if (opts.command === 'install') {
-    const moved = migrateLegacyState(home, opts.dryRun);
-    if (moved) out(moved);
-  }
   let failures = 0;
   let changed = 0;
-  for (const dir of dirs) {
+  for (const { dir, provider } of targets) {
     const file = join(dir, 'settings.json');
     const label = `${basename(dir)} (${tildify(file, home)})`;
     const read = readSettings(file);
@@ -375,12 +388,17 @@ export function run(opts: RunOptions, ctx: RunContext): number {
       const capText = cap
         ? tr('último uso capturado há {0}{1}{2}', [formatAge(ctx.now.getTime() - cap.at), cap.five !== undefined ? ` · 5h ${Math.round(cap.five)}%` : '', cap.week !== undefined ? tr(' · semana {0}%', [Math.round(cap.week)]) : ''])
         : wrapped
-          ? tr('nenhum uso capturado ainda (o Claude Code envia os limites depois da primeira resposta numa sessão aberta)')
+          ? provider === 'antigravity'
+            ? tr('nenhum uso capturado ainda (o Antigravity CLI envia os limites quando uma sessão roda)')
+            : tr('nenhum uso capturado ainda (o Claude Code envia os limites depois da primeira resposta numa sessão aberta)')
           : tr('nenhum uso capturado');
       out(`• ${label}: ${state}; ${capText}`);
       continue;
     }
-    const plan = opts.command === 'install' ? planInstall(read.settings, nodeCmd, ctx.tapPath) : planUninstall(read.settings);
+    const plan =
+      opts.command === 'install'
+        ? planInstall(read.settings, nodeCmd, ctx.tapPath, provider === 'antigravity' ? { accountDir: dir, stackWithDefault: true } : {})
+        : planUninstall(read.settings);
     if (plan.action === 'none') {
       out(`= ${label}: ${plan.message}`);
       continue;
@@ -411,6 +429,25 @@ export function run(opts: RunOptions, ctx: RunContext): number {
     out(tr('Uso capturado em {0}. Para desfazer: npm run usage:uninstall', [tildify(usageDirOf(env, home), home)]));
   }
   return failures ? 1 : 0;
+}
+
+/** Executa o comando para todas as contas (Claude Code e Antigravity CLI). Devolve o código de saída. */
+export function run(opts: RunOptions, ctx: RunContext): number {
+  const { env, home, out } = ctx;
+  const targets: StatuslineTarget[] = [
+    ...discoverClaudeDirs(env, home).map((dir) => ({ dir, provider: 'claude' as const })),
+    ...discoverAntigravityDirs(env, home).map((dir) => ({ dir, provider: 'antigravity' as const })),
+  ];
+  if (!targets.length) {
+    out(tr('Nenhuma conta encontrada (Claude Code ou Antigravity CLI). Use HABBLAUD_CLAUDE_DIRS ou HABBLAUD_ANTIGRAVITY_DIRS se estiverem em outro lugar.'));
+    return 1;
+  }
+  // Nome antigo: o tap agora grava em ~/.habblaud/usage; o que estava em ~/.codetown vai junto.
+  if (opts.command === 'install') {
+    const moved = migrateLegacyState(home, opts.dryRun);
+    if (moved) out(moved);
+  }
+  return runStatuslineDirs(targets, opts, ctx);
 }
 
 async function main(): Promise<void> {

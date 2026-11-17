@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tr } from '../shared/i18n';
 import { discoverAntigravityDirs } from '../server/sources/antigravity/accounts';
 import { chooseNode, hookCommand, MIN_NODE_MAJOR, nodeMajor } from './codex-install';
-import { readSettings, tildify, writeSettings, type Settings } from './statusline-install';
+import { readSettings, runStatuslineDirs, TAP_SCRIPT, tildify, writeSettings, type Settings } from './statusline-install';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const HOOK_SCRIPT = join(ROOT, 'mod', 'habblaud-antigravity', 'hook.mjs');
@@ -155,6 +155,7 @@ export interface RunContext {
   home: string;
   now: Date;
   hookPath: string;
+  tapPath?: string;
   out: (line: string) => void;
   nodeProbe?: (bin: string | undefined) => string | undefined;
   nodeCandidates?: readonly string[];
@@ -170,27 +171,37 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
       ? chooseNode(ctx.nodeProbe, ctx.nodeCandidates ?? ['/opt/homebrew/bin/node', '/usr/local/bin/node', process.execPath])
       : {};
   const cmd = hookCommand(ctx.hookPath, nodeChoice.bin);
+  const runTap = (command: 'install' | 'uninstall' | 'status') =>
+    dirs.length
+      ? runStatuslineDirs(
+          dirs.map((dir) => ({ dir, provider: 'antigravity' as const })),
+          { command, dryRun: opts.dryRun, nodeCmd: nodeChoice.bin },
+          { env: ctx.env, home: ctx.home, now: ctx.now, tapPath: ctx.tapPath ?? TAP_SCRIPT, out: ctx.out },
+        )
+      : 0;
 
   if (opts.command === 'status') {
     say(tr('Pastas do Antigravity CLI detectadas: {0}', [dirs.length ? dirs.map((d) => tildify(d, ctx.home)).join(', ') : tr('nenhuma')]));
+    let code = 0;
     if (!existsSync(file)) {
       say(tr('{0}: arquivo ainda não existe (rode npm run antigravity:install).', [tildify(file, ctx.home)]));
-      return 0;
-    }
-    const read = readSettings(file);
-    if ('error' in read) {
-      say(tr('{0}: ilegível ({1}).', [tildify(file, ctx.home), read.error]));
-      return 1;
-    }
-    const installed = rec(read.settings[HOOK_KEY]);
-    if (!installed) {
-      say(tr('{0}: hook do Habblaud não instalado.', [tildify(file, ctx.home)]));
-    } else if (canonical(installed) === canonical(buildHabblaudHookSpec(cmd))) {
-      say(tr('{0}: instalado ({1} eventos).', [tildify(file, ctx.home), EVENTS.length]));
     } else {
-      say(tr('{0}: instalado, mas desatualizado (rode npm run antigravity:install).', [tildify(file, ctx.home)]));
+      const read = readSettings(file);
+      if ('error' in read) {
+        say(tr('{0}: ilegível ({1}).', [tildify(file, ctx.home), read.error]));
+        code = 1;
+      } else {
+        const installed = rec(read.settings[HOOK_KEY]);
+        if (!installed) {
+          say(tr('{0}: hook do Habblaud não instalado.', [tildify(file, ctx.home)]));
+        } else if (canonical(installed) === canonical(buildHabblaudHookSpec(cmd))) {
+          say(tr('{0}: instalado ({1} eventos).', [tildify(file, ctx.home), EVENTS.length]));
+        } else {
+          say(tr('{0}: instalado, mas desatualizado (rode npm run antigravity:install).', [tildify(file, ctx.home)]));
+        }
+      }
     }
-    return 0;
+    return runTap('status') || code;
   }
 
   const read = readSettings(file);
@@ -207,30 +218,26 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     if (!opts.dryRun) writeHookConfig(ctx.home, opts.port);
     if (plan.action === 'none') {
       say(`${tildify(file, ctx.home)}: ${plan.message}.`);
-      return 0;
-    }
-    if (opts.dryRun) {
+    } else if (opts.dryRun) {
       say(`${tildify(file, ctx.home)}: ${plan.message} (dry-run).`);
-      return 0;
+    } else {
+      mkdirSync(dirname(file), { recursive: true });
+      const backup = writeSettings(file, plan.file, read.raw, ctx.now);
+      say(`${tildify(file, ctx.home)}: ${plan.message}${backup ? tr(' (backup em {0})', [tildify(backup, ctx.home)]) : ''}.`);
     }
-    mkdirSync(dirname(file), { recursive: true });
-    const backup = writeSettings(file, plan.file, read.raw, ctx.now);
-    say(`${tildify(file, ctx.home)}: ${plan.message}${backup ? tr(' (backup em {0})', [tildify(backup, ctx.home)]) : ''}.`);
-    return 0;
+    return runTap('install');
   }
 
   const plan = planUninstall(read.settings);
   if (plan.action === 'none') {
     say(`${tildify(file, ctx.home)}: ${plan.message}.`);
-    return 0;
-  }
-  if (opts.dryRun) {
+  } else if (opts.dryRun) {
     say(`${tildify(file, ctx.home)}: ${plan.message} (dry-run).`);
-    return 0;
+  } else {
+    const backup = writeSettings(file, plan.file, read.raw, ctx.now);
+    say(`${tildify(file, ctx.home)}: ${plan.message}${backup ? tr(' (backup em {0})', [tildify(backup, ctx.home)]) : ''}.`);
   }
-  const backup = writeSettings(file, plan.file, read.raw, ctx.now);
-  say(`${tildify(file, ctx.home)}: ${plan.message}${backup ? tr(' (backup em {0})', [tildify(backup, ctx.home)]) : ''}.`);
-  return 0;
+  return runTap('uninstall');
 }
 
 async function main(): Promise<void> {
