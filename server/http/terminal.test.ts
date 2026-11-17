@@ -258,7 +258,7 @@ describe('terminal: rota', () => {
     }
   });
 
-  it('404 para agente ou transcript desconhecido; 405 para outros métodos', async () => {
+  it('404 para agente desconhecido ou subagente sem transcript; 405 para outros métodos', async () => {
     const env = await serve();
     try {
       for (const id of ['nao-existe', 'demo:nao-existe']) {
@@ -266,9 +266,12 @@ describe('terminal: rota', () => {
         expect(r.status).toBe(404);
         expect(JSON.parse(r.body)).toEqual({ error: 'agente não encontrado' });
       }
-      const noPath = await open(env.base, route(MAIN));
+      const SUB = 's1:sub1';
+      expect(env.office.addSub({ id: SUB, parentId: MAIN, sessionId: 's1', role: 'Explorador', background: false, startedAt: Date.now() })).toBe(true);
+      const noPath = await open(env.base, route(SUB));
       expect(noPath.status).toBe(404);
       expect(JSON.parse(noPath.body)).toEqual({ error: 'transcript do agente não encontrado' });
+      expect(env.terminals.size).toBe(0);
       const post = await open(env.base, route(MAIN), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       expect(post.status).toBe(405);
       expect(post.headers.allow).toBe('GET');
@@ -401,6 +404,30 @@ describe('terminal: transporte', () => {
       await sleep(60);
       writeLines(file, [line('a')]);
       await waitFor(() => expect(view(s)).toEqual(['a']));
+      s.close();
+    } finally {
+      await env.close();
+    }
+  });
+
+  it('principal sem transcript (nenhum prompt ainda): abre vazio e manda a conversa quando o transcript aparece', async () => {
+    const env = await serve();
+    try {
+      const s = await open(env.base, route(MAIN));
+      expect(s.status).toBe(200);
+      await waitFor(() => expect(inits(s)).toHaveLength(1));
+      expect(inits(s)[0]).toEqual({ agentId: MAIN, entries: [], truncated: false });
+      // Vários ciclos sem transcript: nada além do init vazio.
+      await sleep(80);
+      expect(s.events).toHaveLength(1);
+      // Primeiro prompt: o watcher acha o transcript e o terminal recomeça por ele.
+      const file = join(env.dir, 's1.jsonl');
+      writeLines(file, [line('a')]);
+      env.paths.set(MAIN, file);
+      await waitFor(() => expect(inits(s)).toHaveLength(2));
+      expect(inits(s)[1].entries.map((e) => e.id)).toEqual(['a']);
+      appendLines(file, [line('b')]);
+      await waitFor(() => expect(view(s)).toEqual(['a', 'b']));
       s.close();
     } finally {
       await env.close();

@@ -514,8 +514,9 @@ export interface TerminalInit {
 /**
  * Stream do terminal (Server-Sent Events) em GET /api/agents/:id/terminal.
  * Ao conectar (e a cada reconexão, ou se o transcript for truncado/substituído) chega um `init`;
- * depois, `append` com as entradas novas. Erros antes do stream respondem JSON `{error}`:
- * 403 (recurso desligado ou acesso que não é local), 404 (agente/transcript desconhecido),
+ * depois, `append` com as entradas novas. O principal que ainda não recebeu prompt não tem transcript:
+ * o `init` vem vazio e chega outro quando a conversa começar. Erros antes do stream respondem JSON `{error}`:
+ * 403 (recurso desligado ou acesso que não é local), 404 (agente desconhecido ou subagente sem transcript),
  * 429 (terminais abertos demais).
  */
 export type TerminalMessage = { type: 'init'; data: TerminalInit } | { type: 'append'; data: TerminalEntry[] };

@@ -12,7 +12,7 @@ npm run build && npm start   # produção: serve dist/client
 
 | O quê | Onde |
 | --- | --- |
-| Sessões abertas e status (ocupado/ocioso/esperando) | `<config>/sessions/<pid>.json` (+ PID vivo, fora do Docker) |
+| Sessões abertas e status (ocupado/ocioso/esperando) | `<config>/sessions/<pid>.json` (fora do Docker: + PID vivo e ainda do processo que gravou o registro, `sources/procstart.ts`; no Docker: menos os registros antigos de `HABBLAUD_STALE_SESSIONS`) |
 | Atividades, tarefas, título, números | `<config>/projects/<cwd>/<sessionId>.jsonl` (lê o último ~1 MB no boot; o começo em segundo plano) |
 | Subagentes (inclusive de workflows) | `<config>/projects/<cwd>/<sessionId>/subagents/**/agent-*.jsonl` + `.meta.json` |
 | Conta (e-mail, organização) e cache de uso | `~/.claude.json` (conta padrão) ou `<config>/.claude.json` — só esses campos |
@@ -139,8 +139,9 @@ O recurso só existe com **bind local** (`config.ts`, `terminalOffReason`), já 
 Além disso, cada requisição precisa de `Host` local (`localhost`, `*.localhost`, 127.x ou `[::1]`): IPs da rede e
 nomes de `HABBLAUD_ALLOWED_HOSTS` (proxies, túneis) recebem 403. O estado sai em `meta.terminal` do snapshot e em
 `terminal` no `/api/health`. Erros antes do stream respondem JSON `{error}`: 403 (desligado ou acesso que não é
-local), 404 (agente ou transcript desconhecido), 405 (método que não é `GET`), 429 (terminais demais) e 500
-(transcript ilegível).
+local), 404 (agente desconhecido ou subagente sem transcript), 405 (método que não é `GET`), 429 (terminais demais)
+e 500 (transcript ilegível). O agente principal que ainda não recebeu nenhum prompt não tem transcript (o Claude Code
+só o cria no primeiro): o terminal abre com um `init` vazio e manda outro quando a conversa começar.
 
 ## Linha do tempo (timelapse)
 
@@ -492,6 +493,7 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_LANG` | idioma do sistema (`LC_ALL`/`LANG`/Intl) | idioma dos textos montados pelo servidor: `pt-BR` ou `fr` (shared/i18n.ts) |
 | `HABBLAUD_DEMO` | desligado | `1` liga o modo demonstração ao iniciar |
 | `HABBLAUD_IN_DOCKER` | auto (`/.dockerenv`) | `1` = não confere PIDs (são do host) |
+| `HABBLAUD_STALE_SESSIONS` | — | JSON com os registros de sessão que o host sabe que são antigos (Docker): `[{account, pid, sessionId, startedAt}]`. Gerada pelo `npm run docker:up`, que confere cada `sessions/<pid>.json` contra os processos do host (PID que não existe, ou que é de outro processo); essas sessões ficam fora do escritório |
 | `HABBLAUD_ACCOUNTS` | — | JSON com metadados das contas vindos do host (Docker): `[{id, configDir, mountDir, short, name, email, organization, plan, color, cachedUsage}]`, casados por `id`, `mountDir` ou `configDir` |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` (Docker: `/usage`) | pasta do uso capturado pelo tap de statusline ou pelo mod do Claude Code, relida a cada 5 s |
 | `HABBLAUD_ALLOWED_HOSTS` | — | nomes extras aceitos no `Host`/`Origin` (vírgula); `localhost`, `*.localhost` e IPs sempre valem |

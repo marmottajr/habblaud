@@ -853,7 +853,9 @@ How the section looks, in demo mode (`?mock=1&world=logged_out`, `waiting` or `a
 
 - **Who's in the office:** while a session is open, Claude Code keeps `sessions/<pid>.json` with the
   project and the status (busy, idle, waiting on you or waiting on a background shell). That's what decides
-  who shows up and what each one does.
+  who shows up and what each one does. If a session dies without deleting the file (a crash, a restarted computer),
+  Habblaud checks whether the process is still that session's and leaves it out; in Docker, `npm run docker:up` does
+  the checking (run it again if an agent that no longer exists stays idle in the office).
 - **Running shells:** in the transcripts, each background `Bash` (or long foreground command) becomes a
   "shell" with a label and a timer, until the notification arrives that it finished, failed or was interrupted.
 - **Social life:** the hangouts, the personalities and the coins are a simulation in the browser (`client/src/world/social/`),

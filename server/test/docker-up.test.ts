@@ -1,7 +1,12 @@
 // Funções puras de scripts/docker-up.ts (importar o módulo não sobe nada).
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { DetectedAccount } from '../accounts/detect';
 import { legacyEnvWarning } from '../legacy';
+import type { ProcStart } from '../sources/procstart';
+import { parseRegistryEntry, parseStaleSessions } from '../sources/registry';
+import { tempDir } from './fixtures';
 import {
   accountsPayload,
   CODEX_MOUNTED_SUBDIRS,
@@ -10,6 +15,7 @@ import {
   copyVolumeArgs,
   type DockerState,
   envFileKeys,
+  findStaleSessions,
   hostTimeZone,
   parseArgs,
   planCodexMounts,
@@ -130,6 +136,63 @@ describe('docker-up', () => {
     expect(codexDisabled({ HABBLAUD_CODEX: 'off' })).toBe(true);
     expect(codexDisabled({ HABBLAUD_CODEX: '1' })).toBe(false);
     expect(codexDisabled({})).toBe(false);
+  });
+
+  it('registros de sessão antigos: só o que é certo (PID que não existe, ou de outro processo) vai em HABBLAUD_STALE_SESSIONS', () => {
+    const tmp = tempDir();
+    try {
+      const host = join(tmp.dir, '.claude');
+      mkdirSync(join(host, 'sessions'), { recursive: true });
+      const T0 = 1_793_648_064_000;
+      const reg = (pid: number) => JSON.stringify({ pid, sessionId: `s-${pid}`, cwd: '/p', startedAt: T0 - 1_000, updatedAt: T0, status: 'idle' });
+      // 10: a sessão viva. 2932: o PID hoje é de um processo que nasceu 13 dias depois. 30: início ilegível.
+      // 40: o processo não existe. 50: fora da resposta, mas com sinal de vida (não dá para saber).
+      for (const pid of [10, 2932, 30, 40, 50]) writeFileSync(join(host, 'sessions', `${pid}.json`), reg(pid));
+      writeFileSync(join(host, 'sessions', '60.json'), '{"pid":60,"sess');
+      writeFileSync(join(host, 'sessions', '10.abcdef.key'), 'segredo');
+      const mounts = [
+        { account: acc('.claude'), hostDir: host },
+        { account: acc('.claude-conta2'), hostDir: join(tmp.dir, 'sem-esta-pasta') },
+      ];
+      const asked: number[][] = [];
+      const procs = {
+        sync: (pids: readonly number[]) => {
+          asked.push([...pids].sort((a, b) => a - b));
+          return new Map<number, ProcStart | null>([[10, { startMs: T0 - 5_000 }], [2932, { startMs: T0 + 13 * 86_400_000 }], [30, null]]);
+        },
+      };
+      const stale = findStaleSessions(mounts, procs, (pid) => pid === 50).sort((a, b) => a.pid - b.pid);
+      expect(stale).toEqual([
+        { account: '.claude', pid: 40, sessionId: 's-40', startedAt: T0 - 1_000 },
+        { account: '.claude', pid: 2932, sessionId: 's-2932', startedAt: T0 - 1_000 },
+      ]);
+      // Uma consulta só, com todos os PIDs dos registros legíveis.
+      expect(asked).toEqual([[10, 30, 40, 50, 2932]]);
+      // A sessão fechou (e apagou o registro) enquanto a consulta rodava: não entra.
+      const closing = {
+        sync: (pids: readonly number[]) => {
+          rmSync(join(host, 'sessions', '40.json'));
+          return procs.sync(pids);
+        },
+      };
+      expect(findStaleSessions(mounts, closing, (pid) => pid === 50).map((s) => s.pid)).toEqual([2932]);
+      writeFileSync(join(host, 'sessions', '40.json'), reg(40));
+      // Sem resposta do sistema, nada é dado como antigo; sem registros, nem pergunta.
+      expect(findStaleSessions(mounts, { sync: () => undefined }, () => false)).toEqual([]);
+      expect(findStaleSessions([mounts[1]], { sync: () => { throw new Error('não era para consultar'); } })).toEqual([]);
+
+      // No override, a variável só sai quando há algum; o servidor reconhece exatamente esses registros.
+      const claude = planMounts(['/Users/fulano/.claude'], [acc('.claude')], slash);
+      const yml = renderOverride(claude, new Date(0), undefined, undefined, [], undefined, [], stale);
+      const sent = JSON.parse(/HABBLAUD_STALE_SESSIONS: (".*")/.exec(yml)![1]) as string;
+      expect(JSON.parse(sent)).toEqual(stale);
+      const isStale = parseStaleSessions(sent)!;
+      expect([10, 2932, 30, 40, 50].filter((pid) => isStale('.claude', parseRegistryEntry(reg(pid))!))).toEqual([2932, 40]);
+      expect(isStale('.claude-conta2', parseRegistryEntry(reg(40))!)).toBe(false);
+      expect(renderOverride(claude)).not.toContain('HABBLAUD_STALE_SESSIONS');
+    } finally {
+      tmp.cleanup();
+    }
   });
 
   it('fuso do host vai para o container como TZ', () => {

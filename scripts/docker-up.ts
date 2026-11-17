@@ -16,6 +16,9 @@
 //    sessions/, archived_sessions/ e thread-writer-locks/ de cada uma, somente leitura, em /codex/<conta>/... —
 //    nunca auth.json, config.toml, shell_snapshots/, history.jsonl, logs nem os SQLite. Vão em HABBLAUD_CODEX_DIRS
 //    e, com `provider: 'codex'` e a pasta do HOST (onde o `codex queue` roda), em HABBLAUD_ACCOUNTS.
+//    Confere também os registros de sessão (<conta>/sessions/<pid>.json) contra os processos do host, que o container
+//    não enxerga: os que sobraram de um processo que não existe mais vão em HABBLAUD_STALE_SESSIONS e ficam fora do
+//    escritório (findStaleSessions).
 // 3. Migra o que sobrou do nome antigo (CodeTown, até a 0.3.2): ~/.codetown vira ~/.habblaud, o container
 //    `codetown` e a rede codetown_default saem e, se o volume novo ainda não existe, os dados de
 //    codetown_codetown-data são copiados para ele (o antigo fica, para apagar à mão). Avisa de CODETOWN_*
@@ -33,13 +36,15 @@
 // versões anteriores, o tap de statusline (npm run usage:install). Os dois gravam os números na pasta
 // montada em /usage. Sem eles, vale o cache do /usage lido das contas ao subir.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { AccountInfo, SourceInfo } from '../shared/types';
 import { codexDirsRefused, detectAccounts, discoverClaudeDirs, type DetectedAccount } from '../server/accounts/detect';
 import { detectCodexAccounts, discoverCodexDirs } from '../server/sources/codex/accounts';
+import { pidOwner, systemProcLookup, type ProcLookup } from '../server/sources/procstart';
+import { parseRegistryEntry, pidAlive, registryLastWrite, type RegistryEntry, type StaleSession } from '../server/sources/registry';
 import { describeStateMigration, LEGACY_NAME, legacyEnvWarning, migrateLegacyStateDir } from '../server/legacy';
 import { makeClaudeRunner, MIN_CLAUDE_VERSION, readPackageVersion, updateInstalledMods, type ModUpdateResult } from './mod-install';
 import { tr } from '../shared/i18n';
@@ -280,6 +285,65 @@ export function accountsPayload(mounts: AccountMount[]): AccountPayload[] {
 }
 
 /**
+ * Registros de sessão que sobraram de um processo que não existe mais (crash, computador reiniciado). O container não
+ * enxerga os processos do host, então quem confere é este script, aqui: o resultado vai em HABBLAUD_STALE_SESSIONS e
+ * o servidor deixa essas sessões fora do escritório. Só entra o que é certo: o PID não existe, ou é de outro processo,
+ * que nasceu depois da última gravação do registro (server/sources/procstart.ts). Sem resposta do sistema, nada entra.
+ * Vale até o próximo `npm run docker:up`: um registro que sobrar depois disso só sai na próxima rodada.
+ */
+export function findStaleSessions(
+  mounts: ReadonlyArray<Pick<AccountMount, 'account' | 'hostDir'>>,
+  procs: Pick<ProcLookup, 'sync'> = systemProcLookup,
+  isAlive: (pid: number) => boolean = pidAlive,
+): StaleSession[] {
+  const found: Array<{ account: string; file: string; entry: RegistryEntry; lastWriteMs: number }> = [];
+  for (const m of mounts) {
+    const dir = join(m.hostDir, 'sessions');
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const file = join(dir, name);
+        const entry = parseRegistryEntry(readFileSync(file, 'utf8'));
+        if (entry) found.push({ account: m.account.id, file, entry, lastWriteMs: registryLastWrite(entry, statSync(file).mtimeMs) });
+      } catch {
+        // O arquivo saiu (a sessão fechou agora) ou está sendo gravado: fica para a próxima rodada.
+      }
+    }
+  }
+  if (!found.length) return [];
+  const starts = procs.sync(found.map((f) => f.entry.pid));
+  if (!starts) return [];
+  const stale: StaleSession[] = [];
+  for (const { account, file, entry, lastWriteMs } of found) {
+    const proc = starts.get(entry.pid);
+    // Fora da resposta e sem sinal de vida = o processo não existe; `null` = existe, mas não deu para ler o início.
+    const gone = proc === undefined && !isAlive(entry.pid);
+    const other = !!proc && pidOwner({ procStart: entry.procStart, lastWriteMs }, proc) === 'other';
+    if (!gone && !other) continue;
+    // Uma sessão que fechou durante a consulta apagou o próprio registro: não sobrou nada para deixar de fora.
+    if (!sameRegistry(file, entry)) continue;
+    stale.push({ account, pid: entry.pid, sessionId: entry.sessionId, ...(entry.startedAt !== undefined ? { startedAt: entry.startedAt } : {}) });
+  }
+  return stale;
+}
+
+/** O arquivo ainda é o mesmo registro (mesmo PID, sessão e início) que foi lido antes da consulta? */
+function sameRegistry(file: string, e: RegistryEntry): boolean {
+  try {
+    const now = parseRegistryEntry(readFileSync(file, 'utf8'));
+    return !!now && now.pid === e.pid && now.sessionId === e.sessionId && now.startedAt === e.startedAt;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Escalar YAML seguro: string JSON (válida como string YAML entre aspas duplas) com `$`
  * duplicado, para o Compose não tentar interpolar variáveis dentro dos valores.
  */
@@ -306,7 +370,7 @@ export function hostTimeZone(env: NodeJS.ProcessEnv = process.env): string | und
 /**
  * `usageDir`: pasta do host com o uso capturado pelo tap de statusline (já existente; caminho real),
  * montada somente leitura em /usage. `timeZone`: fuso do host, repassado como TZ. `codex`: montagens das contas do
- * Codex (planCodexMounts).
+ * Codex (planCodexMounts). `stale`: registros de sessão antigos (findStaleSessions); sem nenhum, a variável nem sai.
  */
 export function renderOverride(
   mounts: AccountMount[],
@@ -316,11 +380,13 @@ export function renderOverride(
   codex: AccountMount[] = [],
   remoteTlsDir?: string,
   extraPorts: string[] = [],
+  stale: StaleSession[] = [],
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
     ['HABBLAUD_ACCOUNTS', JSON.stringify([...accountsPayload(mounts), ...codexAccountsPayload(codex)])],
   ];
+  if (stale.length) env.push(['HABBLAUD_STALE_SESSIONS', JSON.stringify(stale)]);
   if (codex.length) env.push(['HABBLAUD_CODEX_DIRS', codex.map((m) => m.mountDir).join(',')]);
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
@@ -688,6 +754,14 @@ async function up(opts: Options, port: number): Promise<void> {
   for (const dir of dirs) {
     if (!mounts.some((m) => m.hostDir === dir)) warn(tr('{0} não tem projects/ nem sessions/; conta ignorada.', [tildify(dir)]));
   }
+  // Sessões que morreram sem limpar o registro: só daqui dá para saber (o container não vê os processos do host).
+  const stale = findStaleSessions(mounts);
+  for (const m of mounts) {
+    const n = stale.filter((s) => s.account === m.account.id).length;
+    if (!n) continue;
+    const what = plural(n, tr('registro antigo'), tr('registros antigos'));
+    say(tr('Conta {0} ({1}): {2} fora do escritório (o processo da sessão não existe mais).', [m.account.short, m.account.id, what]));
+  }
   // Pasta do Codex (CODEX_HOME) listada ou achada como se fosse do Claude Code: não é montada como conta do Claude.
   // Ela entra (só as conversas e os locks) como conta do Codex, logo abaixo.
   const claudeRefused = codexDirsRefused(process.env, HOME);
@@ -713,7 +787,7 @@ async function up(opts: Options, port: number): Promise<void> {
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts), { mode: 0o600 });
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, stale), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say(tr('docker-compose.override.yml gerado.'));

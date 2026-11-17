@@ -849,7 +849,9 @@ Como a seção fica, no modo demonstração (`?mock=1&world=logged_out`, `waitin
 
 - **Quem está no escritório:** enquanto uma sessão está aberta, o Claude Code mantém `sessions/<pid>.json` com o
   projeto e o status (ocupado, ocioso, esperando você ou esperando um shell em segundo plano). É isso que decide
-  quem aparece e o que cada um faz.
+  quem aparece e o que cada um faz. Se uma sessão morre sem apagar o arquivo (crash, computador reiniciado), o
+  Habblaud confere se o processo ainda é o dela e a deixa de fora; no Docker, quem confere é o `npm run docker:up`
+  (rode-o de novo se um agente que não existe mais ficar parado no escritório).
 - **Shells rodando:** nos transcripts, cada `Bash` em segundo plano (ou comando longo em primeiro plano) vira um
   "shell" com rótulo e cronômetro, até chegar a notificação de que terminou, falhou ou foi interrompido.
 - **Vida social:** as rodas, as personalidades e as moedinhas são simulação do navegador (`client/src/world/social/`),

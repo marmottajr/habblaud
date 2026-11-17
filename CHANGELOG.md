@@ -10,6 +10,21 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Terminal: a sessão que ainda não recebeu nenhum prompt abre vazia, em vez de dar erro.** O Claude Code só cria o
+  arquivo da conversa no primeiro prompt; até lá, abrir o terminal do agente dizia "Não foi possível abrir o
+  terminal. O recurso só funciona no acesso local, com o agente ainda aberto.", mesmo no acesso local e com o agente
+  aberto. Agora o terminal abre com "Nenhuma mensagem nesta sessão ainda." e a conversa aparece assim que começa.
+- **A sessão que morreu sem limpar o registro não fica mais parada no escritório.** Depois de um crash ou de reiniciar
+  o computador, o `sessions/<pid>.json` podia sobrar; se outro processo recebesse o mesmo PID (ou, no Docker, sempre),
+  o agente aparecia "aguardando o próximo prompt" para sempre. Fora do Docker, o servidor agora confere se o PID ainda
+  é o do processo que gravou o registro (o início do processo, lido do sistema). No Docker, onde o container não vê os
+  processos do computador, quem confere é o `npm run docker:up`: ele diz quantos registros antigos achou e os deixa
+  fora do escritório (um registro que sobrar depois só sai na próxima vez que você rodar o `npm run docker:up`).
+- **`npm run i18n:check` no Windows:** os textos de várias linhas não aparecem mais como "sem tradução" quando o Git
+  entrega os arquivos com CRLF.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

@@ -23,7 +23,8 @@ describe('arquivos das entregas', () => {
 
   it('insideKnownFolder: só pastas de projeto que alguma conta conhece, as temporárias e os anexos', () => {
     const known = new Set(['/h/.claude/projects/-Users-ana-loja', '/h/.claude-2/projects/-Users-ana-x-y']);
-    const opts = { accountDirs: ['/h/.claude', '/h/.claude-2'], roots: ['/tmp', '/h/.habblaud/attachments'], exists: (p: string) => known.has(p) };
+    // A pasta em projects/ é procurada com join(): no Windows ela chega com "\".
+    const opts = { accountDirs: ['/h/.claude', '/h/.claude-2'], roots: ['/tmp', '/h/.habblaud/attachments'], exists: (p: string) => known.has(p.replace(/\\/g, '/')) };
     expect(insideKnownFolder('/Users/ana/loja/docs/print.png', opts)).toBe(true);
     expect(insideKnownFolder('/Users/ana/x-y/a.pdf', opts)).toBe(true);
     expect(insideKnownFolder('/tmp/claude/scratch/tela.png', opts)).toBe(true);

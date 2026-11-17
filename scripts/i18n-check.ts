@@ -21,7 +21,8 @@ export function collectKeys(root = ROOT): Map<string, string[]> {
       if (statSync(p).isDirectory()) {
         if (name !== 'node_modules' && name !== 'dist' && name !== 'locales') walk(p);
       } else if (p.endsWith('.ts') && !p.endsWith('.test.ts') && name !== 'i18n-check.ts') {
-        const src = readFileSync(p, 'utf8');
+        // Como o JavaScript lê um template literal: CRLF (checkout do Git no Windows) e CR soltos valem "\n".
+        const src = readFileSync(p, 'utf8').replace(/\r\n?/g, '\n');
         for (const m of src.matchAll(re)) {
           const key = unescapeJs(m[2]);
           const line = src.slice(0, m.index).split('\n').length;

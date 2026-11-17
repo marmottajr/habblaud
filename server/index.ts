@@ -33,6 +33,8 @@ import { createCodexQueueRunner, findCodexBin } from './messages/codex';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
 import type { CodexLive } from './sources/codex/live';
+import { systemProcLookup } from './sources/procstart';
+import { parseStaleSessions } from './sources/registry';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
@@ -133,7 +135,15 @@ const office = new Office({
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
-const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker });
+// Registros de sessão que sobraram de um processo que morreu: fora do Docker, o servidor confere o dono de cada PID;
+// no Docker (PIDs do host), vale a lista que o `npm run docker:up` montou lá (HABBLAUD_STALE_SESSIONS).
+const claude = new ClaudeWatcher({
+  accounts,
+  office,
+  inDocker: config.inDocker,
+  procs: config.inDocker ? undefined : systemProcLookup,
+  isStale: parseStaleSessions(process.env.HABBLAUD_STALE_SESSIONS),
+});
 const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;

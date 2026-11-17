@@ -894,7 +894,9 @@ portugais) : [sans compte](docs/screenshots/world-sem-conta.png), [liste d'atten
 
 - **Qui est dans le bureau :** tant qu'une session est ouverte, Claude Code tient à jour `sessions/<pid>.json` avec le
   projet et le statut (occupé, inactif, en attente de vous ou en attente d'un shell en arrière-plan). C'est ce qui
-  décide qui apparaît et ce que fait chacun.
+  décide qui apparaît et ce que fait chacun. Si une session meurt sans supprimer le fichier (plantage, ordinateur
+  redémarré), Habblaud vérifie si le processus est toujours le sien et la laisse de côté ; dans Docker, c'est
+  `npm run docker:up` qui vérifie (relancez-le si un agent qui n'existe plus reste immobile dans le bureau).
 - **Shells en cours :** dans les transcripts, chaque `Bash` en arrière-plan (ou commande longue au premier plan) devient
   un « shell » avec un libellé et un chronomètre, jusqu'à l'arrivée de la notification indiquant qu'il s'est terminé, a
   échoué ou a été interrompu.

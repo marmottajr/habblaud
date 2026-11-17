@@ -14,7 +14,7 @@ import { compileValidator } from '../../shared/world/schema-validator';
 import { worldSocketUrl } from '../config';
 import { setQuiet } from '../log';
 import { startFakeWorld, type FakeWorld } from '../test/fake-world';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { WorldSettingsStore } from './settings';
 import { backoffDelay, BuildingUplink, type UplinkTimers, type UplinkTiming } from './uplink';
 
@@ -239,7 +239,7 @@ describe('BuildingUplink: conexão e remessas', () => {
   it('última remessa em disco: modo 600, sem token, relida só na mesma sessão', async () => {
     const h = await start();
     await waitFor(() => !!h.uplink.lastUplink()?.ack, 'ack');
-    expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
     const text = readFileSync(h.lastFile, 'utf8');
     expect(text).not.toContain(h.token);
     expect(JSON.parse(text).uplink).toEqual(h.uplink.lastUplink()!.uplink);
@@ -402,9 +402,13 @@ describe('BuildingUplink: conexão e remessas', () => {
   });
 
   it('o tema e as opções do jogador: tema trocado manda de novo; tokens só com tokensVisible', async () => {
-    const h = await start({ tokensVisible: false });
+    // Começa com um tema fixo: no automático, de 1º/11 a 26/12 o pacote já sai com "christmas" e a troca não mudaria nada.
+    const h = await start({ tokensVisible: false, start: false });
+    h.store.setTheme('none');
+    h.uplink.start();
     await waitFor(() => h.world.ws.uplinks.length === 1, 'primeira');
     expect(h.world.ws.uplinks[0].uplink.tokens).toBeUndefined();
+    expect(h.world.ws.uplinks[0].uplink.theme).toBe('none');
     h.store.setTheme('christmas');
     h.uplink.themeChanged();
     await waitFor(() => h.world.ws.uplinks.length === 2, 'tema');

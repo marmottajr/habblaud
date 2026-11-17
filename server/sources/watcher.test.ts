@@ -8,13 +8,14 @@ import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { appendLines, L, tempDir, writeLines } from '../test/fixtures';
+import type { ProcLookup, ProcStart } from './procstart';
 import { ClaudeWatcher, encodeCwd } from './watcher';
 
 setQuiet(true);
 
 const CWD = '/projetos/loja';
 
-function setup(opts: { tailBytes?: number } = {}) {
+function setup(opts: { tailBytes?: number; procs?: ProcLookup } = {}) {
   const tmp = tempDir();
   const home = tmp.dir;
   const dir = join(home, '.claude');
@@ -41,7 +42,7 @@ function setup(opts: { tailBytes?: number } = {}) {
   });
   late.office = office;
   const alive = new Set<number>();
-  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes });
+  const watcher = new ClaudeWatcher({ accounts, office, inDocker: false, now, isAlive: (pid) => alive.has(pid), watch: false, tailBytes: opts.tailBytes, procs: opts.procs });
   const notices: Notice[] = [];
 
   const ctx = {
@@ -738,6 +739,41 @@ describe('ClaudeWatcher — shell lançado no começo de um transcript maior que
       const a = c.agent('.claude:800')!;
       expect(a.shells?.map((j) => [j.id, j.label, j.startedAt])).toEqual([['bcedo', 'Testes de ponta a ponta', t0 + 100]]);
       expect(a.activity?.text).toBe('Esperando o shell: Testes de ponta a ponta');
+    } finally {
+      c.watcher.stop();
+      c.tmp.cleanup();
+    }
+  });
+});
+
+describe('ClaudeWatcher — registro que sobrou de uma sessão morta (PID reaproveitado)', () => {
+  it('não entra no escritório, nem ao ligar; a sessão de verdade entra, e uma nova só depois de conferida', async () => {
+    // O que o sistema operacional diria do início de cada PID.
+    const starts = new Map<number, ProcStart>();
+    const answer = (pids: readonly number[]) => new Map(pids.filter((p) => starts.has(p)).map((p) => [p, starts.get(p)!]));
+    const procs: ProcLookup = { sync: answer, async: async (pids) => answer(pids) };
+    const c = setup({ procs });
+    try {
+      const T = c.now();
+      // 100: a sessão e o processo dela. 2932: registro de 13 dias atrás, com o PID hoje num processo que nasceu ontem.
+      c.openSession(100, 'sess-viva', { updatedAt: T - 1_000 });
+      c.openSession(2932, 'sess-morta', { startedAt: T - 13 * 86_400_000, updatedAt: T - 13 * 86_400_000 + 400, status: 'idle' });
+      starts.set(100, { startMs: T - 61_000 });
+      starts.set(2932, { startMs: T - 86_400_000 });
+      c.watcher.boot();
+      expect(c.agents().map((a) => a.id)).toEqual(['.claude:100']);
+      c.poll();
+      expect(c.agents().map((a) => a.id)).toEqual(['.claude:100']);
+      expect(c.notices).toEqual([]);
+
+      // Sessão nova com o servidor no ar: espera a conferência (sem bloquear) e entra no ciclo seguinte.
+      c.openSession(200, 'sess-nova', { startedAt: T, updatedAt: T });
+      starts.set(200, { startMs: T - 500 });
+      c.poll();
+      expect(c.agents().map((a) => a.id)).toEqual(['.claude:100']);
+      await new Promise((ok) => setTimeout(ok, 0));
+      c.poll();
+      expect(c.agents().map((a) => a.id).sort()).toEqual(['.claude:100', '.claude:200']);
     } finally {
       c.watcher.stop();
       c.tmp.cleanup();

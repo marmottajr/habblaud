@@ -15,7 +15,7 @@ import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { FAKE_CODE, startFakeWorld, type FakeWorld } from '../test/fake-world';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { WorldClient } from './client';
 import { createWorldRoutes } from './http';
 import { WorldService } from './service';
@@ -259,7 +259,8 @@ describe('docker-compose.yml', () => {
   });
 
   it('o container acha o host em host.docker.internal (servidor do mundo local, também no Linux)', () => {
-    const compose = readFileSync(join(import.meta.dirname, '..', '..', 'docker-compose.yml'), 'utf8');
+    // No Windows o Git pode entregar o arquivo com CRLF (core.autocrlf): o conteúdo é o mesmo.
+    const compose = readFileSync(join(import.meta.dirname, '..', '..', 'docker-compose.yml'), 'utf8').replace(/\r\n/g, '\n');
     expect(compose).toMatch(/^ {4}extra_hosts:\n {6}- "host\.docker\.internal:host-gateway"$/m);
   });
 });
@@ -375,7 +376,7 @@ describe('de ponta a ponta com o servidor do mundo de mentira', () => {
     const ver = await call(s.base, 'POST', '/api/world/verify', { email: EMAIL, code: `${FAKE_CODE.slice(0, 3)} ${FAKE_CODE.slice(3)}` });
     expect(ver.status).toBe(200);
     expect(ver.body).toMatchObject({ available: true, configured: true, state: 'waiting', account: { emailMasked: 'a***@exemplo.com', access: 'waiting' } });
-    expect(statSync(s.file).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(s.file).mode & 0o777).toBe(0o600);
     const first = JSON.parse(readFileSync(s.file, 'utf8'));
     expect(first).toMatchObject({ deviceId: 'dev_1', email: EMAIL, access: 'waiting' });
     expect(snap()).toEqual({ enabled: true, configured: true, state: 'waiting' });
@@ -584,7 +585,7 @@ describe('o prédio no mundo (uplink) pelas rotas', () => {
     const last = (await call(s.base, 'GET', '/api/world/last-uplink')).body;
     expect(last).toEqual({ at: st.building.lastUplinkAt, bytes: w.ws.uplinks[0].bytes, uplink: w.ws.uplinks[0].uplink, ack: { ok: true, at: expect.any(Number), bytes: w.ws.uplinks[0].bytes } });
     expect(JSON.stringify(last)).not.toMatch(/projeto-secreto|Users|\.claude|sess-x/);
-    expect(statSync(s.lastFile).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(s.lastFile).mode & 0o777).toBe(0o600);
 
     // Tema: grava e manda o pacote com o tema novo; fora da lista, 422.
     expect((await call(s.base, 'PUT', '/api/world/theme', { theme: 'christmas' })).body).toEqual({ theme: 'christmas' });

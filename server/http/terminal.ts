@@ -93,30 +93,34 @@ function parseInto(parser: TerminalParser, lines: readonly string[], out: Termin
 
 /**
  * Agente real (ou sessão do histórico): lê o transcript JSONL com um FileTail próprio. `transcriptPathOf`
- * informa a troca de transcript do principal (/clear); numa sessão do histórico ele nunca muda.
+ * informa a troca de transcript do principal (/clear); numa sessão do histórico ele nunca muda. Sem `path`, o
+ * principal ainda não tem transcript (o Claude Code só o cria no primeiro prompt): a conversa começa vazia e
+ * `transcriptPathOf` avisa quando o arquivo aparecer.
  */
 class TranscriptSource implements ConversationSource {
-  private tail: FileTail;
+  private tail: FileTail | undefined;
   /** Criado em load(), que sempre roda antes do primeiro poll(). */
   private parser!: TerminalParser;
 
   constructor(
     private readonly agentId: string,
-    path: string,
+    path: string | undefined,
     private readonly o: Required<Pick<TerminalOptions, 'transcriptPathOf' | 'createParser' | 'initTailBytes' | 'initEntries'>>,
     readonly intervalMs: number,
   ) {
-    this.tail = new FileTail(path);
+    this.tail = path === undefined ? undefined : new FileTail(path);
   }
 
   load(): TerminalInit {
     this.parser = this.o.createParser();
-    const offset = this.tail.seekTail(this.o.initTailBytes);
+    const tail = this.tail;
+    if (!tail) return { agentId: this.agentId, entries: [], truncated: false };
+    const offset = tail.seekTail(this.o.initTailBytes);
     const keep = this.o.initEntries;
     let entries: TerminalEntry[] = [];
     let dropped = false;
     for (let i = 0; i < MAX_INIT_READS; i++) {
-      const r = this.tail.read();
+      const r = tail.read();
       parseInto(this.parser, r.lines, entries);
       // Descarta o excesso pelo caminho (transcript com muitas entradas pequenas).
       if (entries.length > keep * 2) {
@@ -135,14 +139,17 @@ class TranscriptSource implements ConversationSource {
   poll(): PollResult {
     // /clear ou /resume no mesmo processo: o principal continua o mesmo, o transcript é outro.
     const path = this.o.transcriptPathOf(this.agentId);
-    if (path && path !== this.tail.path) {
+    if (path && path !== this.tail?.path) {
       this.tail = new FileTail(path);
       return { init: this.load() };
     }
+    const tail = this.tail;
+    // Ainda sem transcript: nada a mandar até o primeiro prompt.
+    if (!tail) return {};
     const fresh: TerminalEntry[] = [];
     for (let i = 0; i < READS_PER_POLL; i++) {
       // Arquivo sumido: `missing`, sem linhas; continua tentando nos próximos ciclos.
-      const r = this.tail.read();
+      const r = tail.read();
       if (r.reset) return { init: this.load() };
       parseInto(this.parser, r.lines, fresh);
       if (!r.more) break;
@@ -225,8 +232,9 @@ export class TerminalStreams {
   }
 
   /**
-   * Abre o terminal de um agente: `init` com a conversa recente, depois `append` com as novidades.
-   * Antes do stream, erros respondem JSON `{error}`: 404 (agente ou transcript desconhecido),
+   * Abre o terminal de um agente: `init` com a conversa recente, depois `append` com as novidades. O principal
+   * que ainda não tem transcript (nenhum prompt até agora) abre com `init` vazio e recebe outro quando ele surgir.
+   * Antes do stream, erros respondem JSON `{error}`: 404 (agente desconhecido ou subagente sem transcript),
    * 429 (terminais abertos demais) ou 500 (transcript ilegível).
    */
   attach(req: IncomingMessage, res: ServerResponse, agentId: string): void {
@@ -288,7 +296,9 @@ export class TerminalStreams {
     const office = this.opts.office;
     if (office.has(agentId)) {
       const path = this.opts.transcriptPathOf(agentId);
-      if (!path) return tr('transcript do agente não encontrado');
+      // Principal sem transcript = sessão aberta que ainda não recebeu prompt: o terminal abre vazio e mostra a
+      // conversa quando ela começar. O arquivo de um subagente presente sempre existe: sem ele, não há o que seguir.
+      if (!path && office.get(agentId)?.kind !== 'main') return tr('transcript do agente não encontrado');
       const parserFor = this.opts.parserFor;
       const createParser = parserFor ? () => parserFor(agentId) ?? this.createParser() : this.createParser;
       const o = { transcriptPathOf: this.opts.transcriptPathOf, createParser, initTailBytes: this.initTailBytes, initEntries: this.initEntries };

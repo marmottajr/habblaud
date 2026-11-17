@@ -13,6 +13,7 @@ import type { Activity, AgentStatus, SourceInfo } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { errMsg, log } from '../log';
 import type { Office, TranscriptSummary } from '../model/office';
+import type { ProcLookup } from './procstart';
 import { compareVersions, registryStatus, RegistryReader, SHELL_STATUS_VERSION, type RegistryEntry } from './registry';
 import { SHELL_FALLBACK_MAX_AGE_MS, ShellTracker, toShellJob, type ShellFinish } from './shells';
 import type { AgentSource } from './source';
@@ -54,6 +55,13 @@ export interface WatcherOptions {
   /** Quanto do fim de cada transcript é lido ao abrir a sessão (padrão 1 MB). */
   tailBytes?: number;
   isAlive?: (pid: number) => boolean;
+  /**
+   * Fora do Docker: confere se o PID de cada registro ainda é o do processo que o gravou (sources/procstart.ts).
+   * Ausente = só confere se o PID existe.
+   */
+  procs?: ProcLookup;
+  /** Registros que o host já sabe que são antigos (no Docker: HABBLAUD_STALE_SESSIONS, gerada pelo docker:up). */
+  isStale?: (accountId: string, entry: RegistryEntry) => boolean;
   /** Desliga o fs.watch (testes). */
   watch?: boolean;
 }
@@ -268,7 +276,15 @@ export class ClaudeWatcher implements AgentSource {
     for (const acc of this.opts.accounts.entries()) {
       let reader = this.readers.get(acc.dir);
       if (!reader) {
-        reader = new RegistryReader(acc.dir, { checkPid: !this.opts.inDocker, isAlive: this.opts.isAlive });
+        const isStale = this.opts.isStale;
+        reader = new RegistryReader(acc.dir, {
+          checkPid: !this.opts.inDocker,
+          isAlive: this.opts.isAlive,
+          procs: this.opts.procs,
+          isStale: isStale ? (entry) => isStale(acc.id, entry) : undefined,
+          // A resposta de uma conferência chegou: a sessão entra (ou sai) no próximo ciclo, sem esperar o intervalo.
+          onChange: () => this.schedule(),
+        });
         this.readers.set(acc.dir, reader);
         this.watchDir(join(acc.dir, 'sessions'));
       }
