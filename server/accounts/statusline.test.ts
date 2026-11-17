@@ -184,6 +184,25 @@ describe('AccountsService com a fonte statusline', () => {
     expect(u.fiveHour).toBeUndefined();
     expect(u.sevenDay).toEqual({ utilization: 15, resetsAt: Date.parse('2026-10-09T23:00:00Z') });
   });
+
+  it('aplica arquivo de statusline também a contas do Antigravity CLI', () => {
+    const agyDir = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(agyDir, { recursive: true });
+    writeFileSync(join(usageDir, 'antigravity-cli.json'), JSON.stringify(record({ configDir: agyDir, accountId: 'antigravity-cli' })));
+    const svc = service();
+    svc.setProviderAccounts('antigravity', [
+      {
+        dir: agyDir,
+        detected: { id: 'antigravity-cli', configDir: agyDir, short: 'G', name: 'Antigravity', color: '#4aa8e8', provider: 'antigravity' },
+      },
+    ]);
+    const acc = svc.list(new Map()).find((a) => a.id === 'antigravity-cli');
+    expect(acc).toMatchObject({
+      provider: 'antigravity',
+      usageStatus: 'ok',
+      usage: { source: 'statusline', via: 'tap', fiveHour: { utilization: 42 }, sevenDay: { utilization: 15 } },
+    });
+  });
 });
 
 describe('organização da conta', () => {

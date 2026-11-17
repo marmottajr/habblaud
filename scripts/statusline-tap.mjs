@@ -26,46 +26,136 @@ import { fileURLToPath } from 'node:url';
 /** Valores idênticos gravados há menos que isto não são regravados. */
 const MIN_REWRITE_MS = 10_000;
 
-/** Comando original: tudo depois de `--` (o instalador põe entre aspas simples o que não for trivial). */
-export function originalCommand(argv) {
-  const i = argv.indexOf('--');
-  const rest = i >= 0 ? argv.slice(i + 1) : argv;
-  return rest.join(' ').trim();
+/** Separa `--dir <conta>` (antes de `--`) e o comando original depois de `--`. */
+export function parseTapArgs(argv) {
+  const sep = argv.indexOf('--');
+  const head = sep >= 0 ? argv.slice(0, sep) : argv;
+  let dir;
+  const restHead = [];
+  for (let i = 0; i < head.length; i++) {
+    if (head[i] === '--dir' && i + 1 < head.length) {
+      dir = head[++i].trim() || undefined;
+    } else if (head[i].startsWith('--dir=')) {
+      dir = head[i].slice(6).trim() || undefined;
+    } else {
+      restHead.push(head[i]);
+    }
+  }
+  const tail = sep >= 0 ? argv.slice(sep + 1) : restHead;
+  return { dir, original: tail.join(' ').trim() };
 }
 
-/** Config dir da conta: pelo transcript_path (trecho antes de "/projects/"), CLAUDE_CONFIG_DIR ou ~/.claude. */
-export function configDirOf(input, env = process.env, home = env.HOME || homedir()) {
+/** Comando original: tudo depois de `--` (o instalador põe entre aspas simples o que não for trivial). */
+export function originalCommand(argv) {
+  return parseTapArgs(argv).original;
+}
+
+function isAntigravityInput(input) {
+  return !!input && typeof input === 'object' && (input.product === 'antigravity' || (!input.rate_limits && input.quota && typeof input.quota === 'object' && !Array.isArray(input.quota)));
+}
+
+/** Config dir da conta: `--dir`, `transcript_path` (antes de "/projects/" ou "/brain/"), env ou padrão. */
+export function configDirOf(input, env = process.env, home = env.HOME || homedir(), explicitDir = undefined) {
+  if (typeof explicitDir === 'string' && explicitDir.trim()) {
+    return resolve(explicitDir.trim().replace(/^~(?=\/|$)/, home));
+  }
   const tp = typeof input?.transcript_path === 'string' ? input.transcript_path : '';
   const at = tp.lastIndexOf('/projects/');
   if (at > 0) return resolve(tp.slice(0, at));
+  if (isAntigravityInput(input)) {
+    const brainAt = tp.lastIndexOf('/brain/');
+    if (brainAt > 0) {
+      const candidate = resolve(tp.slice(0, brainAt));
+      if (/^\.?antigravity-cli/i.test(basename(candidate))) return candidate;
+    }
+    const fromAgyEnv = (env.ANTIGRAVITY_CLI_HOME ?? env.JETSKI_APP_DATA_DIR ?? '').trim();
+    if (fromAgyEnv) return resolve(fromAgyEnv.replace(/^~(?=\/|$)/, home));
+    return join(home, '.gemini', 'antigravity-cli');
+  }
   const fromEnv = (env.CLAUDE_CONFIG_DIR ?? '').split(',')[0].trim();
   if (fromEnv) return resolve(fromEnv.replace(/^~(?=\/|$)/, home));
   return join(home, '.claude');
 }
 
-function percent(w) {
-  if (!w || typeof w !== 'object') return undefined;
-  const raw = w.used_percentage ?? w.utilization ?? w.used_percent;
-  const n = typeof raw === 'string' && raw.trim() ? Number(raw) : raw;
-  return typeof n === 'number' && Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : undefined;
+function num(v) {
+  const n = typeof v === 'string' && v.trim() ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
 }
 
-function windowOf(w) {
+function percent(w) {
+  if (!w || typeof w !== 'object') return undefined;
+  const raw = num(w.used_percentage ?? w.utilization ?? w.used_percent);
+  if (raw !== undefined) return Math.min(100, Math.max(0, raw));
+  const remPct = num(w.remaining_percentage);
+  if (remPct !== undefined) return Math.round(Math.min(100, Math.max(0, 100 - remPct)) * 10) / 10;
+  const remFrac = num(w.remaining_fraction);
+  if (remFrac !== undefined) return Math.round(Math.min(100, Math.max(0, (1 - remFrac) * 100)) * 10) / 10;
+  return undefined;
+}
+
+function resetsAtOf(w, now) {
+  const r = w.resets_at ?? w.reset_time;
+  if (typeof r === 'number' && Number.isFinite(r)) return r;
+  if (typeof r === 'string' && r.trim()) {
+    const ms = Date.parse(r.trim());
+    return Number.isNaN(ms) ? r.trim() : Math.round(ms / 1000);
+  }
+  const sec = num(w.reset_in_seconds);
+  if (sec !== undefined && sec >= 0) return Math.round(now / 1000 + sec);
+  return undefined;
+}
+
+function windowOf(w, now = Date.now()) {
   const utilization = percent(w);
   if (utilization === undefined) return undefined;
-  const r = w.resets_at;
-  const resets = typeof r === 'number' && Number.isFinite(r) ? r : typeof r === 'string' && r.trim() ? r.trim() : undefined;
+  const resets = resetsAtOf(w, now);
   return resets === undefined ? { utilization } : { utilization, resets_at: resets };
 }
 
-/** Registro gravado (ou undefined, se o JSON não trouxer rate_limits utilizáveis). */
-export function usageRecord(input, now, env = process.env, home = env.HOME || homedir()) {
+function pickQuotaWindow(quota, keys, fallbackRe, now) {
+  for (const k of keys) {
+    if (k in quota) {
+      const w = windowOf(quota[k], now);
+      if (w) return w;
+    }
+  }
+  for (const [k, v] of Object.entries(quota)) {
+    if (fallbackRe.test(k)) {
+      const w = windowOf(v, now);
+      if (w) return w;
+    }
+  }
+  return undefined;
+}
+
+function antigravityWindows(input, now) {
+  const quota = input?.quota;
+  if (!quota || typeof quota !== 'object' || Array.isArray(quota)) return undefined;
+  const modelId = typeof input.model?.id === 'string' ? input.model.id : typeof input.model?.display_name === 'string' ? input.model.display_name : '';
+  const isThirdParty = /\b(?:claude|gpt|opus|sonnet|haiku|o[134])\b/i.test(modelId);
+  const fiveKeys = isThirdParty ? ['3p-5h', 'five_hour', '5h', 'gemini-5h'] : ['gemini-5h', 'five_hour', '5h', '3p-5h'];
+  const weekKeys = isThirdParty ? ['3p-weekly', 'seven_day', 'weekly', 'gemini-weekly'] : ['gemini-weekly', 'seven_day', 'weekly', '3p-weekly'];
+  const five = pickQuotaWindow(quota, fiveKeys, /(?:^|[-_])5h$|five.?hour/i, now);
+  const week = pickQuotaWindow(quota, weekKeys, /(?:^|[-_])weekly$|seven.?day/i, now);
+  return five || week ? { five, week } : undefined;
+}
+
+/** Registro gravado (ou undefined, se o JSON não trouxer rate_limits nem quota utilizáveis). */
+export function usageRecord(input, now, env = process.env, home = env.HOME || homedir(), explicitDir = undefined) {
+  let five;
+  let week;
   const rl = input && typeof input === 'object' ? input.rate_limits : undefined;
-  if (!rl || typeof rl !== 'object') return undefined;
-  const five = windowOf(rl.five_hour);
-  const week = windowOf(rl.seven_day);
+  if (rl && typeof rl === 'object') {
+    five = windowOf(rl.five_hour, now);
+    week = windowOf(rl.seven_day, now);
+  } else {
+    const agy = antigravityWindows(input, now);
+    if (!agy) return undefined;
+    five = agy.five;
+    week = agy.week;
+  }
   if (!five && !week) return undefined;
-  const configDir = configDirOf(input, env, home);
+  const configDir = configDirOf(input, env, home, explicitDir);
   const rec = { accountId: basename(configDir), configDir, fetchedAt: now };
   if (five) rec.five_hour = five;
   if (week) rec.seven_day = week;
@@ -122,10 +212,11 @@ export function originalShell(env = process.env) {
 }
 
 /** A captura: nunca lança. */
-export function tap(stdinText, env = process.env, now = Date.now()) {
+export function tap(stdinText, env = process.env, now = Date.now(), argv = []) {
   try {
-    if (!stdinText || !stdinText.includes('rate_limits')) return false;
-    const rec = usageRecord(JSON.parse(stdinText), now, env);
+    if (!stdinText || (!stdinText.includes('rate_limits') && !stdinText.includes('"quota"'))) return false;
+    const { dir } = parseTapArgs(argv);
+    const rec = usageRecord(JSON.parse(stdinText), now, env, env.HOME || homedir(), dir);
     return rec ? writeUsage(rec, usageDirOf(env), now) : false;
   } catch {
     return false;
@@ -146,9 +237,10 @@ async function main() {
   } catch {
     // sem stdin legível: segue só com o comando original
   }
-  const command = originalCommand(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const command = originalCommand(argv);
   if (!command) {
-    tap(input.toString('utf8'));
+    tap(input.toString('utf8'), process.env, Date.now(), argv);
     return;
   }
   // O comando original começa antes da captura (que roda enquanto ele trabalha): zero atraso extra.
@@ -156,7 +248,7 @@ async function main() {
   try {
     child = spawn(command, { shell: originalShell(), stdio: ['pipe', 'inherit', 'inherit'] });
   } catch {
-    tap(input.toString('utf8'));
+    tap(input.toString('utf8'), process.env, Date.now(), argv);
     process.exitCode = 127;
     return;
   }
@@ -167,7 +259,7 @@ async function main() {
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => child.kill(sig));
   child.stdin.on('error', () => {}); // o comando pode sair sem ler o stdin (EPIPE)
   child.stdin.end(input);
-  tap(input.toString('utf8'));
+  tap(input.toString('utf8'), process.env, Date.now(), argv);
   process.exitCode = await done;
 }
 

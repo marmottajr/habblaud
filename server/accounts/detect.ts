@@ -115,14 +115,30 @@ export function isCodexHome(p: string): boolean {
   }
 }
 
+/**
+ * A pasta é do Antigravity CLI (ex.: ~/.gemini/antigravity-cli)? Conferida só pela existência das pastas/arquivos que
+ * o `agy` cria (brain/, conversations/, presence/, conversation_summaries.db ou jetbox_summaries_proto.pb), sem
+ * `projects/` (Claude Code) e sem ser do Codex.
+ */
+export function isAntigravityDir(p: string): boolean {
+  if (isDir(join(p, 'projects')) || isCodexHome(p)) return false;
+  return (
+    isDir(join(p, 'brain')) ||
+    isDir(join(p, 'conversations')) ||
+    isDir(join(p, 'presence')) ||
+    isFile(join(p, 'conversation_summaries.db')) ||
+    isFile(join(p, 'jetbox_summaries_proto.pb'))
+  );
+}
+
 /** Tem a cara de um config dir do Claude Code (`projects/` ou `sessions/`), sem olhar se é do Codex. */
 function hasClaudeLayout(p: string): boolean {
   return isDir(join(p, 'projects')) || isDir(join(p, 'sessions'));
 }
 
-/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex. */
+/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex nem do Antigravity. */
 export function isClaudeDir(p: string): boolean {
-  return hasClaudeLayout(p) && !isCodexHome(p);
+  return hasClaudeLayout(p) && !isCodexHome(p) && !isAntigravityDir(p);
 }
 
 export function isDefaultDir(dir: string, home: string): boolean {
@@ -218,6 +234,10 @@ const ALIAS_TOOLS: Record<Provider, { invokes: RegExp; dir: RegExp }> = {
   codex: {
     invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?codex(?=$|[\s;&|)])/,
     dir: /\bCODEX_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
+  },
+  antigravity: {
+    invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?(?:agy|antigravity(?:-cli)?)(?=$|[\s;&|)])/,
+    dir: /\bANTIGRAVITY_CLI_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
   },
 };
 

@@ -52,6 +52,8 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
+  /** Observa as sessões do Antigravity CLI (sources/antigravity/); HABBLAUD_ANTIGRAVITY=0 desliga. */
+  antigravity: boolean;
   /** Segunda porta, com login, para o celular na rede local (http/remote.ts); ausente = desligada. */
   remote?: RemoteConfig;
   /** Por que o acesso remoto ficou desligado quando as variáveis estão incompletas. */
@@ -249,6 +251,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     repo: pkg.repo,
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
+    antigravity: !(env.HABBLAUD_ANTIGRAVITY ?? env.HABBLAUD_AGY)?.trim() || isTruthy(env.HABBLAUD_ANTIGRAVITY ?? env.HABBLAUD_AGY),
     remote: remote.config,
     remoteWarning: remote.warning,
     world: parseWorldConfig(env, argv),

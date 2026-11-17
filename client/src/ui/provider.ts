@@ -8,7 +8,7 @@ import { shortcutHint } from './model';
 import { tr } from '../../../shared/i18n';
 
 /** Nome de cada ferramenta como aparece nos textos. */
-export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex' };
+export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' };
 
 /** Ferramenta de um agente, conta, sessão ou pedido (ausente = Claude Code). */
 export function providerOf(x: { provider?: Provider } | null | undefined): Provider {
@@ -19,6 +19,10 @@ export function isCodex(x: { provider?: Provider } | null | undefined): boolean 
   return x?.provider === 'codex';
 }
 
+export function isAntigravity(x: { provider?: Provider } | null | undefined): boolean {
+  return x?.provider === 'antigravity';
+}
+
 /**
  * O id de conta tem cara de pasta do Codex (".codex", ".codex-trabalho", ".codex~2", "demo:.codex")? Só para quando a
  * conta já não está no snapshot (ex.: histórico, "Meu dia"): com a conta à mão, vale o `provider` dela.
@@ -27,37 +31,48 @@ export function looksLikeCodexId(id: string): boolean {
   return /(?:^|[:/\\])\.?codex(?:[-_.~]|$)/i.test(id);
 }
 
+/** O id de conta tem cara de pasta do Antigravity ("antigravity-cli", ".antigravity-cli-work", "agy")? */
+export function looksLikeAntigravityId(id: string): boolean {
+  return /(?:^|[:/\\])\.?(?:antigravity(?:-cli)?|agy)(?:[-_.~]|$)/i.test(id);
+}
+
 /** Ferramenta da conta: a do snapshot; sem ela, a dica de quem chamou ou o jeito do id. */
 export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefined, fallbackId = '', hint?: Provider): Provider {
   if (account) return providerOf(account);
-  return hint ?? (looksLikeCodexId(fallbackId) ? 'codex' : 'claude');
+  if (hint) return hint;
+  if (looksLikeCodexId(fallbackId)) return 'codex';
+  if (looksLikeAntigravityId(fallbackId)) return 'antigravity';
+  return 'claude';
 }
 
 /**
  * Letra do chip de uma conta que não está no snapshot: a primeira letra depois do prefixo da pasta
- * (".claude-conta2" -> "C", ".codex-trabalho" -> "T"). A pasta padrão do Codex (".codex") vira "X"; a do Claude Code,
- * "?" (como antes). Nunca devolve "." nem vazio.
+ * (".claude-conta2" -> "C", ".codex-trabalho" -> "T"). A pasta padrão do Codex (".codex") vira "X"; a do Antigravity,
+ * "G"; a do Claude Code, "?" (como antes). Nunca devolve "." nem vazio.
  */
 export function fallbackShort(id: string, provider: Provider = accountProvider(undefined, id)): string {
   const rest = id
     .replace(/^.*:/, '')
     .replace(/~\d+$/, '')
-    .replace(/^\.?(?:claude|codex)(?=[-_.]|$)[-_.]?/i, '');
+    .replace(/^\.?(?:claude|codex|antigravity-cli|antigravity|agy)(?=[-_.]|$)[-_.]?/i, '');
   const letter = /[\p{L}\p{N}]/u.exec(rest)?.[0];
   if (letter) return letter.toUpperCase();
-  return provider === 'codex' ? 'X' : '?';
+  return provider === 'codex' ? 'X' : provider === 'antigravity' ? 'G' : '?';
 }
 
-/** O selo "Codex" ao lado do nome da conta (não repete quando o nome já diz "Codex"). */
+/** O selo ("Codex" / "Antigravity") ao lado do nome da conta (não repete quando o nome já diz a ferramenta). */
 export function showsProviderTag(provider: Provider, accountName = ''): boolean {
-  return provider === 'codex' && !/codex/i.test(accountName);
+  if (provider === 'codex') return !/codex/i.test(accountName);
+  if (provider === 'antigravity') return !/antigravity|agy/i.test(accountName);
+  return false;
 }
 
 /** Rótulo do chip da conta (dica e leitores de tela): "Conta C (dev@x.com)", "Codex · plano Team". */
 export function accountChipLabel(account: Pick<AccountInfo, 'name' | 'email' | 'plan' | 'provider'> | undefined, fallbackId: string, provider: Provider): string {
-  if (!account) return fallbackId ? `${fallbackId}${provider === 'codex' ? ' · Codex' : ''}` : tr('Conta desconhecida');
-  if (provider !== 'codex') return `${account.name}${account.email ? ` (${account.email})` : ''}`;
-  const tag = showsProviderTag(provider, account.name) ? ' · Codex' : '';
+  const tagName = provider === 'codex' ? 'Codex' : provider === 'antigravity' ? 'Antigravity' : '';
+  if (!account) return fallbackId ? `${fallbackId}${tagName ? ` · ${tagName}` : ''}` : tr('Conta desconhecida');
+  if (provider === 'claude') return `${account.name}${account.email ? ` (${account.email})` : ''}`;
+  const tag = showsProviderTag(provider, account.name) ? ` · ${tagName}` : '';
   return `${account.name}${tag}${account.plan ? tr(' · plano {0}', [account.plan]) : ''}`;
 }
 
