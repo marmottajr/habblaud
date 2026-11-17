@@ -10,6 +10,13 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Compatibilidade com o Google Antigravity CLI (`agy`).** O Habblaud agora descobre automaticamente as contas em
+  `~/.gemini/antigravity-cli` (ou `HABBLAUD_ANTIGRAVITY_DIRS`) e acompanha as sessões abertas, subagentes, ferramentas,
+  tarefas em segundo plano, terminal ao vivo, histórico de sessões e entregas, além de suportar hooks em tempo real com
+  `npm run antigravity:install`.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

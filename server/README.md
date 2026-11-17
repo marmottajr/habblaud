@@ -355,6 +355,21 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
   `/ack` (mesma trava das mensagens). `canMessage` = há entregador (binário achado, ou auxiliar visto há até 10 s).
   Retorno 0 = entrou na fila da sessão (`delivered`); o Codex consome a fila a cada ~10 s, quando a sessão fica ociosa.
 
+## Antigravity CLI
+
+Ligado por padrão quando existe `~/.gemini/antigravity-cli` (ou pastas definidas em `HABBLAUD_ANTIGRAVITY_DIRS`);
+`HABBLAUD_ANTIGRAVITY=0` desliga (`HABBLAUD_AGY=0` também funciona). Implementação em `sources/antigravity/` e
+`antigravity/http.ts`:
+
+- **Contas e sessões** (`sources/antigravity/accounts.ts`, `files.ts`): lê `jetbox_summaries_proto.pb`, `annotations/*.pbtxt`,
+  `conversations/*.db-wal`/`.db-shm` e `brain/<uuid>/.system_generated/logs/transcript.jsonl` apenas em modo leitura;
+  subagentes aparecem ligados ao agente principal quando há parentesco/fork registrado no resumo.
+- **Histórico e terminal** (`sources/antigravity/history.ts`, `terminal.ts`, `transcript.ts`): indexa `history.jsonl` e os
+  transcripts para a aba de histórico e o visor de conversa.
+- **Ao vivo pelos hooks** (`mod/habblaud-antigravity/hook.mjs`, `POST /api/antigravity/events`): instalado em
+  `~/.gemini/config/hooks.json` via `npm run antigravity:install` (ou `npm run agy:install`). Só aceita chamadas locais;
+  atualiza status, ferramenta em andamento, modelo e subagentes na hora via `AntigravityLive.applyHookEvent`.
+
 ## Habblaud World
 
 Ligado por padrão, apontando para `server.habblaud.com` (`DEFAULT_WORLD_URL` em `config.ts`); nada sai do computador
@@ -484,6 +499,8 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_CODEX` | ligado | `0` desliga a fonte do Codex |
 | `HABBLAUD_CODEX_DIRS` | — | pastas do Codex separadas por vírgula; substitui a detecção (`CODEX_HOME` e `~/.codex*`) |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
+| `HABBLAUD_ANTIGRAVITY` | ligado | `0` desliga a fonte do Antigravity CLI |
+| `HABBLAUD_ANTIGRAVITY_DIRS` | — | pastas do Antigravity CLI separadas por vírgula; substitui a detecção (`~/.gemini/antigravity-cli*`) |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
