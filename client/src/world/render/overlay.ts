@@ -130,7 +130,7 @@ function steppedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: num
 function accountDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, acc: { color: string; provider?: string }): void {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  if (acc.provider === 'codex') {
+  if (acc.provider === 'codex' || acc.provider === 'antigravity') {
     ctx.fillStyle = CODEX_CHIP_BG;
     ctx.fill();
     ctx.lineWidth = Math.max(1.2, r * 0.55);
@@ -876,7 +876,8 @@ export class Overlay {
     const chipW = acc ? 13 : 0;
     const visitor = ch === this.sim.visitor;
     const badgeW = visitor ? this.measure(BADGE_FONT, visitorBadge()) + 7 : ch.info.kind === 'sub' && !l.compact ? this.measure(BADGE_FONT, 'SUB') + 7 : 0;
-    const codexW = ch.info.provider === 'codex' && !l.compact ? this.measure(BADGE_FONT, CODEX_BADGE) + 7 : 0;
+    const badgeText = ch.info.provider === 'codex' ? CODEX_BADGE : ch.info.provider === 'antigravity' ? 'AGY' : '';
+    const codexW = badgeText && !l.compact ? this.measure(BADGE_FONT, badgeText) + 7 : 0;
     return { nameW, chipW, badgeW, codexW };
   }
 
@@ -907,7 +908,7 @@ export class Overlay {
     const ch = l.ch;
     const acc = this.sim.accounts.get(ch.info.account);
     const sub = ch.info.kind === 'sub';
-    const codex = ch.info.provider === 'codex' || acc?.provider === 'codex';
+    const codex = ch.info.provider === 'codex' || ch.info.provider === 'antigravity' || acc?.provider === 'codex' || acc?.provider === 'antigravity';
     const { nameW, chipW, badgeW, codexW } = this.labelWidth(l);
     const { x, y, w, h } = l;
     const selected = sel.agent === ch.id;
@@ -964,13 +965,14 @@ export class Overlay {
       ctx.fill();
     }
     if (codexW) {
+      const badgeText = ch.info.provider === 'antigravity' ? 'AGY' : CODEX_BADGE;
       ctx.fillStyle = 'rgba(255,255,255,0.16)';
       ctx.beginPath();
       ctx.roundRect(cx, y + 3, codexW, h - 6, 3);
       ctx.fill();
       ctx.font = BADGE_FONT;
       ctx.fillStyle = '#e8ecf5';
-      ctx.fillText(CODEX_BADGE, cx + 3.5, y + h / 2 + 0.5);
+      ctx.fillText(badgeText, cx + 3.5, y + h / 2 + 0.5);
     }
   }
 }

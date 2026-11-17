@@ -32,8 +32,15 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (agent?.kind === 'sub') return { kind: 'off', text: tr('Subagentes não recebem mensagens: escreva para o agente principal') };
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: tr('Sessão encerrada') };
   const codex = agent.provider === 'codex';
-  if (!env.enabled) return { kind: 'off', text: codex ? tr('Para responder, use o Codex') : tr('Para responder, use o terminal do Claude Code') };
+  const agy = agent.provider === 'antigravity';
+  if (!env.enabled) {
+    return {
+      kind: 'off',
+      text: codex ? tr('Para responder, use o Codex') : agy ? tr('Para responder, use o Antigravity CLI') : tr('Para responder, use o terminal do Claude Code'),
+    };
+  }
   if (!env.local) return { kind: 'off', text: tr('Para mandar mensagens por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1)') };
+  if (agy) return { kind: 'off', text: tr('Para responder, use o terminal do Antigravity CLI') };
   if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : PLUGIN_HINT };
   return { kind: 'ready' };
 }

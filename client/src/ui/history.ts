@@ -49,7 +49,7 @@ export function parseRecentSessions(raw: unknown): RecentSession[] {
     const firstAt = num(o.firstAt);
     const agentId = str(o.agentId);
     // Ausente = Claude Code (nunca grava 'claude').
-    if (o.provider === 'codex') s.provider = 'codex';
+    if (o.provider === 'codex' || o.provider === 'antigravity') s.provider = o.provider;
     if (project) s.project = project;
     if (title) s.title = title;
     if (firstAt !== undefined) s.firstAt = firstAt;
@@ -60,14 +60,15 @@ export function parseRecentSessions(raw: unknown): RecentSession[] {
 }
 
 /**
- * Busca no histórico: título, projeto (nome ou caminho), nome/letra da conta e a ferramenta ("codex"), sem diferenciar
- * maiúsculas nem acentos.
+ * Busca no histórico: título, projeto (nome ou caminho), nome/letra da conta e a ferramenta ("codex", "antigravity"),
+ * sem diferenciar maiúsculas nem acentos.
  */
 export function filterSessions(list: readonly RecentSession[], query: string, accountLabel: (id: string) => string = (id) => id): RecentSession[] {
   const terms = normalizeSearch(query).split(/\s+/).filter(Boolean);
   if (!terms.length) return list.slice();
   return list.filter((s) => {
-    const hay = normalizeSearch([s.title ?? '', s.project ?? '', s.projectDir, accountLabel(s.account), isCodex(s) ? 'Codex' : ''].join(' '));
+    const toolTag = isCodex(s) ? 'Codex' : s.provider === 'antigravity' ? 'Antigravity agy' : '';
+    const hay = normalizeSearch([s.title ?? '', s.project ?? '', s.projectDir, accountLabel(s.account), toolTag].join(' '));
     return terms.every((t) => hay.includes(t));
   });
 }

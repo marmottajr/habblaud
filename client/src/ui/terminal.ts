@@ -378,7 +378,9 @@ export function terminalFooter(agent: AgentInfo | undefined, agents: readonly Ag
       const hint =
         agent.provider === 'codex'
           ? tr('{0} · responda no Codex: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text])
-          : tr('{0} · responda no Claude Code: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text]);
+          : agent.provider === 'antigravity'
+            ? tr('{0} · responda no Antigravity: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text])
+            : tr('{0} · responda no Claude Code: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text]);
       return { kind: 'waiting', text: hint, since: agent.statusSince };
     }
     default:
