@@ -70,6 +70,8 @@ describe('antigravity-install e mod/habblaud-antigravity/hook.mjs', () => {
     expect(hooksFile[HOOK_KEY]).toBeDefined();
     const cfgFile = JSON.parse(readFileSync(join(home, '.habblaud', 'antigravity-hook.json'), 'utf8')) as { port: number };
     expect(cfgFile.port).toBe(4848);
+    const agySettings = JSON.parse(readFileSync(join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8')) as { statusLine?: { command?: string } };
+    expect(agySettings.statusLine?.command).toContain('statusline-tap.mjs');
 
     const statusOpts = parseArgs(['status'], ctx.env);
     if (statusOpts !== 'help') expect(await runInstaller(statusOpts, ctx)).toBe(0);
@@ -78,6 +80,8 @@ describe('antigravity-install e mod/habblaud-antigravity/hook.mjs', () => {
     if (uninstOpts !== 'help') expect(await runInstaller(uninstOpts, ctx)).toBe(0);
     const afterFile = JSON.parse(readFileSync(join(home, '.gemini', 'config', 'hooks.json'), 'utf8')) as Record<string, unknown>;
     expect(afterFile[HOOK_KEY]).toBeUndefined();
+    const afterSettings = JSON.parse(readFileSync(join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8')) as Record<string, unknown>;
+    expect(afterSettings.statusLine).toBeUndefined();
   });
 
   it('hook.mjs deduz a pasta do Antigravity pelo transcriptPath e devolve {} sem travar quando o servidor está desligado', async () => {
