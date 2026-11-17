@@ -252,6 +252,7 @@ export class HelpDialog {
           text: tr('No topo, cada conta mostra o uso da sessão de 5 horas e da semana. O ↻ indica quando cada limite reinicia (contagem regressiva se faltar menos de um dia). Verde abaixo de 50%, âmbar até 80% e vermelho a partir daí.'),
         }),
         h('li', { text: tr('Números antigos ficam acinzentados com a idade ao lado (ex.: “há 3 h”); uma janela que já reiniciou desde a leitura mostra “—” e “renovada”.') }),
+        h('li', {}, ...richText(tr('No Antigravity CLI (`agy`), `npm run usage:install` (ou `npm run antigravity:install`) também ativa a captura ao vivo dos limites de 5 h e da semana pelo statusline.'))),
       ),
       h('p', { class: 'ui-help__lead', text: tr('Para ver o uso de uma conta (“sem dados de uso”), em ordem de preferência:') }),
       createUsageSetup(),
