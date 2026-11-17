@@ -42,6 +42,12 @@
     "codex:uninstall": "tsx scripts/codex-install.ts uninstall",
     "codex:status": "tsx scripts/codex-install.ts status",
     "codex:bridge": "tsx scripts/codex-bridge.ts",
+    "antigravity:install": "tsx scripts/antigravity-install.ts install",
+    "antigravity:uninstall": "tsx scripts/antigravity-install.ts uninstall",
+    "antigravity:status": "tsx scripts/antigravity-install.ts status",
+    "agy:install": "tsx scripts/antigravity-install.ts install",
+    "agy:uninstall": "tsx scripts/antigravity-install.ts uninstall",
+    "agy:status": "tsx scripts/antigravity-install.ts status",
     "remote:setup": "tsx scripts/remote-setup.ts",
     "remote:mdns": "tsx scripts/remote-mdns.ts",
     "release": "tsx scripts/release.ts"
