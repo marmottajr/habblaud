@@ -369,6 +369,10 @@ Ligado por padrão quando existe `~/.gemini/antigravity-cli` (ou pastas definida
 - **Ao vivo pelos hooks** (`mod/habblaud-antigravity/hook.mjs`, `POST /api/antigravity/events`): instalado em
   `~/.gemini/config/hooks.json` via `npm run antigravity:install` (ou `npm run agy:install`). Só aceita chamadas locais;
   atualiza status, ferramenta em andamento, modelo e subagentes na hora via `AntigravityLive.applyHookEvent`.
+- **Limites de 5 h e semanal** (`scripts/statusline-tap.mjs`, `accounts/statusline.ts`): `npm run usage:install` e
+  `npm run antigravity:install` configuram o `statusLine` em `<antigravity-cli>/settings.json` (com
+  `stack_with_default: true`) para capturar os campos `quota` (`5h` e `weekly`) em `~/.habblaud/usage/<conta>.json`,
+  sem ler credenciais nem chamar APIs.
 
 ## Habblaud World
 
