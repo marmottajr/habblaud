@@ -1,4 +1,7 @@
+import { realpathSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { tempDir } from '../test/fixtures';
 import { checkFile, DELIVERY_FILE_MAX_BYTES, fileType, insideKnownFolder, pathProblem } from './files';
 
 describe('arquivos das entregas', () => {
@@ -19,6 +22,52 @@ describe('arquivos das entregas', () => {
     expect(checkFile('/Users/a/p/x.png', fs('/Users/a/p/x.png', DELIVERY_FILE_MAX_BYTES + 1))).toHaveProperty('error');
     expect(checkFile('/Users/a/p/x.png', fs('/Users/a/p/x.png', 1, false))).toEqual({ error: 'não é um arquivo' });
     expect(checkFile('/nao/existe.png')).toEqual({ error: 'arquivo não encontrado' });
+  });
+
+  it('no Windows: letra de unidade com "\\" ou "/"; nada de rede, dispositivo, fluxo alternativo ou nome terminado em ponto', () => {
+    for (const ok of ['C:\\Users\\a\\p\\relatorio.pdf', 'c:/Users/a/p/print.PNG', 'D:\\proj\\docs\\tela 1.png', '\\Users\\a\\p\\x.png']) {
+      expect(pathProblem(ok, 'win32'), ok).toBeUndefined();
+    }
+    const bad = [
+      '\\\\servidor\\pasta\\x.png',
+      '//servidor/pasta/x.png',
+      '\\\\?\\C:\\a\\x.png',
+      '\\\\.\\C:\\a\\x.png',
+      'C:x.png',
+      'rel\\x.png',
+      'C:\\a\\x.png:oculto.png',
+      'C:\\a\\..\\b.png',
+      'C:\\Users\\a\\.ssh.\\x.png',
+      'C:\\Users\\a\\p\\x.png ',
+      'C:\\Users\\a\\.ssh\\x.png',
+      'C:\\Users\\a\\.SSH\\x.png',
+      'C:\\Users\\a\\p\\.env.png',
+      'C:\\Users\\a\\p\\Senha do banco.pdf',
+      'C:\\Users\\a\\.habblaud\\remote-tls\\ca.pdf',
+      'C:\\a\\b.ps1',
+    ];
+    for (const b of bad) expect(pathProblem(b, 'win32'), b).toBeDefined();
+    // Fora do Windows, "C:\..." não é um caminho absoluto.
+    expect(pathProblem('C:\\Users\\a\\p\\relatorio.pdf', 'linux')).toBe('caminho inválido');
+  });
+
+  it('checkFile no Windows: o caminho real decide (nome curto de pasta protegida e unidade de rede caem)', () => {
+    const fs = (real: string) => ({ realpath: () => real, stat: () => ({ isFile: () => true, size: 10 }) });
+    expect(checkFile('C:\\Users\\a\\p\\x.png', fs('C:\\Users\\a\\p\\x.png'), 'win32')).toEqual({ path: 'C:\\Users\\a\\p\\x.png', size: 10 });
+    expect(checkFile('C:\\Users\\a\\SSH~1\\x.png', fs('C:\\Users\\a\\.ssh\\x.png'), 'win32')).toEqual({ error: 'arquivo protegido' });
+    expect(checkFile('Z:\\x.png', fs('\\\\servidor\\pasta\\x.png'), 'win32')).toEqual({ error: 'caminho inválido' });
+  });
+
+  it.runIf(process.platform === 'win32')('checkFile no Windows, no disco: devolve o caminho com as letras que estão no disco', () => {
+    const { dir, cleanup } = tempDir();
+    try {
+      const file = join(dir, 'Tela.png');
+      writeFileSync(file, 'x');
+      expect(checkFile(file.toUpperCase())).toEqual({ path: realpathSync.native(file), size: 1 });
+      expect(checkFile(join(dir, 'nao-existe.png'))).toEqual({ error: 'arquivo não encontrado' });
+    } finally {
+      cleanup();
+    }
   });
 
   it('insideKnownFolder: só pastas de projeto que alguma conta conhece, as temporárias e os anexos', () => {

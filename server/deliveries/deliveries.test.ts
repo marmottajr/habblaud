@@ -5,6 +5,13 @@ import { createTerminalParser } from '../sources/terminal';
 import { tempDir } from '../test/fixtures';
 import { DeliveryIndex, headlineOf, linkedFiles, parseTurns, summaryOf } from './deliveries';
 
+/**
+ * Os caminhos seguem o sistema do servidor: POSIX, ou letra de unidade e "\" no Windows. linkedFiles recebe a
+ * plataforma e é testada com as duas em qualquer sistema. O DeliveryIndex usa a do processo: o teste com caminhos
+ * "C:\..." só roda no Windows, porque fora dele "C:\..." não é caminho absoluto.
+ */
+const WINDOWS = process.platform === 'win32';
+
 const ts = (s: number) => new Date(Date.UTC(2026, 9, 12, 12, 0, s)).toISOString();
 const user = (id: string, s: number, text: string) => ({ type: 'user', uuid: id, timestamp: ts(s), message: { role: 'user', content: text } });
 const tool = (id: string, s: number, name: string, input: object) => ({
@@ -60,9 +67,25 @@ describe('entregas: texto', () => {
   });
 
   it('links para arquivos de ver: absolutos, relativos ao projeto; nada protegido', () => {
-    expect(linkedFiles(REPLY, '/Users/ana/proj')).toEqual(['/Users/ana/proj/relatorio.pdf']);
-    expect(linkedFiles('veja [a](telas/a.png) e [b](https://x.com/b.png) e /Users/ana/.ssh/k.png', '/Users/ana/proj')).toEqual(['/Users/ana/proj/telas/a.png']);
-    expect(linkedFiles('[c](relativo.png)')).toEqual([]);
+    expect(linkedFiles(REPLY, '/Users/ana/proj', 'linux')).toEqual(['/Users/ana/proj/relatorio.pdf']);
+    expect(linkedFiles('veja [a](telas/a.png) e [b](https://x.com/b.png) e /Users/ana/.ssh/k.png', '/Users/ana/proj', 'linux')).toEqual(['/Users/ana/proj/telas/a.png']);
+    expect(linkedFiles('[c](relativo.png)', undefined, 'linux')).toEqual([]);
+  });
+
+  it('links no Windows: letra de unidade com "\\" ou "/", file:// e relativos ao projeto; nada de rede nem protegido', () => {
+    const proj = 'C:\\Users\\ana\\proj';
+    expect(linkedFiles('Veja [o PDF](C:\\Users\\ana\\proj\\relatorio.pdf) e `C:/Users/ana/proj/telas/depois.png`.', proj, 'win32')).toEqual([
+      'C:\\Users\\ana\\proj\\relatorio.pdf',
+      'C:\\Users\\ana\\proj\\telas\\depois.png',
+    ]);
+    expect(linkedFiles('[a](telas\\a.png), [b](file:///C:/Users/ana/proj/b.png) e [c](https://x.com/c.png)', proj, 'win32')).toEqual([
+      'C:\\Users\\ana\\proj\\telas\\a.png',
+      'C:\\Users\\ana\\proj\\b.png',
+    ]);
+    expect(linkedFiles('[d](\\\\servidor\\pasta\\d.png), [e](C:\\Users\\ana\\.ssh\\e.png) e \\\\servidor\\pasta\\f.png', proj, 'win32')).toEqual([]);
+    expect(linkedFiles('[g](relativo.png)', undefined, 'win32')).toEqual([]);
+    // Um "C:\..." num servidor que não é Windows continua de fora.
+    expect(linkedFiles('[h](C:\\Users\\ana\\proj\\h.png)', '/Users/ana/proj', 'linux')).toEqual([]);
   });
 });
 
@@ -107,5 +130,33 @@ describe('entregas: pedidos do transcript', () => {
     // "De nada!" sem ferramentas não é entrega; o último pedido conta só quando o agente para.
     busy = false;
     expect((await idx.list()).map((x) => x.request)).toEqual(['Corrija o relatório de vendas']);
+  });
+
+  it.runIf(WINDOWS)('DeliveryIndex no Windows: os anexos com letra de unidade entram, o protegido e o de rede não', async () => {
+    const dir = tempDir().dir;
+    const path = join(dir, 's.jsonl');
+    const reply = `**O relatório está pronto** e foi enviado. Veja [o PDF](C:\\Users\\ana\\proj\\relatorio.pdf) e [a rede](\\\\servidor\\pasta\\rede.png).
+
+Em poucas palavras: o relatório de vendas agora mostra o último dia certo, e o PDF está na pasta do projeto para a BA conferir.`;
+    const lines = [
+      user('u1', 0, 'Corrija o relatório de vendas'),
+      tool('a1', 1, 'SendUserFile', { files: ['C:\\Users\\ana\\proj\\print.png', 'C:\\Users\\ana\\.ssh\\id_rsa'], caption: 'A tela nova' }),
+      say('a2', 2, reply),
+      user('u2', 3, 'Obrigado'),
+    ].map((l) => JSON.stringify(l));
+    writeFileSync(path, lines.join('\n') + '\n');
+    const idx = new DeliveryIndex({
+      sessions: async () => [{ account: '.claude', sessionId: 's1', projectDir: 'p', project: 'C:\\Users\\ana\\proj', lastAt: 1, size: 1, open: true, agentId: 'ag' }],
+      resolve: () => ({ path, createParser: createTerminalParser }),
+      isBusy: () => false,
+    });
+    const list = await idx.list();
+    expect(list).toHaveLength(1);
+    expect(list[0].attachments.map((a) => [a.name, a.kind, a.caption ?? ''])).toEqual([
+      ['print.png', 'image', 'A tela nova'],
+      ['relatorio.pdf', 'pdf', ''],
+    ]);
+    expect(JSON.stringify(list)).not.toContain('.ssh');
+    expect(idx.attachment(list[0].attachments[0].id)).toMatchObject({ kind: 'file', path: 'C:\\Users\\ana\\proj\\print.png', type: 'image/png' });
   });
 });

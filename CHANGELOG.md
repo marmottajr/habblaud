@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Entregas no Windows: os anexos voltam a aparecer.** Com o Habblaud rodando direto no Windows (`npm start`),
+  nenhum arquivo entregue pelo agente virava anexo: a conferência dos caminhos só aceitava os que começam com `/`.
+  Agora valem os caminhos com letra de unidade (`C:\pasta\tela.png` ou `C:/pasta/tela.png`), nos arquivos que o
+  agente manda e nos links da resposta. As proteções são as mesmas (só tipos de ver, nada com cara de segredo) e, no
+  Windows, ficam de fora também os caminhos de rede (`\\servidor\pasta`), os fluxos alternativos e os nomes
+  terminados em ponto; o caminho real vem do sistema, para um nome curto (`SSH~1`) não esconder uma pasta protegida.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

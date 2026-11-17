@@ -7,7 +7,7 @@
 // Cada transcript é relido só quando muda (mtime/tamanho). Os anexos ganham ids opacos: o navegador nunca vê caminhos.
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { isAbsolute, join, normalize } from 'node:path';
+import { posix, win32 } from 'node:path';
 import { tr } from '../../shared/i18n';
 import type { DeliveryAttachment, DeliveryInfo, Provider, RecentSession, TerminalEntry } from '../../shared/types';
 import type { TerminalParser } from '../sources/terminal';
@@ -29,6 +29,8 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply
 /** Caminhos de arquivo de ver citados na resposta: em links markdown ou soltos. */
 const LINK_RE = /\]\(\s*<?([^)\s>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?::\d+)?>?\s*\)/gi;
 const BARE_RE = /(?:^|[\s(`"'])(\/[^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
+/** No Windows o caminho solto começa pela letra da unidade ("C:\pasta\tela.png" ou "C:/pasta/tela.png"). */
+const BARE_WIN_RE = /(?:^|[\s(`"'])([a-z]:[\\/][^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
 
 export interface SessionSource {
   path: string;
@@ -121,7 +123,9 @@ export function summaryOf(text: string, headline: string): string | undefined {
 }
 
 /** Caminhos de arquivos de ver citados na resposta (absolutos, ou relativos à pasta do projeto). */
-export function linkedFiles(text: string, project?: string): string[] {
+export function linkedFiles(text: string, project?: string, platform: NodeJS.Platform = process.platform): string[] {
+  const win = platform === 'win32';
+  const { isAbsolute, join, normalize } = win ? win32 : posix;
   const out = new Set<string>();
   const add = (raw: string) => {
     let p = raw.trim();
@@ -131,16 +135,18 @@ export function linkedFiles(text: string, project?: string): string[] {
       // fica como veio
     }
     if (p.startsWith('file://')) p = p.slice(7);
-    if (/^[a-z]+:/i.test(p)) return;
+    // No Windows, "file:///C:/pasta" deixa "/C:/pasta", e "C:\pasta" é um caminho, não um endereço com esquema.
+    if (win && /^\/[a-z]:[\\/]/i.test(p)) p = p.slice(1);
+    if (/^[a-z]+:/i.test(p) && !(win && /^[a-z]:[\\/]/i.test(p))) return;
     if (!isAbsolute(p)) {
       if (!project) return;
       p = join(project, p);
     }
     p = normalize(p);
-    if (!pathProblem(p)) out.add(p);
+    if (!pathProblem(p, platform)) out.add(p);
   };
   for (const m of text.matchAll(LINK_RE)) add(m[1]);
-  for (const m of text.matchAll(BARE_RE)) add(m[1]);
+  for (const m of text.matchAll(win ? BARE_WIN_RE : BARE_RE)) add(m[1]);
   return [...out];
 }
 

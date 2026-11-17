@@ -49,20 +49,44 @@ export function fileType(path: string): { kind: DeliveryAttachmentKind; type: st
   return TYPES[extensionOf(path)];
 }
 
+/**
+ * O caminho com "/" no lugar de "\", para as conferências de texto, ou undefined se não é um caminho absoluto que se
+ * aceite. Fora do Windows é o que começa com "/". No Windows (servidor rodando no modo Node) valem a letra de unidade
+ * ("C:\pasta" ou "C:/pasta") e a raiz da unidade atual ("\pasta"). Ficam de fora o caminho de rede ("\\servidor\pasta":
+ * só de olhar para ele o Windows já fala com o servidor) e o de dispositivo ("\\?\", "\\.\"), o relativo à unidade
+ * ("C:pasta"), o fluxo alternativo ("arquivo.png:oculto") e o nome terminado em ponto ou espaço, que o Windows lê como
+ * se não terminasse assim (".ssh." é ".ssh").
+ */
+function slashed(path: string, platform: NodeJS.Platform): string | undefined {
+  if (platform !== 'win32') return path.startsWith('/') ? path : undefined;
+  const p = path.replace(/\\/g, '/');
+  const rooted = /^[a-z]:/i.test(p) ? p.slice(2) : p;
+  if (!rooted.startsWith('/') || rooted.startsWith('//') || rooted.includes(':') || /[. ](\/|$)/.test(rooted)) return undefined;
+  return p;
+}
+
 /** Motivo para NÃO mostrar o caminho (só olhando o texto), ou undefined. */
-export function pathProblem(path: string): string | undefined {
-  if (!path || path.includes('\0') || !path.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(path)) return tr('caminho inválido');
-  if (!fileType(path)) return tr('tipo de arquivo que não se mostra aqui');
-  if (SECRET_DIRS.test(path) || SECRET_NAMES.test(path)) return tr('arquivo protegido');
+export function pathProblem(path: string, platform: NodeJS.Platform = process.platform): string | undefined {
+  const p = path && !path.includes('\0') ? slashed(path, platform) : undefined;
+  if (!p || /(^|\/)\.\.(\/|$)/.test(p)) return tr('caminho inválido');
+  if (!fileType(p)) return tr('tipo de arquivo que não se mostra aqui');
+  if (SECRET_DIRS.test(p) || SECRET_NAMES.test(p)) return tr('arquivo protegido');
   return undefined;
 }
+
+/**
+ * No Windows o caminho real vem do sistema (realpath nativo): só ele desfaz o nome curto ("SSH~1" no lugar de ".ssh") e
+ * devolve as letras como estão no disco. O do Node devolve o texto como chegou, e a segunda conferência não veria nada.
+ */
+const DISK = { realpath: (p: string): string => (process.platform === 'win32' ? realpathSync.native(p) : realpathSync(p)), stat: statSync };
 
 /** Confere no disco (links resolvidos, tamanho, arquivo comum). Devolve o caminho real ou o motivo. */
 export function checkFile(
   path: string,
-  fs: { realpath(p: string): string; stat(p: string): { isFile(): boolean; size: number } } = { realpath: realpathSync, stat: statSync },
+  fs: { realpath(p: string): string; stat(p: string): { isFile(): boolean; size: number } } = DISK,
+  platform: NodeJS.Platform = process.platform,
 ): { path: string; size: number } | { error: string } {
-  const bad = pathProblem(path);
+  const bad = pathProblem(path, platform);
   if (bad) return { error: bad };
   let real: string;
   let st: { isFile(): boolean; size: number };
@@ -72,7 +96,7 @@ export function checkFile(
   } catch {
     return { error: tr('arquivo não encontrado') };
   }
-  const realBad = pathProblem(real);
+  const realBad = pathProblem(real, platform);
   if (realBad) return { error: realBad };
   if (!st.isFile()) return { error: tr('não é um arquivo') };
   if (st.size > DELIVERY_FILE_MAX_BYTES) return { error: tr('arquivo grande demais para ver aqui') };
