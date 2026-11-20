@@ -4,9 +4,11 @@ import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '.
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
+import { handleOmpEvent } from '../omp/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
+import type { OmpLive } from '../sources/omp/live';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import type { RemoteFeature } from './remote';
@@ -63,6 +65,14 @@ export interface ApiDeps {
    * não dependem da trava do terminal).
    */
   codexLive?: CodexLive;
+  /**
+   * Fonte do omp ao vivo: recebe os eventos da extensão do Habblaud no omp (POST /api/omp/events, server/omp/http.ts).
+   * Sem ela a rota responde {ok: false}. A mesma trava de /api/codex/events: Host local e, fora do Docker, conexão pelo
+   * loopback.
+   */
+  ompLive?: OmpLive;
+  /** Configurações › Sala do omp segue o projeto (OmpSettings): POST /api/omp/settings. Ausente = sem omp (404). */
+  setOmpRoomByProject?: (on: boolean) => boolean;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -125,6 +135,7 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
+    path.startsWith('/api/omp/') ||
     path.startsWith('/api/host/')
   );
 }
@@ -286,6 +297,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     sendJson(res, 200, { ok: true, demo: office.isDemo() });
   };
 
+  const handleOmpSettings = async (req: IncomingMessage, res: ServerResponse, set: (on: boolean) => boolean) => {
+    const body = (await readJson(req)) as { roomByProject?: unknown };
+    if (typeof body?.roomByProject !== 'boolean') throw new HttpError(400, tr('esperado {roomByProject: boolean}'));
+    sendJson(res, 200, { ok: true, roomByProject: set(body.roomByProject) });
+  };
+
   const handleCharacter = async (req: IncomingMessage, res: ServerResponse, id: string, method: string) => {
     if (method === 'DELETE') {
       req.resume();
@@ -376,6 +393,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
+          ompEvents: !!deps.ompLive,
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
@@ -487,6 +505,14 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Codex só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/omp/events') {
+      // Eventos da extensão do omp: só observam, mas só valem vindos do próprio computador (a mesma trava do Codex).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('eventos do omp só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else handleOmpEvent(req, res, { live: deps.ompLive }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {
@@ -688,6 +714,13 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (isRemote(req)) sendJson(res, 403, { error: tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') });
       else handleDemo(req, res).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/omp/settings') {
+      // Muda a sala de todos os agentes do omp: só pelo computador (isLocalOnlyPath já barra a porta remota).
+      if (!deps.setOmpRoomByProject) sendJson(res, 404, { error: tr('desligado') });
+      else if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else handleOmpSettings(req, res, deps.setOmpRoomByProject).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/updates') {

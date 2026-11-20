@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { checkFile, DELIVERY_FILE_MAX_BYTES, fileType, insideKnownFolder, pathProblem } from './files';
 
@@ -22,7 +23,7 @@ describe('arquivos das entregas', () => {
   });
 
   it('insideKnownFolder: só pastas de projeto que alguma conta conhece, as temporárias e os anexos', () => {
-    const known = new Set(['/h/.claude/projects/-Users-ana-loja', '/h/.claude-2/projects/-Users-ana-x-y']);
+    const known = new Set([join('/h/.claude', 'projects', '-Users-ana-loja'), join('/h/.claude-2', 'projects', '-Users-ana-x-y')]);
     const opts = { accountDirs: ['/h/.claude', '/h/.claude-2'], roots: ['/tmp', '/h/.habblaud/attachments'], exists: (p: string) => known.has(p) };
     expect(insideKnownFolder('/Users/ana/loja/docs/print.png', opts)).toBe(true);
     expect(insideKnownFolder('/Users/ana/x-y/a.pdf', opts)).toBe(true);
@@ -32,5 +33,21 @@ describe('arquivos das entregas', () => {
     expect(insideKnownFolder('/Users/ana/Documents/extrato.pdf', opts)).toBe(false);
     expect(insideKnownFolder('/Users/ana/lojas/a.png', opts)).toBe(false);
     expect(insideKnownFolder('/tmpx/a.png', opts)).toBe(false);
+  });
+
+  it('caminhos do Windows', () => {
+    // isAbsolute e dirname só entendem C:\ no Windows; o resto das regras vale em qualquer sistema.
+    expect(pathProblem('C:\\Users\\a\\.ssh\\x.png')).toBeDefined();
+    expect(pathProblem('C:\\a\\..\\b.png')).toBeDefined();
+    const temp = { accountDirs: [], roots: ['C:\\Temp\\'] };
+    expect(insideKnownFolder('C:\\Temp\\x.png', temp)).toBe(true);
+    expect(insideKnownFolder('C:\\Tempo\\x.png', temp)).toBe(false);
+    if (process.platform === 'win32') {
+      expect(pathProblem('C:\\Users\\a\\p\\relatorio.pdf')).toBeUndefined();
+      const project = join('C:\\h\\.claude', 'projects', 'C--Users-ana-loja');
+      const known = { accountDirs: ['C:\\h\\.claude'], roots: [], exists: (p: string) => p === project };
+      expect(insideKnownFolder('C:\\Users\\ana\\loja\\docs\\print.png', known)).toBe(true);
+      expect(insideKnownFolder('C:\\Users\\ana\\Documents\\x.pdf', known)).toBe(false);
+    }
   });
 });

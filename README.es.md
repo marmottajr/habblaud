@@ -129,7 +129,8 @@ solo.
 
 ### Requisitos
 
-- **macOS** (probado) o Linux.
+- **macOS**, **Linux** o **Windows 10/11** (Windows Terminal o PowerShell; Git for Windows lo usa el tap de statusline
+  y, si está instalado, aporta el `openssl` del acceso remoto).
 - **[Claude Code](https://code.claude.com)** instalado, con una o más cuentas (2.1.287 o más reciente para el mod).
 - **Node.js 22.12+** y **npm** (desarrollado con Node 24; Docker ya usa Node 24).
 - **Docker Desktop** (o Docker Engine con Compose v2), si lo vas a ejecutar en un contenedor.
@@ -230,6 +231,20 @@ Después, **abre Codex y aprueba los hooks de Habblaud en `/hooks`**: Codex solo
 lo apruebas (Habblaud nunca guarda esa aprobación). Con Habblaud en Docker, para enviar mensajes a las sesiones de
 Codex deja también `npm run codex:bridge` en ejecución en el Mac (consulta [Codex](#codex)).
 
+### 5. omp (oh-my-pi) en la oficina (opcional)
+
+Si usas **[omp](https://github.com/can1357/oh-my-pi)** (oh-my-pi), sus sesiones entran en la misma oficina, en la sala
+del proyecto (la misma de Claude Code y Codex en el mismo directorio), con el sello **OMP**. Habblaud encuentra solo la
+carpeta de omp (`~/.omp/agent`, o `PI_CODING_AGENT_DIR`) y lee las conversaciones, sin instalar nada. Para ver omp **en
+vivo**, enviar mensajes y llevar las aprobaciones a la oficina, instala la extensión:
+
+```bash
+npm run omp:install        # põe a extensão do Habblaud em ~/.omp/agent/extensions/habblaud.ts (as outras ficam)
+npm run omp:status         # confere
+```
+
+La extensión vale para las sesiones de omp abiertas **después** de la instalación. Consulta [omp (oh-my-pi)](#omp-oh-my-pi).
+
 ### Abrir en el celular (opcional)
 
 Por defecto, Habblaud solo acepta conexiones de la propia computadora. Para abrirlo en el celular (en la misma red
@@ -267,6 +282,9 @@ primera vez, acepta el aviso, toca **Instala el certificado de Habblaud** y conf
 Perfil descargado › Instalar y luego Configuración › General › Información › Configuración de confianza de
 certificados; Android: Seguridad › Encriptación y credenciales › Instalar un certificado › Certificado de CA),
 comprobando la huella digital que mostró el setup.
+
+En Windows no hay servicio automático de anuncio `.local`: usa la IP del computador o un nombre en el DNS del router, y
+el `openssl` tiene que estar en el PATH (sirve el de Git for Windows: `C:\Program Files\Git\usr\bin`).
 
 - **CA restringida:** solo firma `localhost`, nombres `.local`, tu dirección propia e IP de red privada. Aunque su
   clave se filtrara, el celular que confía en ella rechazaría un certificado para cualquier otro sitio. Cambiar la
@@ -360,6 +378,7 @@ npm run docker:up        # tira o container codetown e copia os dados do volume 
 ```bash
 npm run mod:uninstall                       # tira o mod, os plugins de permissões e de mensagens e o marketplace
 npm run codex:uninstall                     # tira os hooks do Habblaud do Codex (os outros ficam)
+npm run omp:uninstall                       # tira a extensão do Habblaud do omp (as outras ficam)
 npm run docker:down                         # para o container
 docker volume rm habblaud_habblaud-data     # apaga os dados do container (nomes, salas, linha do tempo e estatísticas)
 docker image rm habblaud:local              # apaga a imagem
@@ -640,6 +659,54 @@ chip de la cuenta de Codex es hueco y lleva el sello **CODEX**.
 - Las conversaciones en la nube de ChatGPT (sin archivo en la computadora) no aparecen. `HABBLAUD_CODEX=0` desactiva
   Codex.
 
+### omp (oh-my-pi)
+
+Las sesiones de omp aparecen como las de Claude Code: personaje, sala del proyecto, actividad, título, modelo, tokens,
+subagentes (las `task` de omp) y terminal. El chip de la cuenta de omp es hueco, con las esquinas de arriba recortadas, y
+lleva el sello **OMP**. Arriba, la tarjeta de la cuenta de omp muestra el uso de 5 horas y de la semana del proveedor
+del modelo en uso (p. ej., Anthropic), leído de `omp usage --json` cada 5 min mientras haya una sesión de omp abierta —
+es omp quien consulta al proveedor, con sus credenciales y su caché; Habblaud solo ejecuta el comando. Un proveedor sin
+esas ventanas (Ollama, Codex gratuito) aparece como "sin uso de 5 h ni semanal". `HABBLAUD_OMP_USAGE=0` lo desactiva;
+`HABBLAUD_OMP_BIN` indica el ejecutable; en Docker siempre está desactivado. omp es multiproveedor: con más de un
+proveedor (o límites además de las dos barras), el botón **N ▾** de la tarjeta los abre todos, cada uno con todos sus
+límites (5 h, semana, por modelo o grupo; los agotados resaltan).
+
+- **Sin instalar nada**, Habblaud lee los archivos que omp guarda en `~/.omp/agent/sessions/`. La sesión entra en la
+  oficina con el primer registro del archivo y sale cuando omp guarda el cierre. Si el proceso muere sin cerrar (cerraste
+  la terminal a la fuerza, se colgó), el personaje se queda inactivo hasta **10 minutos** antes de salir.
+- **Con la extensión** (`npm run omp:install`), omp le avisa a Habblaud en cada paso: la sesión aparece al instante, el
+  estado cambia al inicio y al final de cada turno y, si el proceso muere, el personaje sale en hasta 30 segundos. Vale
+  también para la sesión abierta con `/new` o `/resume`, y para la reabierta con `omp --resume`/`--restore` (que solo
+  vuelve a escribir en el archivo en el siguiente mensaje).
+- **Enviar mensajes:** el cuadro **Enviar mensaje** funciona para omp con la extensión instalada. Con el agente
+  inactivo, el mensaje inicia un turno nuevo; si está trabajando, entra como continuación justo después del turno actual,
+  sin interrumpir lo que está haciendo.
+- **Modelo y razonamiento:** con la extensión instalada, los selectores Modelo y Razonamiento del panel cambian la sesión en vivo (`pi.setModel` / `setThinkingLevel`); desde el celular, solo con `messages` en `HABBLAUD_REMOTE_ALLOW`.
+- **Preguntas (`ask`):** con la extensión, las preguntas que el agente hace con la herramienta `ask` se abren también en
+  la tarjeta **Pregunta para ti** de la oficina (desde el celular, con `permissions` en `HABBLAUD_REMOTE_ALLOW`). Vale la
+  primera respuesta: responder en la oficina cierra el diálogo de la terminal y el modelo recibe el mismo texto que el
+  `ask` de omp; responder en la terminal retira la tarjeta. Con Habblaud caído, solo la terminal.
+- **Aprobaciones**, de dos maneras:
+  - **Predeterminada:** cuando omp pide aprobación en la terminal, el personaje levanta la mano y la oficina muestra qué
+    herramienta espera; la decisión sigue en la terminal.
+  - **Decidir desde la oficina (y desde el celular):** ejecuta omp con `HABBLAUD_OMP_PERMISSOES=1` en el entorno y
+    `--approval-mode yolo` (para que omp no pregunte una segunda vez). Cada herramienta que edita archivos o ejecuta
+    comandos abre, al mismo tiempo, un diálogo en la terminal y la tarjeta **Pide permiso** en la oficina, y vale la
+    primera respuesta. **Rechazar** pide un motivo, que el modelo recibe como error de la herramienta. Las lecturas y
+    búsquedas no piden nada. Sin respuesta en 5 minutos (o, con omp sin pantalla, antes del plazo de los handlers de omp,
+    30 s por defecto), la herramienta se rechaza. Con Habblaud caído, solo decide el diálogo de la terminal.
+  ```bash
+  HABBLAUD_OMP_PERMISSOES=1 omp --approval-mode yolo          # bash/zsh
+  $env:HABBLAUD_OMP_PERMISSOES=1; omp --approval-mode yolo    # PowerShell
+  ```
+- **Sala por proyecto:** con omp en una carpeta que reúne varios proyectos y no es un repositorio git (p. ej.,
+  `~/Desarrollo`), **Configuración › La sala de omp sigue el proyecto** lleva al personaje a la sala de la subcarpeta en
+  la que trabajan sus herramientas (la más citada en las últimas 5 llamadas). Desactivado por defecto; la elección queda
+  en `omp.json`, en la carpeta de datos. Solo desde la propia computadora.
+- `npm run omp:uninstall` quita la extensión; `HABBLAUD_OMP=0` desactiva omp en la oficina. Si omp tiene
+  `extensionHandlers.toolCallTimeoutMs` distinto de 30 s y está sin pantalla: indica el mismo valor en
+  `HABBLAUD_OMP_TIMEOUT_MS` en el entorno de omp.
+
 ### GitHub en la oficina
 
 Lo que los agentes hacen en GitHub anima la sala del proyecto, sin token y sin acceder a internet: Habblaud lee en
@@ -763,13 +830,18 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_CODEX` | activado | `0` desactiva Codex en la oficina. |
 | `HABBLAUD_CODEX_DIRS` | detección automática | Carpetas de Codex, separadas por comas (en lugar de `~/.codex*` y `CODEX_HOME`). |
 | `HABBLAUD_CODEX_BIN` | `codex` del PATH (en Windows, `codex.exe`) | El binario de Codex que entrega los mensajes (`codex queue`), en modo Node o en `npm run codex:bridge`. |
+| `HABBLAUD_OMP` | activado | `0` desactiva omp (oh-my-pi) en la oficina. |
+| `HABBLAUD_OMP_DIRS` | detección automática | Carpetas de omp, separadas por comas (en lugar de `PI_CODING_AGENT_DIR` y `~/.omp/agent`). |
+| `HABBLAUD_OMP_USAGE` | activado (desactivado en Docker) | `0` desactiva el uso del plan de las cuentas de omp (Habblaud deja de ejecutar `omp usage --json`). |
+| `HABBLAUD_OMP_BIN` | `omp` del PATH, si no `~/.bun/bin/omp` | El ejecutable de omp para el uso del plan (una ruta o un nombre en el PATH). |
+| `HABBLAUD_OMP_PERMISSOES` | desactivado | En el entorno **de omp**, no de Habblaud: `1` hace que la extensión decida las herramientas desde la oficina (úsalo con `omp --approval-mode yolo`). Consulta [omp (oh-my-pi)](#omp-oh-my-pi). |
 | `HABBLAUD_UPDATE_CHECK` | activada | `0` desactiva la comprobación de versión nueva (una consulta a las releases del repositorio en GitHub cada 6 h). |
 | `HABBLAUD_LANG` | idioma del sistema (salvo inglés); si no, `pt-BR` | Idioma de los textos que arma el servidor (actividades, avisos, logs): `pt-BR`, `en`, `es` o `fr`. La interfaz sigue al navegador o la elección en Configuración › Idioma. Consulta [Idiomas](#idiomas). |
 | `HABBLAUD_ACCOUNTS` | — | JSON para personalizar el nombre, la letra o el color, emparejado por el nombre de la carpeta de la cuenta. P. ej.: `[{"id":".claude-conta2","name":"Trabalho","short":"T","color":"#5cc97b"}]`. |
 
 **En Docker**, valen `HABBLAUD_PORT`, `HABBLAUD_BIND`, `HABBLAUD_ALLOWED_HOSTS`, `HABBLAUD_DEMO`, `HABBLAUD_TERMINAL`,
-`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, las `HABBLAUD_WORLD*` y las
-`HABBLAUD_REMOTE_*` (en el `.env` o en el entorno) y `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_USAGE_DIR` y
+`HABBLAUD_MENSAGENS`, `HABBLAUD_CODEX`, `HABBLAUD_OMP`, `HABBLAUD_UPDATE_CHECK`, `HABBLAUD_LANG`, `HABBLAUD_PTY`, las `HABBLAUD_WORLD*` y las
+`HABBLAUD_REMOTE_*` (en el `.env` o en el entorno) y `HABBLAUD_CLAUDE_DIRS`, `HABBLAUD_CODEX_DIRS`, `HABBLAUD_OMP_DIRS`, `HABBLAUD_USAGE_DIR` y
 `HABBLAUD_ACCOUNTS` (leídas por `docker:up` en el host); las demás quedan fijas dentro del contenedor. Opciones: `npm run docker:up -- --no-build` (inicia sin reconstruir),
 `npm run docker:down` (detiene) y `npm run docker:logs` (sigue los logs).
 
@@ -983,6 +1055,9 @@ los pasa al contenedor.
   cuenta y entres, y solo lo que está en [lo que sale](docs/world/privacidade.md) (en portugués); `HABBLAUD_WORLD=0` lo
   desactiva todo.
   El [celular con inicio de sesión](#celular-con-inicio-de-sesión-y-https-aprobar-solicitudes) también, y solo existe después de `npm run remote:setup`.
+  Con [omp](#omp-oh-my-pi), Habblaud ejecuta `omp usage --json` para la tarjeta de uso de la cuenta: es omp quien
+  consulta a los proveedores (Anthropic, OpenAI…), con sus propias credenciales y caché; Habblaud solo lee la respuesta
+  y descarta los correos e ids que vienen con ella. `HABBLAUD_OMP_USAGE=0` lo desactiva.
 - **Sin credenciales:** Habblaud no lee contraseñas ni tokens de acceso. Del `.claude.json` de cada cuenta aprovecha
   solo el correo, la organización y la caché de `/usage`; el uso en vivo viene del mod (o del tap de statusline).
 - **Secretos enmascarados:** los tokens y contraseñas con formato conocido (`Bearer`, `-u usuário:senha`, `TOKEN=`,

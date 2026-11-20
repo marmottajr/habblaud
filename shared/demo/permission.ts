@@ -1,5 +1,5 @@
 // Pedidos de permissão (e perguntas) fictícios do modo demonstração (responder pelo escritório sem sessões reais),
-// do Claude Code e do Codex (só aprovação, sem "sempre permitir").
+// do Claude Code, do Codex e do omp (os dois últimos só com aprovação, sem "sempre permitir").
 // Puro: usado pelo simulador no servidor (HABBLAUD_DEMO=1) e no navegador (?mock=1).
 import type { PermissionRequestInfo } from '../types';
 import { describeTool } from '../activity';
@@ -166,4 +166,28 @@ export function demoCodexPermission(id: string, src: DemoPermissionSource, rng: 
   const command = src.commands.length ? pick(src.commands) : 'npm test';
   const d = describeTool('Bash', { command });
   return { ...base, tool: 'Bash', title: `Bash(${command})`, text: d.text, icon: d.icon, input: command, inputKind: 'command' };
+}
+
+/**
+ * Quanto a extensão do omp espera pela decisão do escritório (HABBLAUD_OMP_TIMEOUT_MS, 30 s, menos 3 s de folga).
+ * Depois disso o diálogo do terminal vale sozinho.
+ */
+export const DEMO_OMP_PERMISSION_MS = 27_000;
+
+/**
+ * Um pedido de aprovação fictício do omp (extensão do Habblaud): `bash`, `edit` ou `write`, com o nome cru da
+ * ferramenta do omp em `tool`. Como no Codex: sem "sempre permitir", sem interromper e nunca uma pergunta.
+ */
+export function demoOmpPermission(id: string, src: DemoPermissionSource, rng: () => number, now: number): PermissionRequestInfo {
+  const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)];
+  const roll = rng();
+  const base = { id, provider: 'omp' as const, createdAt: now, expiresAt: now + DEMO_OMP_PERMISSION_MS };
+  if (roll < 0.4 && src.files.length) {
+    const file = pick(src.files);
+    const d = describeTool('Edit', { file_path: file });
+    return { ...base, tool: 'edit', title: `Edit(${file})`, text: d.text, icon: d.icon, input: pick(DEMO_DIFFS).join('\n'), inputKind: 'diff' };
+  }
+  const command = src.commands.length ? pick(src.commands) : 'npm test';
+  const d = describeTool('Bash', { command });
+  return { ...base, tool: 'bash', title: `Bash(${command})`, text: d.text, icon: d.icon, input: command, inputKind: 'command' };
 }

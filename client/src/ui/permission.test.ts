@@ -9,6 +9,7 @@ import {
   isLocalHostname,
   isQuestionRequest,
   nextPermissionAgent,
+  OMP_PERMISSION_NOTE,
   permissionAgents,
   permissionOptions,
   type AskChoice,
@@ -132,5 +133,33 @@ describe('cartão de pergunta (AskUserQuestion)', () => {
       { question: 0, options: [2] },
       { question: 2, options: [0, 1], other: 'lint' },
     ]);
+  });
+});
+
+describe('cartão do omp', () => {
+  const suggestions = [{ index: 0, rules: ['Bash(npm test:*)'], destination: 'localSettings' }];
+
+  it('mesmas regras do Codex (sem "sempre permitir" nem "interromper", recusa com motivo) e a nota do modo de decisão', () => {
+    expect(permissionOptions({ provider: 'omp', suggestions }, { kind: 'main' })).toEqual({
+      always: false,
+      interrupt: false,
+      reasonRequired: true,
+      seconds: true,
+      note: OMP_PERMISSION_NOTE,
+    });
+    expect(OMP_PERMISSION_NOTE).toMatch(/HABBLAUD_OMP_PERMISSOES=1/);
+    expect(OMP_PERMISSION_NOTE).toMatch(/respondido primeiro/);
+  });
+
+  it('o omp pergunta pelo escritório (o ask da extensão) como o Claude Code; o Codex nunca', () => {
+    const q: AskQuestion = { index: 0, question: 'Qual?', options: [{ index: 0, label: 'A' }] };
+    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q], provider: 'omp' })).toBe(true);
+    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q] })).toBe(true);
+    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q], provider: 'codex' })).toBe(false);
+  });
+
+  it('pergunta do omp: recusa sem motivo obrigatório, sem interromper e sem a nota do modo de decisão', () => {
+    const q: AskQuestion = { index: 0, question: 'Qual?', options: [{ index: 0, label: 'A' }] };
+    expect(permissionOptions({ provider: 'omp', tool: 'AskUserQuestion', questions: [q] }, { kind: 'main' })).toEqual({ always: false, interrupt: false, reasonRequired: false, seconds: false, note: '' });
   });
 });

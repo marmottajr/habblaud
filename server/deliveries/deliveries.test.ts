@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createTerminalParser } from '../sources/terminal';
 import { tempDir } from '../test/fixtures';
@@ -60,9 +60,12 @@ describe('entregas: texto', () => {
   });
 
   it('links para arquivos de ver: absolutos, relativos ao projeto; nada protegido', () => {
-    expect(linkedFiles(REPLY, '/Users/ana/proj')).toEqual(['/Users/ana/proj/relatorio.pdf']);
-    expect(linkedFiles('veja [a](telas/a.png) e [b](https://x.com/b.png) e /Users/ana/.ssh/k.png', '/Users/ana/proj')).toEqual(['/Users/ana/proj/telas/a.png']);
+    expect(linkedFiles(REPLY, '/Users/ana/proj')).toEqual([normalize('/Users/ana/proj/relatorio.pdf')]);
+    expect(linkedFiles('veja [a](telas/a.png) e [b](https://x.com/b.png) e /Users/ana/.ssh/k.png', '/Users/ana/proj')).toEqual([normalize('/Users/ana/proj/telas/a.png')]);
     expect(linkedFiles('[c](relativo.png)')).toEqual([]);
+    if (process.platform === 'win32') {
+      expect(linkedFiles('veja [a](C:\\p\\a.png), [b](file:///C:/p/b.png) e C:\\p\\c.pdf')).toEqual(['C:\\p\\a.png', 'C:\\p\\b.png', 'C:\\p\\c.pdf']);
+    }
   });
 });
 

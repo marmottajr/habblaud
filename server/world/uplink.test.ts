@@ -14,7 +14,7 @@ import { compileValidator } from '../../shared/world/schema-validator';
 import { worldSocketUrl } from '../config';
 import { setQuiet } from '../log';
 import { startFakeWorld, type FakeWorld } from '../test/fake-world';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { WorldSettingsStore } from './settings';
 import { backoffDelay, BuildingUplink, type UplinkTimers, type UplinkTiming } from './uplink';
 
@@ -239,7 +239,7 @@ describe('BuildingUplink: conexão e remessas', () => {
   it('última remessa em disco: modo 600, sem token, relida só na mesma sessão', async () => {
     const h = await start();
     await waitFor(() => !!h.uplink.lastUplink()?.ack, 'ack');
-    expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(h.lastFile).mode & 0o777).toBe(0o600);
     const text = readFileSync(h.lastFile, 'utf8');
     expect(text).not.toContain(h.token);
     expect(JSON.parse(text).uplink).toEqual(h.uplink.lastUplink()!.uplink);
@@ -383,8 +383,13 @@ describe('BuildingUplink: conexão e remessas', () => {
     clock.advance(1);
     await waitFor(() => h.world.ws.open.length === 0, 'fechou no prazo do welcome');
     expect(h.world.ws.connections).toHaveLength(1);
-    clock.advance(FAST.backoffMaxMs!);
-    await waitFor(() => h.world.ws.connections.length === 2, 'segunda tentativa');
+    // O mundo vê o fechamento antes de o uplink agendar a reconexão: avança aos poucos até o timer existir e
+    // disparar (passos curtos, para o welcome da segunda conexão não vencer antes de o mundo contá-la).
+    await waitFor(() => {
+      clock.advance(10);
+      return h.world.ws.connections.length >= 2;
+    }, 'segunda tentativa');
+    expect(h.world.ws.connections).toHaveLength(2);
     expect(h.world.ws.uplinks).toHaveLength(0);
   });
 

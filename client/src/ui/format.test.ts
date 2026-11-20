@@ -11,6 +11,7 @@ import {
   formatResetAt,
   formatTokens,
   formatUSD,
+  modelGroups,
   normalizeSearch,
   permissionLabel,
   plural,
@@ -122,6 +123,37 @@ describe('textos', () => {
   it('normalizeSearch remove acentos e caixa', () => {
     expect(normalizeSearch('  João Ávila ')).toBe('joao avila');
   });
+  it('modelGroups agrupa por provedor, esconde datados e internos, ordena família A–Z e versão decrescente', () => {
+    const groups = modelGroups([
+      'openai-codex/gpt-6-luna',
+      'anthropic/claude-opus-4-20250514',
+      'anthropic/claude-sonnet-5',
+      'anthropic/claude-opus-4-6',
+      'anthropic/claude-sonnet-5-5',
+      'anthropic/claude-opus-5-5',
+      'google-antigravity/tab_flash_lite_preview',
+      'google-antigravity/gemini-2.5-flash',
+      'openai-codex/gpt-6.1-sol',
+    ]);
+    expect(groups).toEqual([
+      { label: 'Anthropic', options: [
+        { value: 'anthropic/claude-opus-5-5', label: 'Opus 5.5' },
+        { value: 'anthropic/claude-opus-4-6', label: 'Opus 4.6' },
+        { value: 'anthropic/claude-sonnet-5-5', label: 'Sonnet 5.5' },
+        { value: 'anthropic/claude-sonnet-5', label: 'Sonnet 5' },
+      ] },
+      { label: 'Google Antigravity', options: [{ value: 'google-antigravity/gemini-2.5-flash', label: 'Gemini 2.5 Flash' }] },
+      { label: 'OpenAI Codex', options: [
+        { value: 'openai-codex/gpt-6.1-sol', label: 'GPT-6.1 Sol' },
+        { value: 'openai-codex/gpt-6-luna', label: 'GPT-6 Luna' },
+      ] },
+    ]);
+    // O modelo atual fica, mesmo datado.
+    expect(modelGroups(['anthropic/claude-opus-4-20250514'], 'anthropic/claude-opus-4-20250514')[0].options).toEqual([
+      { value: 'anthropic/claude-opus-4-20250514', label: 'Opus 4' },
+    ]);
+  });
+
   it('prettyModel reconhece os formatos de id', () => {
     expect(prettyModel('claude-opus-5-5')).toBe('Opus 5.5');
     expect(prettyModel('claude-sonnet-4-5-20250929')).toBe('Sonnet 4.5');

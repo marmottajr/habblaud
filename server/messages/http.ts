@@ -2,6 +2,7 @@
 // guard (http/guard.ts) já exigiu JSON e Origin local nos POST (contra CSRF).
 //
 //   POST /api/messages          (página)  {agentId, text}: 201 OutboxMessage (queued) | 400 | 404 | 409 | 429
+//   POST /api/messages/control  (página)  {agentId, model?, thinking?} (só omp): mesmas respostas de POST /api/messages
 //   GET  /api/messages/:id      (página)  situação da mensagem: 200 OutboxMessage | 404
 //   POST /api/mod/inbox         (plugin)  {session, account?}: 200 {messages: InboxMessage[]} (e marca a presença)
 //   POST /api/mod/inbox/ack     (plugin)  {session, results: [{id, ok, error?}]}: 200 {ok: true}
@@ -28,8 +29,7 @@ function fail(res: ServerResponse, err: unknown): void {
 }
 
 export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMessage, res: ServerResponse, path: string) => void {
-  const send = async (req: IncomingMessage, res: ServerResponse) => {
-    const r = registry.send(await readJson(req));
+  const reply = (res: ServerResponse, r: ReturnType<MessageRegistry['send']>) => {
     if ('message' in r) return sendJson(res, 201, r.message);
     switch (r.error) {
       case 'not-found':
@@ -40,6 +40,9 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
         return sendJson(res, 429, { error: tr('já há {0} mensagens esperando a entrega para este agente: espere a sessão buscar', [MAX_OPEN]) });
     }
   };
+
+  const send = async (req: IncomingMessage, res: ServerResponse) => reply(res, registry.send(await readJson(req)));
+  const control = async (req: IncomingMessage, res: ServerResponse) => reply(res, registry.control(await readJson(req)));
 
   const inbox = async (req: IncomingMessage, res: ServerResponse) => {
     sendJson(res, 200, { messages: registry.inbox(await readJson(req)) });
@@ -66,6 +69,7 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
 
   return (req, res, path) => {
     if (path === '/api/messages') return post(req, res, send);
+    if (path === '/api/messages/control') return post(req, res, control);
     if (path === '/api/mod/inbox') return post(req, res, inbox);
     if (path === '/api/mod/inbox/ack') return post(req, res, ack);
     if (path === '/api/codex/bridge/poll') return post(req, res, codexPoll);

@@ -335,7 +335,7 @@ export function entryTimeTitle(at: number, now: number): string {
   return calendarDayDiff(at, now) === 0 ? formatClock(at) : formatDateTime(at);
 }
 
-/** Quadros do spinner do rodapé de cada ferramenta. */
+/** Quadros do spinner do rodapé de cada ferramenta (o omp usa os do Claude Code, de propósito: não imita o Codex). */
 export function spinnerFrames(provider: Provider): readonly string[] {
   return provider === 'codex' ? CODEX_SPINNER : SPINNER;
 }
@@ -378,7 +378,9 @@ export function terminalFooter(agent: AgentInfo | undefined, agents: readonly Ag
       const hint =
         agent.provider === 'codex'
           ? tr('{0} · responda no Codex: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text])
-          : tr('{0} · responda no Claude Code: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text]);
+          : agent.provider === 'omp'
+            ? tr('{0} · responda no omp: sem HABBLAUD_OMP_PERMISSOES=1 a decisão é no terminal (ou o pedido passou do tempo de espera)', [text])
+            : tr('{0} · responda no Claude Code: este pedido não chegou ao Habblaud ou passou do tempo de espera', [text]);
       return { kind: 'waiting', text: hint, since: agent.statusSince };
     }
     default:

@@ -15,6 +15,9 @@
 // conta no corpo). Diferenças: o agente casa pelo thread (agent_id ?? session_id) entre os agentes do Codex; sem
 // sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
 // terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
+// O omp (extensão mod/habblaud-omp, `provider: "omp"`) segue as mesmas regras do Codex, com o agente casado pelo
+// `session_id` entre os agentes do omp; quem retira o pedido quando o diálogo do terminal é respondido é a própria
+// extensão (POST /api/permissions/:id/decision com {behavior: "terminal"}).
 import { randomBytes } from 'node:crypto';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
@@ -130,8 +133,8 @@ interface AskFormat {
 interface Pending {
   /** Versão completa (com `input`): GET /api/permissions/:id. */
   info: PermissionRequestInfo;
-  /** Pedido do Codex (sem a busca da resposta no transcript). */
-  codex?: boolean;
+  /** Pedido de ferramenta de linha de comando (Codex, omp): sem a busca da resposta no transcript. */
+  hookOnly?: boolean;
   /** Pergunta (AskUserQuestion): o formato de `tool_input.questions`, por posição (undefined = entrada inválida). */
   askFormat?: Array<AskFormat | undefined>;
   agentId: string;
@@ -166,14 +169,25 @@ function isIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
-/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; o Codex não as manda pelo hook). */
+/**
+ * Pedido que se responde com `answer` (as perguntas do AskUserQuestion). O omp manda o `ask` dele nesse formato
+ * (mod/habblaud-omp); o Codex não pergunta pelo hook.
+ */
 function isQuestion(info: { tool: string; provider?: string }): boolean {
   return info.tool === ASK_TOOL && info.provider !== 'codex';
 }
 
-/** O Codex não aceita interromper nem "sempre permitir" (o hook dele só aprova ou recusa com motivo). */
-function unsupportedByCodex(info: PermissionRequestInfo, d: PermissionDecision): boolean {
-  return info.provider === 'codex' && (d.interrupt === true || d.suggestion !== undefined);
+/** Codex e omp: o hook só aprova ou recusa com motivo (e o omp responde perguntas), sem sugestões. */
+function isCli(provider: string | undefined): provider is 'codex' | 'omp' {
+  return provider === 'codex' || provider === 'omp';
+}
+
+/** Nomes de ferramenta do omp no vocabulário que o Habblaud descreve (o nome bruto segue em `tool`). */
+const OMP_TOOLS: Record<string, string> = { bash: 'Bash', read: 'Read', edit: 'Edit', write: 'Write', grep: 'Grep', find: 'Glob', ls: 'LS' };
+
+/** Codex e omp não aceitam interromper nem "sempre permitir". */
+function unsupportedByCli(info: PermissionRequestInfo, d: PermissionDecision): boolean {
+  return isCli(info.provider) && (d.interrupt === true || d.suggestion !== undefined);
 }
 
 /**
@@ -254,7 +268,7 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
     a.status = 'waiting';
     a.statusSince = p.createdAt;
   }
-  a.waitingFor ??= isQuestion(p) ? tr('responder uma pergunta') : p.provider === 'codex' ? tr('aprovar um comando') : tr('aprovar uma permissão');
+  a.waitingFor ??= isQuestion(p) ? tr('responder uma pergunta') : isCli(p.provider) ? tr('aprovar um comando') : tr('aprovar uma permissão');
   return a;
 }
 
@@ -264,7 +278,7 @@ export function applyPermission(a: AgentInfo, p: PermissionRequestInfo | undefin
  * `agent_id` é o thread do subagente (e `session_id`, o thread raiz).
  */
 export function parseHookInput(raw: unknown): {
-  provider?: 'codex';
+  provider?: 'codex' | 'omp';
   account?: string;
   codexHome?: string;
   sessionId: string;
@@ -281,16 +295,18 @@ export function parseHookInput(raw: unknown): {
   const tool = shortStr(r?.tool_name, 200);
   if (!r || !sessionId || !tool) throw new InvalidRequest(tr('esperado o JSON do hook PermissionRequest (session_id e tool_name)'));
   const t = typeof r.timeout_ms === 'number' && Number.isFinite(r.timeout_ms) ? r.timeout_ms : DEFAULT_TIMEOUT_MS;
-  const codex = r.provider === 'codex';
+  const provider = r.provider === 'codex' || r.provider === 'omp' ? r.provider : undefined;
+  const codex = provider === 'codex';
   return {
-    ...(codex ? { provider: 'codex' as const, account: shortStr(r.account, 200), codexHome: shortStr(r.codexHome, 4_096) } : {}),
+    ...(provider ? { provider } : {}),
+    ...(codex ? { account: shortStr(r.account, 200), codexHome: shortStr(r.codexHome, 4_096) } : {}),
     sessionId,
     agentId: shortStr(r.agent_id, 200),
     agentType: shortStr(r.agent_type, 120),
     cwd: shortStr(r.cwd, 4_096),
     tool,
     input: rec(r.tool_input) ?? {},
-    suggestions: codex ? undefined : r.permission_suggestions,
+    suggestions: provider ? undefined : r.permission_suggestions,
     timeoutMs: Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, t)),
   };
 }
@@ -394,7 +410,9 @@ export class PermissionRegistry {
   register(raw: unknown): RegisterResult {
     const req = parseHookInput(raw);
     const codex = req.provider === 'codex';
-    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(req.tool, req.input);
+    const omp = req.provider === 'omp';
+    const cli = codex || omp;
+    const desc = codex ? codexToolView(req.tool, req.input, req.cwd) : describeTool(omp ? (OMP_TOOLS[req.tool] ?? req.tool) : req.tool, req.input);
     const questions = 'questions' in desc ? desc.questions : undefined;
     const ask = isQuestion(req);
     // Pergunta: todas precisam aparecer no escritório (o hook só responde se cada uma tiver resposta).
@@ -402,16 +420,18 @@ export class PermissionRegistry {
     if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
     const target = codex
       ? this.resolveCodexAgent(req.sessionId, req.agentId, req.agentType, this.opts.codexAccount?.(req.account, req.codexHome) ?? req.account)
-      : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
+      : omp
+        ? this.resolveOmpAgent(req.sessionId)
+        : this.resolveAgent(req.sessionId, req.agentId, req.agentType);
     if (!target) return { skip: 'unknown-session' };
     if (this.size >= this.maxPending) return { skip: 'too-many' };
 
     const now = this.now();
     const id = `p-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
     // Codex: título, resumo e argumentos pelos nomes de ferramenta dele (permissions/codex.ts).
-    const view = 'title' in desc ? desc : toolView(req.tool, req.input, req.cwd);
+    const view = 'title' in desc ? desc : toolView(omp ? (OMP_TOOLS[req.tool] ?? req.tool) : req.tool, req.input, req.cwd);
     const info: PermissionRequestInfo = { id, tool: req.tool, title: view.title, text: desc.text, icon: desc.icon, createdAt: now, expiresAt: now + req.timeoutMs };
-    if (codex) info.provider = 'codex';
+    if (req.provider) info.provider = req.provider;
     if (view.input) info.input = view.input;
     if (view.inputKind) info.inputKind = view.inputKind;
     if (target.subagent) info.subagent = target.subagent;
@@ -423,12 +443,12 @@ export class PermissionRegistry {
       info,
       agentId: target.id,
       sessionId: req.sessionId,
-      signature: codex ? '' : callSignature(req.tool, req.input),
+      signature: cli ? '' : callSignature(req.tool, req.input),
       lastScanAt: 0,
       waiters: new Set(),
       idleSince: now,
     };
-    if (codex) p.codex = true;
+    if (cli) p.hookOnly = true;
     if (req.agentId) p.hookAgentId = req.agentId;
     if (ask) p.askFormat = askFormat(req.input.questions);
     this.pending.set(id, p);
@@ -503,12 +523,12 @@ export class PermissionRegistry {
     const p = this.pending.get(id);
     if (!p) {
       const demo = this.opts.demoDetail?.(id);
-      if (demo && unsupportedByCodex(demo, d)) return 'unsupported';
+      if (demo && unsupportedByCli(demo, d)) return 'unsupported';
       if (demo && (wrongKind(demo, d) || (d.behavior === 'answer' && !checkAnswers(demo.questions ?? [], d.answers)))) return 'invalid-answer';
       return this.opts.demoDecide?.(id, d) ? 'ok' : 'not-found';
     }
     if (p.outcome) return 'conflict';
-    if (unsupportedByCodex(p.info, d)) return 'unsupported';
+    if (unsupportedByCli(p.info, d)) return 'unsupported';
     if (d.suggestion !== undefined && !p.info.suggestions?.some((s) => s.index === d.suggestion)) return 'invalid';
     if (d.behavior === 'terminal') {
       this.release(p, 'terminal');
@@ -558,8 +578,8 @@ export class PermissionRegistry {
       else if (!p.waiters.size && now - p.idleSince >= this.orphanMs) this.release(p, 'orphan');
       else if (!present(this.opts.office.get(p.agentId))) this.release(p, 'gone');
       else if (unwatched && p.info.expiresAt - p.info.createdAt > DEFAULT_TIMEOUT_MS) this.release(p, 'unwatched');
-      // No Codex o terminal só pede a aprovação depois que o hook termina: não há resposta dada lá para procurar.
-      else if (p.codex) continue;
+      // Codex e omp: o terminal só pede a aprovação depois que o hook termina (o omp: a extensão retira o pedido): não há resposta dada lá para procurar.
+      else if (p.hookOnly) continue;
       else if (now - p.lastScanAt >= SCAN_EVERY_MS && this.answeredInTerminal(p, now)) this.release(p, 'answered');
       else if (this.leftWaiting(p, now)) this.release(p, 'answered');
     }
@@ -572,9 +592,9 @@ export class PermissionRegistry {
     if (agentId) {
       const subId = `${sessionId}:${agentId}`;
       const sub = office.get(subId);
-      if (present(sub) && sub.provider !== 'codex') return { id: subId };
+      if (present(sub) && !isCli(sub.provider)) return { id: subId };
     }
-    const main = office.list().find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === sessionId && a.status !== 'offline');
+    const main = office.list().find((a) => a.kind === 'main' && !isCli(a.provider) && a.sessionId === sessionId && a.status !== 'offline');
     if (!main) return undefined;
     return agentId ? { id: main.id, subagent: agentType ?? tr('subagente') } : { id: main.id };
   }
@@ -595,6 +615,12 @@ export class PermissionRegistry {
     const main = find(sessionId);
     if (!main) return undefined;
     return sub ? { id: main.id, subagent: agentType ?? tr('subagente') } : { id: main.id };
+  }
+
+  /** Agente do omp de um pedido: o da sessão `session_id` (a extensão fala só da sessão dela, sem subagentes). */
+  private resolveOmpAgent(sessionId: string): { id: string; subagent?: string } | undefined {
+    const main = this.opts.office.list().find((a) => a.kind === 'main' && a.provider === 'omp' && a.sessionId === sessionId && present(a));
+    return main ? { id: main.id } : undefined;
   }
 
   private queueOf(p: Pending): { queued?: number } {

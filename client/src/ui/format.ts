@@ -233,6 +233,61 @@ export function prettyModel(model: string | undefined): string {
   return version ? `${family} ${version}` : family;
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  'openai-codex': 'OpenAI Codex',
+  google: 'Google',
+  'google-antigravity': 'Google Antigravity',
+};
+
+const titleWords = (s: string) =>
+  s
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+/** Nome legível de um provedor do omp: `openai-codex` -> "OpenAI Codex"; desconhecido -> palavras com maiúscula. */
+export function providerLabel(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? titleWords(provider);
+}
+
+export interface ModelGroup {
+  label: string;
+  options: { value: string; label: string }[];
+}
+
+/**
+ * Seletor de modelos do omp (`provedor/id`): agrupa por provedor, usa o nome curto (prettyModel), esconde os
+ * snapshots datados (`-20250514`) e os ids internos com `_`, e ordena por família (A–Z) e versão (mais nova primeiro).
+ * `keep` (o modelo atual) nunca some, mesmo datado.
+ */
+export function modelGroups(models: readonly string[], keep?: string): ModelGroup[] {
+  const groups = new Map<string, (ModelGroup['options'][number] & { family: string })[]>();
+  for (const value of models) {
+    const slash = value.indexOf('/');
+    const provider = slash > 0 ? value.slice(0, slash) : '';
+    const id = value.slice(slash + 1);
+    // shortcut: esconde por padrão de id (data no fim, `_`); se o omp passar a marcar modelos internos, usar a marca.
+    if (value !== keep && (/-\d{8}$/.test(id) || id.includes('_'))) continue;
+    const pretty = prettyModel(id);
+    const label = pretty === id ? titleWords(id) : pretty;
+    const list = groups.get(provider) ?? [];
+    if (list.some((o) => o.label === label)) continue;
+    list.push({ value, label, family: label.replace(/\s*[\d.]+.*$/, '') });
+    groups.set(provider, list);
+  }
+  return [...groups]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, list]) => ({
+      label: providerLabel(provider),
+      options: list
+        .sort((a, b) => a.family.localeCompare(b.family) || b.label.localeCompare(a.label, undefined, { numeric: true }))
+        .map(({ value, label }) => ({ value, label })),
+    }));
+}
+
 const PERMISSION_LABELS: Record<string, string> = {
   default: tr('Padrão (pergunta)'),
   acceptEdits: tr('Aceita edições'),

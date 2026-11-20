@@ -38,11 +38,12 @@ function pickLanguage(v: LanguageChoice): void {
 type BoolPref = { [K in keyof UiPrefs]: UiPrefs[K] extends boolean ? K : never }[keyof UiPrefs];
 
 interface SwitchRefs {
+  row: HTMLElement;
   btn: HTMLButtonElement;
   hint: HTMLElement;
 }
 
-export function switchRow(label: string, hintText: string, onToggle: () => void): SwitchRefs & { row: HTMLElement } {
+export function switchRow(label: string, hintText: string, onToggle: () => void): SwitchRefs {
   const id = `ui-sw-${label.replace(/\W+/g, '-').toLowerCase()}`;
   const btn = h('button', { class: 'ui-switch', type: 'button', role: 'switch', attrs: { 'aria-checked': 'false', 'aria-labelledby': id } }, h('span', { class: 'ui-switch__knob' }));
   btn.addEventListener('click', onToggle);
@@ -84,7 +85,7 @@ export function segmented<T extends string>(label: string, options: readonly [T,
 
 export class SettingsPopover implements UiComponent {
   readonly el: HTMLElement;
-  private switches = new Map<BoolPref | 'demo', SwitchRefs>();
+  private switches = new Map<BoolPref | 'demo' | 'ompRoom', SwitchRefs>();
   private bubbles: ReturnType<typeof segmented<UiPrefs['bubbles']>>;
   private liveliness: ReturnType<typeof segmented<UiPrefs['liveliness']>>;
   private daylight: ReturnType<typeof segmented<UiPrefs['daylight']>>;
@@ -97,6 +98,7 @@ export class SettingsPopover implements UiComponent {
   private logoutBtn: HTMLButtonElement;
   private about: AboutGroup;
   private demoBusy = false;
+  private ompBusy = false;
   private anchor: HTMLElement | null = null;
 
   constructor(
@@ -106,7 +108,7 @@ export class SettingsPopover implements UiComponent {
     /** A janela do Habblaud World: a dica do tema em Aparência e o envio do tema ao prédio. */
     private readonly world: WorldThemeLink,
   ) {
-    const sw = (key: BoolPref | 'demo', label: string, hint: string, onToggle: () => void) => {
+    const sw = (key: BoolPref | 'demo' | 'ompRoom', label: string, hint: string, onToggle: () => void) => {
       const r = switchRow(label, hint, onToggle);
       this.switches.set(key, r);
       return r.row;
@@ -205,6 +207,12 @@ export class SettingsPopover implements UiComponent {
         this.bubbles.row,
         this.liveliness.row,
         this.daylight.row,
+        sw(
+          'ompRoom',
+          tr('Sala do omp segue o projeto'),
+          tr('Com o omp numa pasta que junta vários projetos (sem git), o personagem vai para a sala da subpasta em que está trabalhando.'),
+          () => void this.toggleOmpRoom(),
+        ),
       ),
       h(
         'div',
@@ -277,10 +285,13 @@ export class SettingsPopover implements UiComponent {
   render(): void {
     const p = this.ctx.prefs;
     for (const [key, r] of this.switches) {
-      const on = key === 'demo' ? !!this.ctx.store.liveSnapshot?.meta.demo : p[key];
+      const meta = this.ctx.store.liveSnapshot?.meta;
+      const on = key === 'demo' ? !!meta?.demo : key === 'ompRoom' ? !!meta?.ompRoomByProject : p[key];
       setAttr(r.btn, 'aria-checked', String(on));
-      r.btn.disabled = key === 'demo' && this.demoBusy;
+      r.btn.disabled = (key === 'demo' && this.demoBusy) || (key === 'ompRoom' && this.ompBusy);
     }
+    // Só com omp no servidor e pelo próprio computador (POST /api/omp/settings não vale pela porta remota).
+    setHidden(this.switches.get('ompRoom')!.row, this.ctx.store.liveSnapshot?.meta.ompRoomByProject === undefined || access().remote);
     this.bubbles.set(p.bubbles);
     this.liveliness.set(p.liveliness);
     this.daylight.set(p.daylight);
@@ -325,6 +336,22 @@ export class SettingsPopover implements UiComponent {
       this.ctx.announce(tr('Não foi possível falar com o servidor.'));
     } finally {
       this.demoBusy = false;
+      this.ctx.invalidate();
+    }
+  }
+
+  private async toggleOmpRoom(): Promise<void> {
+    if (this.ompBusy) return;
+    this.ompBusy = true;
+    this.render();
+    const enable = !this.ctx.store.liveSnapshot?.meta.ompRoomByProject;
+    try {
+      const ok = await this.ctx.store.setOmpRoomByProject(enable);
+      this.ctx.announce(ok ? (enable ? tr('Sala do omp por projeto ligada.') : tr('Sala do omp por projeto desligada.')) : tr('Não foi possível mudar a sala do omp.'));
+    } catch {
+      this.ctx.announce(tr('Não foi possível falar com o servidor.'));
+    } finally {
+      this.ompBusy = false;
       this.ctx.invalidate();
     }
   }

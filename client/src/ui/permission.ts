@@ -6,6 +6,10 @@
 // Pedido do Codex (`provider: 'codex'`): o hook dele só espera alguns segundos e o terminal só mostra a aprovação
 // depois que você responder aqui ou o prazo acabar; não há "sempre permitir" nem "interromper", e recusar pede um
 // motivo. O Codex nunca pergunta pelo escritório (sem cartão de pergunta).
+// Pedido do omp (`provider: 'omp'`): permissões só no modo de decisão (HABBLAUD_OMP_PERMISSOES=1), com as mesmas
+// regras do Codex (sem "sempre permitir", sem "interromper", recusa com motivo); e as perguntas do `ask`, que a
+// extensão manda no formato do AskUserQuestion e se respondem como as do Claude Code. Nos dois, o diálogo do omp fica
+// aberto junto no terminal e a extensão retira o pedido daqui quando ele é respondido lá.
 import { access, isLoopbackHostname } from '../net/access';
 import { ANSWER_OTHER_MAX, ASK_TOOL, checkAnswers } from '../../../shared/answers';
 import type { AgentInfo, AskQuestion, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../../shared/types';
@@ -47,6 +51,9 @@ export function expiryText(expiresAt: number, now: number, seconds = false): str
 /** Aviso do cartão de um pedido do Codex. */
 export const CODEX_PERMISSION_NOTE = tr('No Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar.');
 
+/** Aviso do cartão de um pedido do omp (só existe no modo de decisão; sem ele a decisão é só no terminal). */
+export const OMP_PERMISSION_NOTE = tr('No omp, o diálogo do terminal fica aberto junto: vale o que for respondido primeiro. Sem HABBLAUD_OMP_PERMISSOES=1 no omp, a decisão é só no terminal.');
+
 /** O que o cartão oferece para um pedido (muda com a ferramenta). */
 export interface PermissionOptions {
   /** "Aprovar e não perguntar de novo" (as sugestões do Claude Code). */
@@ -61,8 +68,14 @@ export interface PermissionOptions {
   note: string;
 }
 
-export function permissionOptions(p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'>, agent: Pick<AgentInfo, 'kind' | 'background'>): PermissionOptions {
+export function permissionOptions(
+  p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'> & Partial<Pick<PermissionRequestInfo, 'tool' | 'questions'>>,
+  agent: Pick<AgentInfo, 'kind' | 'background'>,
+): PermissionOptions {
   if (p.provider === 'codex') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: CODEX_PERMISSION_NOTE };
+  // Pergunta do omp: como a do Claude Code, só sem interromper (a extensão não interrompe o agente).
+  if (p.provider === 'omp' && p.tool === ASK_TOOL && !!p.questions?.length) return { always: false, interrupt: false, reasonRequired: false, seconds: false, note: '' };
+  if (p.provider === 'omp') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: OMP_PERMISSION_NOTE };
   // Subagente em segundo plano: o Claude Code só mostra o diálogo depois que o hook responde.
   const blocking = agent.kind === 'sub' && !!agent.background;
   return {
@@ -96,7 +109,7 @@ export function focusPermission(ctx: UiContext, agentId: string): void {
 /** A página foi aberta pelo próprio computador? (a regra antiga; quem decide agora é o servidor, ver net/access.ts) */
 export const isLocalHostname = isLoopbackHostname;
 
-/** Pedido que se responde escolhendo (as perguntas do AskUserQuestion), não aprovando. O Codex nunca pergunta. */
+/** Pedido que se responde escolhendo (as perguntas do AskUserQuestion, e as do `ask` do omp), não aprovando. O Codex nunca pergunta. */
 export function isQuestionRequest(p: Pick<PermissionRequestInfo, 'tool' | 'questions' | 'provider'> | undefined): boolean {
   return !!p && p.provider !== 'codex' && p.tool === ASK_TOOL && !!p.questions?.length;
 }
@@ -215,6 +228,8 @@ export class PermissionCard {
   private denySubmit: HTMLButtonElement;
   /** O que o cartão oferece para o pedido atual (Claude Code ou Codex). */
   private opts: PermissionOptions = { always: false, interrupt: true, reasonRequired: false, seconds: false, note: '' };
+  /** O pedido atual é do omp (os textos de "motivo" mudam). */
+  private omp = false;
   private status: HTMLElement;
   private remote: HTMLElement;
   /** Perguntas do AskUserQuestion, montadas uma vez por pedido (a seleção sobrevive aos snapshots). */
@@ -327,6 +342,8 @@ export class PermissionCard {
     const now = this.ctx.now();
     const opts = (this.opts = permissionOptions(p, agent));
     const codex = p.provider === 'codex';
+    const omp = p.provider === 'omp';
+    this.omp = omp;
     this.el.classList.toggle('is-codex', codex);
     const ask = isQuestionRequest(p);
     const kind = ask ? 'ask' : 'perm';
@@ -343,7 +360,9 @@ export class PermissionCard {
       this.timer,
       codex
         ? tr('Pedido feito às {0}. Sem resposta aqui até {1}, o Codex segue sem a decisão do escritório e pede a aprovação no terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)])
-        : tr('Pedido feito às {0}. Sem resposta aqui até {1}, o Habblaud devolve o pedido ao terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)]),
+        : omp && !ask
+          ? tr('Pedido feito às {0}. Sem resposta aqui nem no terminal até {1}, o omp recusa a ferramenta.', [formatClock(p.createdAt), formatClock(p.expiresAt)])
+          : tr('Pedido feito às {0}. Sem resposta aqui até {1}, o Habblaud devolve o pedido ao terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)]),
     );
 
     // Pergunta: o formulário com as opções no lugar do título da ferramenta e da prévia dos argumentos.
@@ -379,10 +398,17 @@ export class PermissionCard {
     for (const b of [this.approveBtn, this.denyBtn, this.terminalBtn]) b.disabled = busy;
     for (const el of this.askForm.querySelectorAll('input')) el.disabled = busy;
     if (ask) this.syncAnswer();
-    setTitle(this.denyBtn, ask ? tr('Não responder: o agente segue sem a resposta (com o motivo, se você escrever um)') : codex ? tr('Recusar com um motivo (o Codex pede um)') : '');
+    setTitle(
+      this.denyBtn,
+      ask ? tr('Não responder: o agente segue sem a resposta (com o motivo, se você escrever um)') : codex ? tr('Recusar com um motivo (o Codex pede um)') : omp ? tr('Recusar com um motivo (o omp pede um)') : '',
+    );
     setTitle(
       this.terminalBtn,
-      codex ? tr('O Habblaud solta o pedido agora: o Codex mostra a aprovação no terminal') : tr('O Habblaud deixa este pedido de lado: vale o que você responder no terminal'),
+      codex
+        ? tr('O Habblaud solta o pedido agora: o Codex mostra a aprovação no terminal')
+        : omp
+          ? tr('O Habblaud retira este pedido: vale o que você responder no diálogo do terminal do omp')
+          : tr('O Habblaud deixa este pedido de lado: vale o que você responder no terminal'),
     );
     this.suggestions.sync(opts.always ? (p.suggestions ?? []) : []);
     for (const b of this.suggestions.container.querySelectorAll('button')) b.disabled = busy;
@@ -393,7 +419,9 @@ export class PermissionCard {
       this.reason,
       'placeholder',
       opts.reasonRequired
-        ? tr('Motivo (obrigatório no Codex, vai para o agente). Ex.: use pnpm em vez de npm')
+        ? omp
+          ? tr('Motivo (obrigatório no omp, vai para o agente). Ex.: use pnpm em vez de npm')
+          : tr('Motivo (obrigatório no Codex, vai para o agente). Ex.: use pnpm em vez de npm')
         : tr('Motivo (opcional, vai para o agente). Ex.: {0}', [ask ? tr('decida você, com o que for mais seguro') : tr('use pnpm em vez de npm')]),
     );
     setAttr(this.reason, 'aria-label', opts.reasonRequired ? tr('Motivo da recusa (obrigatório)') : tr('Motivo da recusa (opcional)'));
@@ -439,11 +467,11 @@ export class PermissionCard {
       });
   }
 
-  /** Codex: "Recusar" só acende com um motivo escrito. */
+  /** Codex e omp: "Recusar" só acende com um motivo escrito. */
   private syncDeny(): void {
     const missing = this.opts.reasonRequired && !this.reason.value.trim();
     this.denySubmit.disabled = this.isBusy() || missing;
-    setTitle(this.denySubmit, missing ? tr('Escreva o motivo: o Codex recusa só com um motivo') : '');
+    setTitle(this.denySubmit, missing ? (this.omp ? tr('Escreva o motivo: o omp recusa só com um motivo') : tr('Escreva o motivo: o Codex recusa só com um motivo')) : '');
   }
 
   private toggleDeny(open = this.phase !== 'deny'): void {

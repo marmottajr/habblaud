@@ -227,6 +227,9 @@ describe('terminalFooter', () => {
       'Esperando você: aprovar uma permissão · responda no Claude Code: este pedido não chegou ao Habblaud ou passou do tempo de espera',
     );
     expect(terminalFooter(agent({ status: 'waiting', provider: 'codex' }), [], now).text).toMatch(/^Esperando você · responda no Codex:/);
+    expect(terminalFooter(agent({ status: 'waiting', provider: 'omp', waitingFor: 'aprovar no terminal: bash' }), [], now).text).toBe(
+      'Esperando você: aprovar no terminal: bash · responda no omp: sem HABBLAUD_OMP_PERMISSOES=1 a decisão é no terminal (ou o pedido passou do tempo de espera)',
+    );
     expect(terminalFooter(agent({ status: 'idle' }), [], now)).toEqual({ kind: 'idle', text: 'Aguardando o próximo prompt' });
     expect(terminalFooter(agent({ status: 'offline' }), [], now).kind).toBe('ended');
     expect(terminalFooter(agent({ kind: 'sub', status: 'done' }), [], now).kind).toBe('ended');
@@ -283,5 +286,13 @@ describe('rodapé do Codex', () => {
     expect(footerGlyph('working', 'codex')).toBe('•');
     expect(footerGlyph('waiting', 'codex')).toBe('✋');
     expect(footerGlyph('ended', 'claude')).toBe('■');
+  });
+});
+
+describe('rodapé do omp', () => {
+  it('spinner e símbolo são os do Claude Code (o omp não imita o Codex)', () => {
+    expect(spinnerFrames('omp')).toEqual(spinnerFrames('claude'));
+    expect(footerGlyph('working', 'omp')).toBe(footerGlyph('working', 'claude'));
+    expect(footerGlyph('waiting', 'omp')).toBe('✋');
   });
 });

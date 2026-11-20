@@ -1,7 +1,9 @@
 // Caixa de mensagem (ui/composer.ts), parte pura e testada em ui/composer-model.test.ts: quando a caixa aparece (e
 // por que não), o que a tecla Enter faz, a linha de situação de cada envio e o ritmo da consulta da entrega.
 // No Codex a mensagem entra na fila da sessão (`codex queue`) e vira prompt quando ela fica ociosa: "Entregue" diz
-// isso; sem quem entregue (no Docker, o auxiliar do host), a dica é a do `npm run codex:bridge`.
+// isso; sem quem entregue (no Docker, o auxiliar do host), a dica é a do `npm run codex:bridge`. No omp a extensão do
+// Habblaud busca as mensagens como o plugin do Claude Code e as entrega como continuação (`followUp`): o agente ocupado
+// termina o turno antes; a dica de instalação é a do `npm run omp:install`.
 import { MESSAGE_MAX } from '../../../shared/messages';
 import type { AgentInfo, OutboxStatus, Provider } from '../../../shared/types';
 import { tr } from '../../../shared/i18n';
@@ -10,6 +12,8 @@ import { tr } from '../../../shared/i18n';
 export const PLUGIN_HINT = tr('Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)');
 /** A mesma dica para um agente do Codex sem entregador (no modo Node o próprio servidor entrega). */
 export const CODEX_BRIDGE_HINT = tr('Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho');
+/** A mesma dica para um agente do omp cuja sessão não está com a extensão do Habblaud. */
+export const OMP_EXTENSION_HINT = tr('Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão');
 
 /**
  * - ready: dá para mandar (principal com o plugin conectado, recurso ligado, página local);
@@ -32,14 +36,16 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (agent?.kind === 'sub') return { kind: 'off', text: tr('Subagentes não recebem mensagens: escreva para o agente principal') };
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: tr('Sessão encerrada') };
   const codex = agent.provider === 'codex';
-  if (!env.enabled) return { kind: 'off', text: codex ? tr('Para responder, use o Codex') : tr('Para responder, use o terminal do Claude Code') };
+  const omp = agent.provider === 'omp';
+  if (!env.enabled) return { kind: 'off', text: codex ? tr('Para responder, use o Codex') : omp ? tr('Para responder, use o omp') : tr('Para responder, use o terminal do Claude Code') };
   if (!env.local) return { kind: 'off', text: tr('Para mandar mensagens por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1)') };
-  if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : PLUGIN_HINT };
+  if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : omp ? OMP_EXTENSION_HINT : PLUGIN_HINT };
   return { kind: 'ready' };
 }
 
 /** Dica embaixo da caixa (gaveta): como a mensagem entra na sessão. */
 export function composerTip(provider: Provider = 'claude'): string {
+  if (provider === 'omp') return tr('Entra na sessão como continuação: se o omp estiver no meio de um turno, vira o próximo prompt quando ele terminar. Enter manda; Shift+Enter quebra a linha.');
   return provider === 'codex'
     ? tr('Entra na fila da sessão e vira o próximo prompt quando o Codex terminar o que está fazendo. Enter manda; Shift+Enter quebra a linha.')
     : tr('Entra na sessão como se você tivesse digitado. Enter manda; Shift+Enter quebra a linha.');
@@ -90,13 +96,14 @@ export function sendStatusText(s: SendState | undefined, now: number, provider: 
     case 'sending':
       return tr('Enviando…');
     case 'queued':
-      return codex ? tr('Na fila: entregando ao Codex…') : tr('Na fila: esperando a sessão buscar a mensagem…');
+      return codex ? tr('Na fila: entregando ao Codex…') : provider === 'omp' ? tr('Na fila: esperando a extensão do omp buscar a mensagem…') : tr('Na fila: esperando a sessão buscar a mensagem…');
     case 'sent':
       return tr('Entregando à sessão…');
     case 'delivered':
       // Entregue = entrou na sessão ou na fila dela (com o agente ocupado, só entra quando ele terminar o turno). No
       // Codex é sempre a fila: o dono da sessão a consulta a cada ~10 s e só a usa com a sessão ociosa.
       if (now - s.at >= DELIVERED_SHOW_MS) return '';
+      if (provider === 'omp') return tr('Entregue ✓ (como continuação: se o omp estiver ocupado, entra quando ele terminar o turno)');
       return codex
         ? tr('Entregue ✓ na fila da sessão: entra quando o Codex terminar o que está fazendo (até ~10 s)')
         : tr('Entregue ✓ (se o agente estiver ocupado, entra quando ele terminar)');
@@ -120,9 +127,10 @@ export function pollDelay(elapsed: number): number {
 export const LOST_ERROR = tr('o Habblaud não conhece mais esta mensagem (ele reiniciou?)');
 export const TIMEOUT_ERROR = tr('sem notícia da entrega: confira no terminal do Claude Code');
 export const CODEX_TIMEOUT_ERROR = tr('sem notícia da entrega: confira no Codex');
+export const OMP_TIMEOUT_ERROR = tr('sem notícia da entrega: confira no omp');
 export const OFFLINE_ERROR = tr('não foi possível falar com o Habblaud');
 
 /** Prazo da consulta acabou sem notícia: onde conferir. */
 export function timeoutError(provider: Provider = 'claude'): string {
-  return provider === 'codex' ? CODEX_TIMEOUT_ERROR : TIMEOUT_ERROR;
+  return provider === 'codex' ? CODEX_TIMEOUT_ERROR : provider === 'omp' ? OMP_TIMEOUT_ERROR : TIMEOUT_ERROR;
 }

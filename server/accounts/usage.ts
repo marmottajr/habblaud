@@ -2,9 +2,10 @@
 // - 'statusline': rate_limits que o Claude Code envia ao statusline, gravados pelo
 //   scripts/statusline-tap.mjs (recomendado: ao vivo);
 // - 'cache': cachedUsageUtilization gravado pelo próprio Claude Code (quando alguém roda /usage);
-// - 'codex': rate_limits dos arquivos de sessão do Codex, empurrados pela fonte do Codex (AccountsService.setUsage).
-// Vale sempre a fonte com os números mais recentes (maior fetchedAt). Nenhuma delas lê credenciais
-// nem faz chamadas de rede: são só arquivos que o Claude Code já grava na máquina.
+// - 'codex': rate_limits dos arquivos de sessão do Codex, empurrados pela fonte do Codex (AccountsService.setUsage);
+// - 'omp': janelas de `omp usage --json`, empurradas pela fonte do omp (sources/omp/usage.ts).
+// Vale sempre a fonte com os números mais recentes (maior fetchedAt). Nenhuma delas lê credenciais; só a do omp
+// envolve rede, e quem a faz é o próprio omp (o Habblaud só roda o comando).
 import type { AccountInfo, AccountUsage, UsageWindow } from '../../shared/types';
 
 export type UsageSource = AccountUsage['source'];

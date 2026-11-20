@@ -125,6 +125,18 @@ describe('timeline: ferramenta (provider)', () => {
     expect(toAccountInfo(f.accounts.get('.codex')!, T0)).toMatchObject({ provider: 'codex', usage: { source: 'codex', noQuota: true } });
     expect(toAccountInfo(f.accounts.get('.claude')!, T0)).not.toHaveProperty('provider');
   });
+
+  it('conta do omp: ompProvider sobrevive à compactação', () => {
+    const acc: AccountInfo = {
+      ...account('.omp'),
+      provider: 'omp',
+      usage: { source: 'omp', ompProvider: 'anthropic', note: 'x', fetchedAt: T0, fiveHour: { utilization: 4, resetsAt: T0 + 3_600_000 } },
+    };
+    const f = compactSnapshot(snap([], [room('/p/loja')], [acc]));
+    const c = f.accounts.get('.omp')!;
+    expect(c.usage).toEqual({ source: 'omp', ompProvider: 'anthropic', fiveHour: { utilization: 4, resetsAt: T0 + 3_600_000 } });
+    expect(toAccountInfo(c, T0).usage).toMatchObject({ source: 'omp', ompProvider: 'anthropic' });
+  });
 });
 
 describe('timeline: deltas', () => {

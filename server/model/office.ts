@@ -80,6 +80,8 @@ export interface OfficeDeps {
   ptys?: () => { status: PtyStatus; list: PtyInfo[] };
   /** Habblaud World (WorldService.meta; ver OfficeSnapshot.meta.world). */
   world?: () => WorldMeta;
+  /** Opção "sala do omp segue o projeto" (OfficeSnapshot.meta.ompRoomByProject); ausente = sem omp. */
+  ompRoomByProject?: () => boolean;
   now?: () => number;
 }
 
@@ -89,6 +91,8 @@ export interface TranscriptSummary {
   tasks: TaskItem[];
   stats: AgentStats;
   model?: string;
+  thinking?: string;
+  models?: string[];
   gitBranch?: string;
   permissionMode?: string;
   /** Primeiro evento conhecido (subagentes: o início real, depois de ler o começo do arquivo). */
@@ -578,6 +582,17 @@ export class Office {
     this.markDirty();
   }
 
+  /** O agente principal (e os subagentes dele) passa a trabalhar na sala de `cwd`; a sala antiga vazia some no tick. */
+  moveMain(id: string, cwd: string): void {
+    const rec = this.agents.get(id);
+    const roomId = normalizeCwd(cwd);
+    if (!rec || rec.info.kind !== 'main' || rec.info.roomId === roomId) return;
+    this.ensureRoom(roomId, this.now());
+    rec.info.roomId = roomId;
+    for (const sub of this.descendants(id)) sub.info.roomId = roomId;
+    this.markDirty();
+  }
+
   // ---------------------------------------------------------------- subagentes
 
   addSub(p: SubInput): boolean {
@@ -672,6 +687,8 @@ export class Office {
     set('tasks', t.tasks.map((x) => ({ ...x })));
     set('stats', { ...t.stats });
     set('model', t.model);
+    set('thinking', t.thinking);
+    if (info.kind === 'main') set('models', t.models);
     set('gitBranch', t.gitBranch);
     set('permissionMode', t.permissionMode);
     if (info.kind === 'sub' && t.firstAt !== undefined && t.firstAt < info.startedAt) {
@@ -1004,6 +1021,7 @@ export class Office {
         ...(ptys ? { pty: ptys.status } : {}),
         updates: this.deps.updates?.(),
         ...(this.deps.world ? { world: this.deps.world() } : {}),
+        ...(this.deps.ompRoomByProject ? { ompRoomByProject: this.deps.ompRoomByProject() } : {}),
       },
     };
   }

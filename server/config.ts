@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverClaudeDirs } from './accounts/detect';
+import { discoverOmpDirs } from './sources/omp/accounts';
 import { parseAllowedHosts } from './http/guard';
 import { parseRemoteConfig, type RemoteConfig } from './http/remote';
 import { parseGithubRepo } from './updates/checker';
@@ -52,6 +53,12 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
+  /** Observa as sessões do omp (sources/omp/); HABBLAUD_OMP=0 desliga. */
+  omp: boolean;
+  /** Agent dirs do omp com sessions/ (HABBLAUD_OMP_DIRS › PI_CODING_AGENT_DIR › ~/.omp/agent); vazio com HABBLAUD_OMP=0. */
+  ompDirs: string[];
+  /** Roda `omp usage --json` para o uso do plano das contas do omp; HABBLAUD_OMP_USAGE=0 desliga; sempre desligado no Docker (sem omp nem credenciais no container). */
+  ompUsage: boolean;
   /** Segunda porta, com login, para o celular na rede local (http/remote.ts); ausente = desligada. */
   remote?: RemoteConfig;
   /** Por que o acesso remoto ficou desligado quando as variáveis estão incompletas. */
@@ -230,11 +237,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const host = env.HABBLAUD_HOST?.trim() || '127.0.0.1';
   const pkg = readPackage(rootDir);
   const remote = parseRemoteConfig(env, inDocker);
+  const omp = !env.HABBLAUD_OMP?.trim() || isTruthy(env.HABBLAUD_OMP);
   return {
     port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
     host,
     dev: argv.includes('--dev'),
-    demo: isTruthy(env.HABBLAUD_DEMO),
+    demo: isTruthy(env.HABBLAUD_DEMO) || argv.includes('--demo'),
     inDocker,
     home,
     claudeDirs: discoverClaudeDirs(env, home),
@@ -249,6 +257,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     repo: pkg.repo,
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
+    omp,
+    ompDirs: omp ? discoverOmpDirs(env, home) : [],
+    ompUsage: omp && !inDocker && (!env.HABBLAUD_OMP_USAGE?.trim() || isTruthy(env.HABBLAUD_OMP_USAGE)),
     remote: remote.config,
     remoteWarning: remote.warning,
     world: parseWorldConfig(env, argv),

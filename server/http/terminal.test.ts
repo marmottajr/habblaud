@@ -74,6 +74,18 @@ describe('trava do terminal (config)', () => {
       tmp.cleanup();
     }
   });
+
+  it('loadConfig: --demo liga o simulador, como HABBLAUD_DEMO=1 (o npm run demo usa a flag, que vale também no Windows)', () => {
+    const tmp = tempDir();
+    try {
+      const demo = (env: NodeJS.ProcessEnv, argv: string[]) => loadConfig({ HOME: tmp.dir, HABBLAUD_IN_DOCKER: '0', ...env }, argv).demo;
+      expect(demo({}, [])).toBe(false);
+      expect(demo({}, ['--dev', '--demo'])).toBe(true);
+      expect(demo({ HABBLAUD_DEMO: '1' }, [])).toBe(true);
+    } finally {
+      tmp.cleanup();
+    }
+  });
 });
 
 // ------------------------------------------------------------------ servidor de teste

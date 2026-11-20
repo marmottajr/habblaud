@@ -205,6 +205,21 @@ describe('rotas', () => {
     expect(full.json).toMatchObject({ error: expect.stringMatching(/5 mensagens/) });
   });
 
+  it('control: 400 (thinking inválido), 404, 409 (Claude) e 201 (omp) com control na caixa de entrada', async () => {
+    srv = await serveMessages();
+    srv.office.addMain({ id: '.omp:o1', provider: 'omp', account: '.omp', sessionId: 'o1', cwd: '/p/loja', role: 'Agente principal', startedAt: 0, status: 'idle' });
+    expect((await post(srv, '/api/messages/control', { agentId: '.omp:o1', thinking: 'altíssimo' })).status).toBe(400);
+    expect((await post(srv, '/api/messages/control', { agentId: '.omp:o1' })).status).toBe(400);
+    expect((await post(srv, '/api/messages/control', { agentId: 'nao-existe', thinking: 'low' })).status).toBe(404);
+    expect((await post(srv, '/api/messages/control', { agentId: MAIN, thinking: 'low' })).status).toBe(409);
+    expect((await request(srv.base, '/api/messages/control')).status).toBe(405);
+    await post(srv, '/api/mod/inbox', { session: 'o1' });
+    const ok = await post(srv, '/api/messages/control', { agentId: '.omp:o1', thinking: 'high' });
+    expect(ok.status).toBe(201);
+    const inbox = await post(srv, '/api/mod/inbox', { session: 'o1' });
+    expect(inbox.json).toEqual({ messages: [{ id: (ok.json as OutboxMessage).id, text: '', control: { thinking: 'high' } }] });
+  });
+
   it('caixa de entrada de sessão desconhecida: 200 com nenhuma mensagem (nunca 404)', async () => {
     srv = await serveMessages();
     const r = await post(srv, '/api/mod/inbox', { session: 'nao-existe', account: 'acc' });

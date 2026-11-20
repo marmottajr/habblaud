@@ -13,9 +13,10 @@ export type AgentKind = 'main' | 'sub';
  * De qual ferramenta vem o agente (ou a conta, a fonte, a sessão, o pedido). Nos tipos do protocolo o campo
  * `provider` é opcional e AUSENTE quer dizer 'claude' (tudo o que existia antes do Codex continua igual).
  * - claude: Claude Code;
- * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME).
+ * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME);
+ * - omp: oh-my-pi (CLI `omp`, can1357/oh-my-pi), que grava as sessões em ~/.omp/agent/sessions.
  */
-export type Provider = 'claude' | 'codex';
+export type Provider = 'claude' | 'codex' | 'omp';
 
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.
@@ -161,6 +162,10 @@ export interface AgentInfo {
   /** Shells rodando que o agente espera: em segundo plano e o comando em primeiro plano ainda sem resultado. */
   shells?: ShellJob[];
   model?: string;
+  /** Nível de raciocínio (thinking) da sessão omp: off, minimal, low, medium, high, xhigh ou max. */
+  thinking?: string;
+  /** Modelos que a sessão omp aceita (`provedor/id`), informados pela extensão; só no agente principal. */
+  models?: string[];
   gitBranch?: string;
   permissionMode?: string;
   startedAt: number;
@@ -274,6 +279,31 @@ export interface UsageWindow {
   resetsAt?: number;
 }
 
+/** Um limite de um provedor do omp, como o `omp usage --json` informa (rótulos em inglês, do omp). */
+export interface OmpUsageLimit {
+  /** Ex.: "Claude 5 Hour", "Gemini", "Claude & GPT (shared)". */
+  label: string;
+  /** Duração da janela (ms), quando o omp informa. */
+  windowMs?: number;
+  /** Percentual usado, 0–100 (sem número quando o provedor não informa). */
+  utilization?: number;
+  resetsAt?: number;
+  /** O omp marcou o limite como esgotado (status diferente de ok com 100%). */
+  exhausted?: boolean;
+}
+
+/** Uso de um provedor (uma credencial) do omp: todos os limites, para a lista de provedores no cartão de uso. */
+export interface OmpProviderUsage {
+  /** Id do provedor no omp (`anthropic`, `openai-codex`, `google-antigravity`…). */
+  provider: string;
+  /** Plano, quando o omp informa (ex.: "plus"). */
+  plan?: string;
+  limits: OmpUsageLimit[];
+  /** Explicação do omp quando não há limites (como veio, em inglês). */
+  note?: string;
+  fetchedAt: number;
+}
+
 export interface AccountUsage {
   /** Sessão de 5 horas. */
   fiveHour?: UsageWindow;
@@ -282,15 +312,23 @@ export interface AccountUsage {
   sevenDayOpus?: UsageWindow;
   sevenDaySonnet?: UsageWindow;
   /**
-   * Origem dos números (todas são arquivos locais gravados pela própria ferramenta):
+   * Origem dos números (arquivos locais gravados pela própria ferramenta; só 'omp' vem de um comando):
    * - 'statusline': capturado ao vivo e gravado em ~/.habblaud/usage/<conta>.json pelo mod do Habblaud
    *   (mod/habblaud, recomendado) ou pelo scripts/statusline-tap.mjs (campo rate_limits do statusline);
    * - 'cache': `cachedUsageUtilization` gravado pelo próprio Claude Code (atualiza quando alguém roda /usage);
-   * - 'codex': `rate_limits` dos arquivos de sessão do Codex (só se renovam enquanto alguma sessão roda).
+   * - 'codex': `rate_limits` dos arquivos de sessão do Codex (só se renovam enquanto alguma sessão roda);
+   * - 'omp': janelas de 5 h e 7 d do provedor do modelo em uso, lidas de `omp usage --json` (o omp
+   *   consulta o provedor com as credenciais dele e o cache dele; o Habblaud só roda o comando).
    */
-  source: 'cache' | 'statusline' | 'codex';
+  source: 'cache' | 'statusline' | 'codex' | 'omp';
   /** Quem gravou o arquivo ao vivo ('statusline'): o mod do Habblaud no Claude Code ou o tap de statusline. */
   via?: 'mod' | 'tap';
+  /** Só 'omp': provedor do omp de onde vieram as janelas (`anthropic`, `openai-codex`, `google-antigravity`…). */
+  ompProvider?: string;
+  /** Só 'omp': todos os provedores do omp desta conta, com todos os limites (lista no cartão de uso). */
+  ompProviders?: OmpProviderUsage[];
+  /** Só 'omp': explicação do próprio omp quando o provedor não tem janelas de 5 h/7 d (ex.: Ollama), como veio (inglês). */
+  note?: string;
   /**
    * Conta sem cota nem créditos para usar agora (Codex: `rate_limits.primary` nulo, ex.: créditos do workspace
    * esgotados). Não é "0% usado": as janelas ficam ausentes.
@@ -375,6 +413,8 @@ export interface OfficeSnapshot {
      * e à linha do tempo). Ausente nos testes e no timelapse.
      */
     world?: WorldMeta;
+    /** Configurações › Sala do omp segue o projeto (OmpSettings). Ausente = sem omp. */
+    ompRoomByProject?: boolean;
   };
 }
 
@@ -733,6 +773,8 @@ export interface PtyInfo {
 /** Mensagem entregue ao plugin habblaud-mensagens (POST /api/mod/inbox). */
 export interface InboxMessage {
   id: string;
-  /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. */
+  /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. Vazio quando há `control`. */
   text: string;
+  /** Troca de modelo e/ou raciocínio da sessão omp (POST /api/messages/control). */
+  control?: { model?: string; thinking?: string };
 }

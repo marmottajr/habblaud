@@ -85,6 +85,12 @@ export const ES: Readonly<Record<string, string>> = {
   "Cavanhaque": "Perilla",
 
   // client/src/ui/composer-model.ts
+  "Para mandar mensagens ao omp: npm run omp:install (extensão do Habblaud no omp) e reabra a sessão": "Para enviar mensajes a omp: npm run omp:install (extensión de Habblaud en omp) y vuelve a abrir la sesión",
+  "Para responder, use o omp": "Para responder, usa omp",
+  "Entra na sessão como continuação: se o omp estiver no meio de um turno, vira o próximo prompt quando ele terminar. Enter manda; Shift+Enter quebra a linha.": "Entra en la sesión como continuación: si omp está en medio de un turno, se convierte en el siguiente prompt cuando termine. Enter envía; Shift+Enter inserta un salto de línea.",
+  "Na fila: esperando a extensão do omp buscar a mensagem…": "En cola: esperando a que la extensión de omp recoja el mensaje…",
+  "Entregue ✓ (como continuação: se o omp estiver ocupado, entra quando ele terminar o turno)": "Entregado ✓ (como continuación: si omp está ocupado, entra cuando termine el turno)",
+  "sem notícia da entrega: confira no omp": "sin noticias de la entrega: compruébalo en omp",
   "Para mandar mensagens daqui: npm run mod:install (plugin habblaud-mensagens)": "Para enviar mensajes desde aquí: npm run mod:install (plugin habblaud-mensagens)",
   "Para mandar mensagens ao Codex: com o Habblaud no Docker, deixe npm run codex:bridge rodando; no modo Node funciona sozinho": "Para enviar mensajes a Codex: con Habblaud en Docker, deja npm run codex:bridge en ejecución; en modo Node funciona solo",
   "Sem mensagens no timelapse: o escritório mostrado é o de outro momento": "Sin mensajes en el timelapse: la oficina que ves es de otro momento",
@@ -211,6 +217,7 @@ export const ES: Readonly<Record<string, string>> = {
   "só tokens": "solo tokens",
 
   // client/src/ui/drawer.ts
+  "ao omp": "a omp",
   "Copiado!": "¡Copiado!",
   "Não foi possível copiar": "No se pudo copiar",
   "concluída": "completada",
@@ -246,6 +253,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Linhas": "Líneas",
   "Subagentes disparados": "Subagentes lanzados",
   "Modelo": "Modelo",
+  "Raciocínio": "Razonamiento",
   "Permissões": "Permisos",
   "Sessão": "Sesión",
   "Copiar id da sessão": "Copiar id de la sesión",
@@ -494,6 +502,12 @@ export const ES: Readonly<Record<string, string>> = {
   " Nova tentativa em {0} s.": " Nuevo intento en {0} s.",
 
   // client/src/ui/permission.ts
+  "No omp, o diálogo do terminal fica aberto junto: vale o que for respondido primeiro. Sem HABBLAUD_OMP_PERMISSOES=1 no omp, a decisão é só no terminal.": "En omp, el diálogo de la terminal queda abierto a la vez: vale lo que se responda primero. Sin HABBLAUD_OMP_PERMISSOES=1 en omp, la decisión se toma solo en la terminal.",
+  "Pedido feito às {0}. Sem resposta aqui nem no terminal até {1}, o omp recusa a ferramenta.": "Solicitud hecha a las {0}. Sin respuesta aquí ni en la terminal hasta las {1}, omp rechaza la herramienta.",
+  "Recusar com um motivo (o omp pede um)": "Rechazar con un motivo (omp pide uno)",
+  "O Habblaud retira este pedido: vale o que você responder no diálogo do terminal do omp": "Habblaud retira esta solicitud: vale lo que respondas en el diálogo de la terminal de omp",
+  "Motivo (obrigatório no omp, vai para o agente). Ex.: use pnpm em vez de npm": "Motivo (obligatorio en omp, va al agente). Ej.: usa pnpm en lugar de npm",
+  "Escreva o motivo: o omp recusa só com um motivo": "Escribe el motivo: omp solo rechaza con un motivo",
   "só nesta sessão": "solo en esta sesión",
   "neste projeto, só para você": "en este proyecto, solo para ti",
   "neste projeto, para todos (versionado)": "en este proyecto, para todos (versionado)",
@@ -555,6 +569,8 @@ export const ES: Readonly<Record<string, string>> = {
   "Responda todas as perguntas (no “Outro”, escreva a resposta)": "Responde todas las preguntas (en “Otro”, escribe la respuesta)",
 
   // client/src/ui/provider.ts
+  "Abra o Claude Code{0}, o Codex ou o omp em qualquer projeto e veja seu agente chegar.": "Abre Claude Code{0}, Codex u omp en cualquier proyecto y mira llegar a tu agente.",
+  "Abra o Claude Code{0} ou o omp em qualquer projeto e veja seu agente chegar.": "Abre Claude Code{0} u omp en cualquier proyecto y mira llegar a tu agente.",
   "Conta desconhecida": "Cuenta desconocida",
   " · plano {0}": " · plan {0}",
   "Abra o Claude Code em qualquer projeto{0} e veja seu agente chegar.": "Abre Claude Code en cualquier proyecto{0} y mira llegar a tu agente.",
@@ -701,6 +717,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Assumindo…": "Tomando el control…",
 
   // client/src/ui/terminal.ts
+  "{0} · responda no omp: sem HABBLAUD_OMP_PERMISSOES=1 a decisão é no terminal (ou o pedido passou do tempo de espera)": "{0} · responde en omp: sin HABBLAUD_OMP_PERMISSOES=1 la decisión se toma en la terminal (o la solicitud superó el tiempo de espera)",
   "O terminal só fica disponível quando o Habblaud roda com acesso local (bind 127.0.0.1)": "La terminal solo está disponible cuando Habblaud se ejecuta con acceso local (bind 127.0.0.1)",
   "Não foi possível abrir o terminal. O recurso só funciona no acesso local, com o agente ainda aberto.": "No se pudo abrir la terminal. La función solo sirve con acceso local y con el agente aún abierto.",
   "Não foi possível abrir a sessão. O histórico só funciona no acesso local, com o transcript ainda no disco.": "No se pudo abrir la sesión. El historial solo sirve con acceso local y con el transcript aún en el disco.",
@@ -859,6 +876,19 @@ export const ES: Readonly<Record<string, string>> = {
   "cache do /usage do Claude Code": "caché del /usage de Claude Code",
   "ao vivo (statusline do Claude Code)": "en vivo (statusline de Claude Code)",
   "arquivos do Codex": "archivos de Codex",
+  "omp usage": "omp usage",
+  "omp usage ({0})": "omp usage ({0})",
+  "sem uso de 5 h e semana": "sin uso de 5 h ni semanal",
+  "sem uso": "sin uso",
+  "sem uso informado": "sin uso informado",
+  "Ainda sem uso: o Habblaud consulta o \"omp usage\" a cada 5 min enquanto uma sessão do omp está aberta.": "Todavía sin uso: Habblaud consulta \"omp usage\" cada 5 min mientras haya una sesión de omp abierta.",
+  "o provedor": "el proveedor",
+  "{0} não informa uso de 5 h nem da semana ao omp: {1}": "{0} no informa el uso de 5 h ni semanal a omp: {1}",
+  "{0} não informa uso de 5 h nem da semana ao omp.": "{0} no informa el uso de 5 h ni semanal a omp.",
+  "Na última leitura ({0}), o provedor {1} estava sem cota: não é 0%.": "En la última lectura ({0}), el proveedor {1} estaba sin cuota: no es 0%.",
+  "Uso do provedor {0} (o do modelo em uso), lido do \"omp usage\" a cada 5 min com uma sessão aberta; esta leitura é de {1}.": "Uso del proveedor {0} (el del modelo en uso), leído de \"omp usage\" cada 5 min con una sesión abierta; esta lectura es de {1}.",
+  "Atualizado {0}: o omp usage é lido a cada 5 min enquanto uma sessão do omp está aberta.": "Actualizado {0}: omp usage se lee cada 5 min mientras haya una sesión de omp abierta.",
+  "Provedor": "Proveedor",
   "ao vivo (mod do Habblaud)": "en vivo (mod de Habblaud)",
   "Recomendado: instala o mod do Habblaud no Claude Code (2.1.287 ou mais novo), que passa o uso de 5 h e da semana ao vivo. Rode na pasta do Habblaud, no computador onde o Claude Code roda; nas sessões já abertas, `/reload-plugins`.": "Recomendado: instala el mod de Habblaud en Claude Code (2.1.287 o más reciente), que envía el uso de 5 h y semanal en vivo. Ejecútalo en la carpeta de Habblaud, en el equipo donde corre Claude Code; en las sesiones ya abiertas, `/reload-plugins`.",
   "No Claude Code anterior ao 2.1.287: liga um tap na linha de status, que passa os mesmos números ao vivo.": "En Claude Code anterior a 2.1.287: conecta un tap a la línea de estado, que envía los mismos números en vivo.",
@@ -936,6 +966,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Não deu para falar com o servidor do Habblaud.": "No se pudo contactar con el servidor de Habblaud.",
 
   // client/src/ui/widgets.ts
+  "Agente do omp (oh-my-pi)": "Agente de omp (oh-my-pi)",
   "Agente do Codex (OpenAI)": "Agente de Codex (OpenAI)",
   "Principal": "Principal",
   "Subagente: {0}{1}": "Subagente: {0}{1}",
@@ -1624,6 +1655,7 @@ export const ES: Readonly<Record<string, string>> = {
   "Não foi possível apagar {0} da linha do tempo ({1}).": "No se pudo borrar {0} de la línea de tiempo ({1}).",
 
   // server/http/app.ts
+  "eventos do omp só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)": "los eventos de omp solo se aceptan desde el propio equipo (http://localhost o http://127.0.0.1)",
   "agente não encontrado: só o agente principal de uma sessão aberta tem personagem editável": "agente no encontrado: solo el agente principal de una sesión abierta tiene un personaje editable",
   "envie o corpo como JSON (Content-Type: application/json)": "envía el cuerpo como JSON (Content-Type: application/json)",
   "corpo grande demais": "cuerpo demasiado grande",
@@ -1696,6 +1728,13 @@ export const ES: Readonly<Record<string, string>> = {
   "nada gravado neste dia": "nada grabado en este día",
 
   // server/index.ts
+  "   omp: {0} conta(s), {1} sessão(ões) aberta(s); uso do plano: {2}.": "   omp: {0} cuenta(s), {1} sesión(es) abierta(s); uso del plan: {2}.",
+  "ligado (omp usage a cada 5 min)": "activado (omp usage cada 5 min)",
+  "desligado no Docker": "desactivado en Docker",
+  "desligado (HABBLAUD_OMP_USAGE=0)": "desactivado (HABBLAUD_OMP_USAGE=0)",
+  "   omp: {0}.": "   omp: {0}.",
+  "nenhuma pasta do omp com sessions/ encontrada (defina HABBLAUD_OMP_DIRS)": "no se encontró ninguna carpeta de omp con sessions/ (define HABBLAUD_OMP_DIRS)",
+  "desligado (HABBLAUD_OMP=0)": "desactivado (HABBLAUD_OMP=0)",
   "desligado": "desactivado",
   "desligado por HABBLAUD_PTY={0}": "desactivado por HABBLAUD_PTY={0}",
   "desligado (ligue com HABBLAUD_PTY=1)": "desactivado (se activa con HABBLAUD_PTY=1)",
@@ -1761,6 +1800,7 @@ export const ES: Readonly<Record<string, string>> = {
   "mensagem desconhecida: ela já foi resolvida há mais de 10 min ou o Habblaud reiniciou": "mensaje desconocido: ya se resolvió hace más de 10 min o Habblaud se reinició",
 
   // server/messages/registry.ts
+  "a sessão não está com a extensão do Habblaud no omp (npm run omp:install)": "la sesión no tiene la extensión de Habblaud en omp (npm run omp:install)",
   "a sessão não buscou a mensagem: o plugin habblaud-mensagens está instalado e a sessão aberta?": "la sesión no recogió el mensaje: ¿el plugin habblaud-mensagens está instalado y la sesión abierta?",
   "a sessão não confirmou a entrega": "la sesión no confirmó la entrega",
   "a sessão não aceitou a mensagem": "la sesión no aceptó el mensaje",
@@ -1775,6 +1815,14 @@ export const ES: Readonly<Record<string, string>> = {
   "o agente já saiu do escritório": "el agente ya salió de la oficina",
   "a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)": "la sesión no tiene el plugin habblaud-mensagens conectado (npm run mod:install)",
   "a mensagem está vazia": "el mensaje está vacío",
+  "Aplicado: o omp mostra a mudança em instantes.": "Aplicado: omp muestra el cambio en unos instantes.",
+  "o omp não aplicou a troca": "omp no aplicó el cambio",
+  "O omp ainda não confirmou a troca.": "omp aún no confirmó el cambio.",
+  "indisponível no modo de demonstração": "no disponible en el modo de demostración",
+  "modelo inválido": "modelo no válido",
+  "raciocínio inválido": "nivel de razonamiento no válido",
+  "informe o modelo ou o raciocínio": "indique el modelo o el razonamiento",
+  "só agentes do omp trocam de modelo e raciocínio pela gaveta": "solo los agentes de omp cambian de modelo y razonamiento desde el cajón",
   "a mensagem passa de 20.000 caracteres": "el mensaje supera los 20.000 caracteres",
   "Mensagens: falha no relógio ({0}).": "Mensajes: error en el reloj ({0}).",
   "esperado um objeto JSON ({})": "se esperaba un objeto JSON ({})",
@@ -1809,13 +1857,17 @@ export const ES: Readonly<Record<string, string>> = {
   "Pedindo mais permissões": "Pidiendo más permisos",
   "Digitando num processo do terminal": "Escribiendo en un proceso de la terminal",
 
+  // server/omp/http.ts
+  "esperado um evento da extensão do omp ({event, sessionId, at, ...})": "se esperaba un evento de la extensión de omp ({event, sessionId, at, ...})",
+  "Eventos do omp: falha ao aplicar um evento ({0}).": "Eventos de omp: error al aplicar un evento ({0}).",
+
   // server/permissions/http.ts
   "pedido desconhecido": "solicitud desconocida",
   "pedido desconhecido: já foi respondido, expirou ou foi respondido no terminal": "solicitud desconocida: ya fue respondida, expiró o se respondió en la terminal",
   "este pedido já foi respondido": "esta solicitud ya fue respondida",
   "sugestão de regra desconhecida para este pedido": "sugerencia de regla desconocida para esta solicitud",
   "resposta que não serve para este pedido: pergunta se responde com \"answer\" (cada pergunta uma vez, com as opções dela); os outros pedidos, com \"allow\" ou \"deny\"": "respuesta que no sirve para esta solicitud: las preguntas se responden con \"answer\" (cada pregunta una vez, con sus opciones); las demás solicitudes, con \"allow\" o \"deny\"",
-  "o Codex não aceita interromper nem \"sempre permitir\" pelo Habblaud: aprove, recuse (com um motivo, se quiser) ou responda no terminal": "Codex no acepta interrumpir ni \"permitir siempre\" desde Habblaud: aprueba, rechaza (con un motivo, si quieres) o responde en la terminal",
+  "o Codex e o omp não aceitam interromper nem \"sempre permitir\" pelo Habblaud: aprove, recuse (com um motivo, se quiser) ou responda no terminal": "Codex y omp no aceptan interrumpir ni \"permitir siempre\" desde Habblaud: aprueba, rechaza (con un motivo, si quieres) o responde en la terminal",
 
   // server/permissions/registry.ts
   "esperado o JSON do hook PermissionRequest (session_id e tool_name)": "se esperaba el JSON del hook PermissionRequest (session_id y tool_name)",
@@ -1867,6 +1919,19 @@ export const ES: Readonly<Record<string, string>> = {
   "pid inválido": "pid inválido",
   "início do processo desconhecido": "inicio del proceso desconocido",
   "o processo não é mais aquela sessão": "el proceso ya no es esa sesión",
+
+  // server/sources/omp/source.ts
+  "Agente principal (omp)": "Agente principal (omp)",
+  "Subagente (omp)": "Subagente (omp)",
+  "omp: falha no ciclo de leitura: {0}": "omp: error en el ciclo de lectura: {0}",
+  "omp: sessão {0}: {1}": "omp: sesión {0}: {1}",
+  "omp: subagente {0}: {1}": "omp: subagente {0}: {1}",
+  "omp: arquivo de {0} ilegível ({1}).": "omp: archivo de {0} ilegible ({1}).",
+  "omp: executável não encontrado; o uso do plano das contas do omp fica de fora (HABBLAUD_OMP_BIN).": "omp: ejecutable no encontrado; el uso del plan de las cuentas de omp queda fuera (HABBLAUD_OMP_BIN).",
+  "omp: a saída de \"omp usage --json\" não trouxe o provedor {0} da conta {1}.": "omp: la salida de \"omp usage --json\" no trajo el proveedor {0} de la cuenta {1}.",
+  "omp: \"omp usage\" falhou na conta {0}: {1}": "omp: \"omp usage\" falló en la cuenta {0}: {1}",
+  "omp: evento da extensão ignorado ({0}).": "omp: evento de la extensión ignorado ({0}).",
+  "aprovar no terminal: {0}": "aprobar en la terminal: {0}",
 
   // server/sources/codex/history.ts
   "id de sessão inválido": "id de sesión inválido",
@@ -2034,7 +2099,8 @@ export const ES: Readonly<Record<string, string>> = {
   "[codex] Erro inesperado: {0}": "[codex] Error inesperado: {0}",
 
   // scripts/docker-up.ts
-  "Uso: npm run docker:up [-- opções]\n\nOpções:\n  --no-build   sobe sem reconstruir a imagem\n  --down       derruba o container (o mesmo que npm run docker:down)\n  -h, --help   mostra esta ajuda\n\nVariáveis: HABBLAUD_PORT (porta no host, padrão {0}), HABBLAUD_CLAUDE_DIRS\n(config dirs separados por vírgula, se as contas não estiverem em ~/.claude*), HABBLAUD_CODEX_DIRS\n(pastas do Codex, se não estiverem em ~/.codex* nem em CODEX_HOME) e HABBLAUD_CODEX=0 (sem o Codex).": "Uso: npm run docker:up [-- opciones]\n\nOpciones:\n  --no-build   inicia sin reconstruir la imagen\n  --down       detiene el contenedor (lo mismo que npm run docker:down)\n  -h, --help   muestra esta ayuda\n\nVariables: HABBLAUD_PORT (puerto en el host, por defecto {0}), HABBLAUD_CLAUDE_DIRS\n(carpetas de configuración separadas por comas, si las cuentas no están en ~/.claude*), HABBLAUD_CODEX_DIRS\n(carpetas de Codex, si no están en ~/.codex* ni en CODEX_HOME) y HABBLAUD_CODEX=0 (sin Codex).",
+  "omp {0} ({1}): monta sessions de {2}, somente leitura.": "omp {0} ({1}): monta sessions de {2}, solo lectura.",
+  "Uso: npm run docker:up [-- opções]\n\nOpções:\n  --no-build   sobe sem reconstruir a imagem\n  --down       derruba o container (o mesmo que npm run docker:down)\n  -h, --help   mostra esta ajuda\n\nVariáveis: HABBLAUD_PORT (porta no host, padrão {0}), HABBLAUD_CLAUDE_DIRS\n(config dirs separados por vírgula, se as contas não estiverem em ~/.claude*), HABBLAUD_CODEX_DIRS\n(pastas do Codex, se não estiverem em ~/.codex* nem em CODEX_HOME) e HABBLAUD_CODEX=0 (sem o Codex);\nHABBLAUD_OMP_DIRS (agent dirs do omp, se não estiverem em ~/.omp/agent nem em PI_CODING_AGENT_DIR) e HABBLAUD_OMP=0 (sem o omp).": "Uso: npm run docker:up [-- opciones]\n\nOpciones:\n  --no-build   inicia sin reconstruir la imagen\n  --down       detiene el contenedor (lo mismo que npm run docker:down)\n  -h, --help   muestra esta ayuda\n\nVariables: HABBLAUD_PORT (puerto en el host, por defecto {0}), HABBLAUD_CLAUDE_DIRS\n(carpetas de configuración separadas por comas, si las cuentas no están en ~/.claude*), HABBLAUD_CODEX_DIRS\n(carpetas de Codex, si no están en ~/.codex* ni en CODEX_HOME) y HABBLAUD_CODEX=0 (sin Codex);\nHABBLAUD_OMP_DIRS (carpetas agent de omp, si no están en ~/.omp/agent ni en PI_CODING_AGENT_DIR) y HABBLAUD_OMP=0 (sin omp).",
   "[docker-up] Atenção: {0}": "[docker-up] Atención: {0}",
   "uso atualizado": "uso actualizado",
   "uso desatualizado": "uso desactualizado",
@@ -2217,6 +2283,40 @@ export const ES: Readonly<Record<string, string>> = {
   "Mod atualizado para {0} na {1}; sessões abertas: /reload-plugins": "Mod actualizado a {0} en {1}; sesiones abiertas: /reload-plugins",
   "[mod] Erro: {0}": "[mod] Error: {0}",
   "[mod] Erro inesperado: {0}": "[mod] Error inesperado: {0}",
+
+  // scripts/omp-install.ts
+  "extensão instalada": "extensión instalada",
+  "já existe um {0} que não é do Habblaud; não vou sobrescrevê-lo": "ya existe un {0} que no es de Habblaud; no lo voy a sobrescribir",
+  "a extensão já está instalada e atualizada": "la extensión ya está instalada y actualizada",
+  "extensão atualizada (aponta para este repositório)": "extensión actualizada (apunta a este repositorio)",
+  "não havia nada a remover": "no había nada que eliminar",
+  "o {0} que existe não é do Habblaud; deixei como está": "el {0} que existe no es de Habblaud; lo dejé como está",
+  "extensão removida": "extensión eliminada",
+  "Nenhuma pasta do omp encontrada (~/.omp/agent ou PI_CODING_AGENT_DIR com sessions/). Use HABBLAUD_OMP_DIRS se ela estiver em outro lugar.": "No se encontró ninguna carpeta de omp (~/.omp/agent o PI_CODING_AGENT_DIR con sessions/). Usa HABBLAUD_OMP_DIRS si está en otro lugar.",
+  "✗ {0}: não consegui ler {1} ({2})": "✗ {0}: no pude leer {1} ({2})",
+  "• {0}: instalada e atualizada": "• {0}: instalada y actualizada",
+  " (esse arquivo não existe mais: a extensão falha ao carregar)": " (ese archivo ya no existe: la extensión falla al cargar)",
+  "! {0}: instalada, mas aponta para {1}{2}; rode npm run omp:install para atualizar": "! {0}: instalada, pero apunta a {1}{2}; ejecuta npm run omp:install para actualizar",
+  "um caminho ilegível": "una ruta ilegible",
+  "! {0}: existe um {1} que não é do Habblaud": "! {0}: existe un {1} que no es de Habblaud",
+  "✗ {0}: não instalada; rode npm run omp:install": "✗ {0}: no instalada; ejecuta npm run omp:install",
+  "  criaria/atualizaria {0}": "  crearía/actualizaría {0}",
+  "  apagaria {0}": "  eliminaría {0}",
+  "~ configuração ({0}): porta {1} (simulação: nada gravado)": "~ configuración ({0}): puerto {1} (simulación: nada escrito)",
+  "✓ configuração ({0}): porta {1}": "✓ configuración ({0}): puerto {1}",
+  "✗ não consegui gravar {0} ({1}): a extensão usa HABBLAUD_PORT ou a porta {2}": "✗ no pude escribir {0} ({1}): la extensión usa HABBLAUD_PORT o el puerto {2}",
+  "Configuração da extensão ({0}): porta {1}.": "Configuración de la extensión ({0}): puerto {1}.",
+  "Configuração da extensão ({0}): não existe (a extensão usa HABBLAUD_PORT ou a porta {1}).": "Configuración de la extensión ({0}): no existe (la extensión usa HABBLAUD_PORT o el puerto {1}).",
+  "Habblaud respondendo em http://127.0.0.1:{0}.": "Habblaud respondiendo en http://127.0.0.1:{0}.",
+  "Habblaud em http://127.0.0.1:{0}: fora do ar (a extensão segue calada e o omp funciona normal).": "Habblaud en http://127.0.0.1:{0}: fuera de línea (la extensión sigue callada y omp funciona con normalidad).",
+  "! O Habblaud no ar não tem a fonte do omp ligada (HABBLAUD_OMP=0?): os eventos são ignorados.": "! El Habblaud en marcha no tiene la fuente de omp activada (¿HABBLAUD_OMP=0?): los eventos se ignoran.",
+  "Modo de decisão das permissões (HABBLAUD_OMP_PERMISSOES): ligado neste ambiente; use o omp com --approval-mode yolo.": "Modo de decisión de los permisos (HABBLAUD_OMP_PERMISSOES): activado en este entorno; usa omp con --approval-mode yolo.",
+  "Modo de decisão das permissões (HABBLAUD_OMP_PERMISSOES): desligado neste ambiente (o escritório só mostra o pedido de aprovação do terminal).": "Modo de decisión de los permisos (HABBLAUD_OMP_PERMISSOES): desactivado en este entorno (la oficina solo muestra la solicitud de aprobación de la terminal).",
+  "Pronto: a próxima sessão do omp carrega a extensão. Para desfazer: npm run omp:uninstall": "Listo: la próxima sesión de omp carga la extensión. Para deshacer: npm run omp:uninstall",
+  "A configuração em ~/.habblaud/omp-extension.json fica (só a extensão a lê).": "La configuración en ~/.habblaud/omp-extension.json se queda (solo la lee la extensión).",
+  "[omp] Erro: {0}": "[omp] Error: {0}",
+  "[omp] Erro inesperado: {0}": "[omp] Error inesperado: {0}",
+  "Uso: npm run omp:<install|uninstall|status> [-- opções]\n\n  install     grava a extensão do Habblaud em extensions/ de cada pasta do omp\n  uninstall   apaga a extensão do Habblaud de cada pasta (as outras extensões ficam)\n  status      mostra se a extensão está instalada e se o Habblaud está respondendo\n\nOpções:\n  --dry-run   mostra o que mudaria, sem gravar nada\n  --port <n>  porta do Habblaud (padrão: HABBLAUD_PORT ou {0})\n  -h, --help  mostra esta ajuda\n\nPastas: HABBLAUD_OMP_DIRS (lista separada por vírgula), PI_CODING_AGENT_DIR ou ~/.omp/agent.\nPermissões pelo escritório (opcional): abra o omp com HABBLAUD_OMP_PERMISSOES=1 e --approval-mode yolo.": "Uso: npm run omp:<install|uninstall|status> [-- opciones]\n\n  install     escribe la extensión de Habblaud en extensions/ de cada carpeta de omp\n  uninstall   borra la extensión de Habblaud de cada carpeta (las demás extensiones se quedan)\n  status      muestra si la extensión está instalada y si Habblaud está respondiendo\n\nOpciones:\n  --dry-run   muestra qué cambiaría, sin escribir nada\n  --port <n>  puerto de Habblaud (por defecto: HABBLAUD_PORT o {0})\n  -h, --help  muestra esta ayuda\n\nCarpetas: HABBLAUD_OMP_DIRS (lista separada por comas), PI_CODING_AGENT_DIR o ~/.omp/agent.\nPermisos a través de la oficina (opcional): abre omp con HABBLAUD_OMP_PERMISSOES=1 y --approval-mode yolo.",
 
   // scripts/statusline-install.ts
   "Uso: npm run usage:<install|uninstall|status> [-- opções]\n\n  install     envolve o statusline de cada conta com o tap do Habblaud (faz backup do settings.json)\n  uninstall   restaura o statusline original de cada conta\n  status      mostra se o tap está instalado e quando chegou o último uso de cada conta\n\nOpções:\n  --dry-run        mostra o que mudaria, sem gravar nada\n  --node <cmd>     comando do node usado no statusline (padrão: detectado no PATH)\n  -h, --help       mostra esta ajuda\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).": "Uso: npm run usage:<install|uninstall|status> [-- opciones]\n\n  install     envuelve el statusline de cada cuenta con el tap de Habblaud (hace una copia de seguridad del settings.json)\n  uninstall   restaura el statusline original de cada cuenta\n  status      muestra si el tap está instalado y cuándo llegó el último uso de cada cuenta\n\nOpciones:\n  --dry-run        muestra lo que cambiaría, sin guardar nada\n  --node <cmd>     comando de node usado en el statusline (por defecto: detectado en el PATH)\n  -h, --help       muestra esta ayuda\n\nCuentas: las mismas del servidor (~/.claude* con projects/ o sessions/, CLAUDE_CONFIG_DIR o\nHABBLAUD_CLAUDE_DIRS). Uso capturado en HABBLAUD_USAGE_DIR (por defecto ~/.habblaud/usage).",
@@ -3274,4 +3374,19 @@ export const ES: Readonly<Record<string, string>> = {
   "Carimbo deixado na portaria: {0}": "Sello dejado en la recepción: {0}",
   "Entre no prédio ou chegue mais perto da porta para carimbar.": "Entra al edificio o acércate más a la puerta para sellar.",
   "O carimbo não foi deixado. Tente de novo.": "El sello no se dejó. Inténtalo de nuevo.",
+  "omp.json ilegível ({0}); sala por projeto desligada.": "omp.json ilegible ({0}); sala por proyecto desactivada.",
+  "esperado {roomByProject: boolean}": "se esperaba {roomByProject: boolean}",
+  "Sala do omp segue o projeto": "La sala de omp sigue el proyecto",
+  "Com o omp numa pasta que junta vários projetos (sem git), o personagem vai para a sala da subpasta em que está trabalhando.": "Con omp en una carpeta que reúne varios proyectos (sin git), el personaje va a la sala de la subcarpeta en la que está trabajando.",
+  "Sala do omp por projeto ligada.": "Sala de omp por proyecto activada.",
+  "Sala do omp por projeto desligada.": "Sala de omp por proyecto desactivada.",
+  "Não foi possível mudar a sala do omp.": "No se pudo cambiar la sala de omp.",
+  "Provedores do omp": "Proveedores de omp",
+  "Provedores do omp · {0}": "Proveedores de omp · {0}",
+  "em uso": "en uso",
+  "Provedor do modelo em uso: o das barras do cartão": "Proveedor del modelo en uso: el de las barras de la tarjeta",
+  "O omp não informa limites deste provedor.": "omp no informa límites de este proveedor.",
+  "Lido do \"omp usage\" {0}; atualiza a cada 5 min com uma sessão do omp aberta.": "Leído de \"omp usage\" {0}; se actualiza cada 5 min con una sesión de omp abierta.",
+  "Ver todos os provedores do omp ({0}) e os limites de cada um": "Ver todos los proveedores de omp ({0}) y los límites de cada uno",
+  "Provedores do omp: {0}": "Proveedores de omp: {0}",
 };

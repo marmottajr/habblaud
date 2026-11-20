@@ -61,7 +61,8 @@ describe('readBuildInfo e scripts/build-info.mjs', () => {
     expect(run(root).dirty).toBe(false);
     writeFileSync(join(root, 'a.txt'), 'dois');
     expect(run(root)).toMatchObject({ commit: head, dirty: true });
-  });
+    // Vários processos git e node: no Windows, com a suíte em paralelo, passa dos 5 s padrão.
+  }, 20_000);
 
   it('sem git: "unknown"; HABBLAUD_BUILD_COMMIT/DIRTY substituem o git', () => {
     const root = mkdtempSync(join(tmpdir(), 'habblaud-build-'));

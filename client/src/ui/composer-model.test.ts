@@ -10,6 +10,8 @@ import {
   enterSends,
   isSettled,
   messageText,
+  OMP_EXTENSION_HINT,
+  OMP_TIMEOUT_ERROR,
   PLUGIN_HINT,
   pollDelay,
   sendStatusText,
@@ -127,5 +129,22 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(pollDelay(0)).toBeLessThan(1_000);
     expect(pollDelay(20_000)).toBeGreaterThan(pollDelay(0));
     expect(pollDelay(60_000)).toBeGreaterThanOrEqual(pollDelay(20_000));
+  });
+
+  it('omp: dica de instalação sem a extensão, recurso desligado manda ao omp, entrega como continuação', () => {
+    const omp = (over: Partial<AgentInfo> = {}) => agent({ provider: 'omp', ...over });
+    expect(composerMode(omp(), ON)).toEqual({ kind: 'ready' });
+    expect(composerMode(omp({ canMessage: undefined }), ON)).toEqual({ kind: 'hint', text: OMP_EXTENSION_HINT });
+    expect(OMP_EXTENSION_HINT).toMatch(/npm run omp:install/);
+    expect(composerMode(omp(), { ...ON, enabled: false })).toEqual({ kind: 'off', text: 'Para responder, use o omp' });
+    expect(composerMode(omp({ kind: 'sub', parentId: 'acc:1' }), ON).kind).toBe('off');
+    expect(composerMode(omp({ status: 'offline' }), ON)).toEqual({ kind: 'off', text: 'Sessão encerrada' });
+    // Claude Code e Codex não herdam a dica do omp.
+    expect(composerMode(agent({ canMessage: undefined }), ON)).toEqual({ kind: 'hint', text: PLUGIN_HINT });
+    expect(sendStatusText({ phase: 'queued', at: 0 }, 0, 'omp')).toBe('Na fila: esperando a extensão do omp buscar a mensagem…');
+    expect(sendStatusText({ phase: 'delivered', at: 0 }, 1_000, 'omp')).toBe('Entregue ✓ (como continuação: se o omp estiver ocupado, entra quando ele terminar o turno)');
+    expect(sendStatusText({ phase: 'delivered', at: 0 }, DELIVERED_SHOW_MS, 'omp')).toBe('');
+    expect(composerTip('omp')).toMatch(/^Entra na sessão como continuação/);
+    expect(timeoutError('omp')).toBe(OMP_TIMEOUT_ERROR);
   });
 });

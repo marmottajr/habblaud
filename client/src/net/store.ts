@@ -186,6 +186,17 @@ export class OfficeStore {
     return res.ok;
   }
 
+  /** Configurações › Sala do omp segue o projeto (POST /api/omp/settings); o novo valor chega no snapshot. */
+  async setOmpRoomByProject(enabled: boolean): Promise<boolean> {
+    if (this.mock) return false;
+    const res = await fetch('/api/omp/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomByProject: enabled }),
+    });
+    return res.ok;
+  }
+
   /** "Verificar agora": pede ao servidor uma consulta ao GitHub (o resultado chega no snapshot). */
   async checkUpdates(): Promise<boolean> {
     if (this.mock) return false;
@@ -314,6 +325,24 @@ export class OfficeStore {
   async sendMessage(agentId: string, text: string): Promise<{ message: OutboxMessage } | { error: string }> {
     if (this.mock) return this.mockSend(agentId, text);
     const res = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, text }) });
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
+    }
+    if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
+    const error = (body as { error?: unknown } | undefined)?.error;
+    return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]) };
+  }
+
+  /**
+   * Troca o modelo e/ou o raciocínio de um agente do omp (POST /api/messages/control): a mensagem de controle (status
+   * `queued`; a extensão aplica e confirma) ou o erro do servidor. Sem conexão: lança. Não existe no ?mock=1.
+   */
+  async controlAgent(agentId: string, change: { model?: string; thinking?: string }): Promise<{ message: OutboxMessage } | { error: string }> {
+    if (this.mock) return { error: tr('indisponível no modo de demonstração') };
+    const res = await fetch('/api/messages/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, ...change }) });
     let body: unknown;
     try {
       body = await res.json();

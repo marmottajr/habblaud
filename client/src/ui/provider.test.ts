@@ -6,9 +6,11 @@ import {
   codexApprovalLabel,
   emptyOfficeHint,
   fallbackShort,
-  hasCodexPermission,
+  hasShortPermission,
   isCodex,
+  isOmp,
   looksLikeCodexId,
+  looksLikeOmpId,
   providerOf,
   showsProviderTag,
 } from './provider';
@@ -75,10 +77,10 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     const agent = (permission?: AgentInfo['permission'], status: AgentInfo['status'] = 'waiting') => ({ status, permission }) as AgentInfo;
     const p = { id: 'p', tool: 'Bash', title: 'Bash(ls)', text: 'Listando', icon: '💻', createdAt: 0, expiresAt: 25_000 };
     const snap = (agents: AgentInfo[]) => ({ agents }) as Pick<OfficeSnapshot, 'agents'>;
-    expect(hasCodexPermission(snap([agent({ ...p, provider: 'codex' })]))).toBe(true);
-    expect(hasCodexPermission(snap([agent(p)]))).toBe(false);
-    expect(hasCodexPermission(snap([agent({ ...p, provider: 'codex' }, 'offline')]))).toBe(false);
-    expect(hasCodexPermission(null)).toBe(false);
+    expect(hasShortPermission(snap([agent({ ...p, provider: 'codex' })]))).toBe(true);
+    expect(hasShortPermission(snap([agent(p)]))).toBe(false);
+    expect(hasShortPermission(snap([agent({ ...p, provider: 'codex' }, 'offline')]))).toBe(false);
+    expect(hasShortPermission(null)).toBe(false);
   });
 
   it('aprovações do Codex em português (valor desconhecido passa como veio)', () => {
@@ -86,5 +88,49 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(codexApprovalLabel('never')).toBe('Nunca pergunta');
     expect(codexApprovalLabel('outra')).toBe('outra');
     expect(codexApprovalLabel(undefined)).toBe('—');
+  });
+});
+
+describe('ferramenta omp', () => {
+  it('provider omp é reconhecido; ausente continua Claude Code', () => {
+    expect(providerOf({ provider: 'omp' })).toBe('omp');
+    expect(isOmp({ provider: 'omp' })).toBe(true);
+    expect(isOmp({ provider: 'codex' })).toBe(false);
+    expect(isOmp(undefined)).toBe(false);
+  });
+
+  it('id com cara de pasta do omp (só quando a conta não está no snapshot)', () => {
+    for (const id of ['.omp', '.omp~2', 'demo:.omp', '/Users/ana/.omp', 'C:\\Users\\ana\\.omp']) expect(looksLikeOmpId(id), id).toBe(true);
+    for (const id of ['.claude', '.codex', 'compomp', '.ompx', '']) expect(looksLikeOmpId(id), id).toBe(false);
+    expect(accountProvider(undefined, '.omp')).toBe('omp');
+    expect(accountProvider({ provider: 'omp' }, '.claude')).toBe('omp');
+    expect(accountProvider(undefined, '.claude', 'omp')).toBe('omp');
+    expect(fallbackShort('.omp')).toBe('O');
+    expect(fallbackShort('.omp-trabalho')).toBe('T');
+    expect(fallbackShort('...', 'omp')).toBe('O');
+  });
+
+  it('selo "omp" e rótulo do chip', () => {
+    expect(showsProviderTag('omp', '.omp')).toBe(false);
+    expect(showsProviderTag('omp', 'Conta pessoal')).toBe(true);
+    expect(accountChipLabel({ name: 'Conta pessoal', provider: 'omp' }, '.omp', 'omp')).toBe('Conta pessoal · omp');
+    expect(accountChipLabel({ name: 'omp', provider: 'omp' }, '.omp', 'omp')).toBe('omp');
+    expect(accountChipLabel(undefined, '.omp', 'omp')).toBe('.omp · omp');
+  });
+
+  it('escritório vazio cita o omp só quando há conta dele (sem atalho para ela)', () => {
+    const c = { short: 'C' };
+    const o = { short: 'O', provider: 'omp' as const };
+    const x = { short: 'X', provider: 'codex' as const };
+    expect(emptyOfficeHint([c, o])).toBe('Abra o Claude Code (atalho c) ou o omp em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([o])).toBe('Abra o Claude Code ou o omp em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([c, x, o])).toBe('Abra o Claude Code (atalho c), o Codex ou o omp em qualquer projeto e veja seu agente chegar.');
+  });
+
+  it('relógio de 1 s também com pedido do omp esperando', () => {
+    const p = { id: 'p', tool: 'bash', title: 'Bash(ls)', text: 'Listando', icon: '💻', createdAt: 0, expiresAt: 25_000, provider: 'omp' as const };
+    const agent = (status: AgentInfo['status'] = 'waiting') => ({ status, permission: p }) as AgentInfo;
+    expect(hasShortPermission({ agents: [agent()] })).toBe(true);
+    expect(hasShortPermission({ agents: [agent('offline')] })).toBe(false);
   });
 });

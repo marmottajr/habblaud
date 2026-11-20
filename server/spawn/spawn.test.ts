@@ -1,6 +1,6 @@
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   cliArgs,
@@ -162,23 +162,38 @@ describe('novo agente em segundo plano (claude --bg)', () => {
     expect(cliArgs({ folder: '/p', prompt: '  ' })).toEqual(['--bg', '-n', 'Habblaud']);
   });
 
-  it('createCliRunner roda o binário na pasta, sem shell, e lê o id; erro vira a 1ª linha', async () => {
+  it('createCliRunner roda o binário na pasta, com o pedido inteiro, e lê o id; erro vira a 1ª linha', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'hb-spawn-'));
-    const bin = join(dir, 'claude');
-    writeFileSync(
-      bin,
-      `#!/bin/sh\nprintf '%s\\n' "$PWD" "$@" > "${dir}/args"\n[ -f ./trusted ] || { echo 'Workspace not trusted. Run claude once' >&2; exit 1; }\necho 'Starting background service…'\necho 'backgrounded · 7eacc670 · nome'\n`,
-    );
+    const fake = `const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(join(dir, 'args'))}, JSON.stringify([process.cwd(), ...process.argv.slice(2)]));
+if (!fs.existsSync('trusted')) { console.error('Workspace not trusted. Run claude once'); process.exit(1); }
+console.log('Starting background service…');
+console.log('backgrounded · 7eacc670 · nome');
+`;
+    writeFileSync(join(dir, 'fake.cjs'), fake);
+    // No Windows, o claude.cmd do npm (vira o programa de verdade, sem o cmd.exe); nos outros, o executável direto.
+    const win = process.platform === 'win32';
+    const bin = join(dir, win ? 'claude.cmd' : 'claude');
+    writeFileSync(bin, win ? `@"${process.execPath}" "%~dp0fake.cjs" %*\r\n` : `#!${process.execPath}\n${fake}`);
     chmodSync(bin, 0o755);
     writeFileSync(join(dir, 'trusted'), '');
-    expect(runnableClaudeBin({ PATH: `/nao/existe:${dir}` })).toBe(bin);
+    expect(runnableClaudeBin({ PATH: `/nao/existe${delimiter}${dir}` })).toBe(bin);
     expect(runnableClaudeBin({ HABBLAUD_CLAUDE_BIN: join(dir, 'nada'), PATH: dir })).toBeUndefined();
-    const run = createCliRunner(bin);
-    expect(await run({ folder: dir, prompt: 'faça $(rm -rf x) && y' })).toEqual({ ok: true, id: '7eacc670' });
-    const args = readFileSync(join(dir, 'args'), 'utf8').trim().split('\n');
-    expect(realpathSync(args[0])).toBe(realpathSync(dir));
-    expect(args.slice(1)).toEqual(['--bg', '-n', 'Habblaud: faça $(rm -rf x) && y', '--', 'faça $(rm -rf x) && y']);
-    expect(await run({ folder: tmpdir(), prompt: 'oi' })).toEqual({ ok: false, error: 'Workspace not trusted. Run claude once' });
+    const prompt = 'faça $(rm -rf x) && y "oi" | 100%PATH% !x!\nsegunda linha';
+    const ran = async (b: string) => {
+      expect(await createCliRunner(b)({ folder: dir, prompt })).toEqual({ ok: true, id: '7eacc670' });
+      const [cwd, ...args] = JSON.parse(readFileSync(join(dir, 'args'), 'utf8')) as string[];
+      expect(realpathSync(cwd)).toBe(realpathSync(dir));
+      return args;
+    };
+    expect(await ran(bin)).toEqual(['--bg', '-n', sessionName(prompt), '--', prompt]);
+    expect(await createCliRunner(bin)({ folder: tmpdir(), prompt: 'oi' })).toEqual({ ok: false, error: 'Workspace not trusted. Run claude once' });
+    if (win) {
+      // Um .bat que não dá para desvendar roda pelo cmd.exe: tudo chega como texto, mas numa linha só.
+      const bat = join(dir, 'claude.bat');
+      writeFileSync(bat, `@"${process.execPath}" %~dp0fake.cjs %*\r\n`);
+      expect((await ran(bat)).at(-1)).toBe(prompt.replace('\n', ' '));
+    }
   });
 
   it('launch: roda em segundo plano; se não der, abre o app e diz por quê', async () => {

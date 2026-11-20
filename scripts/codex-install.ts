@@ -27,7 +27,7 @@
 // - usa um comando sem opções e valores fixos (porta e espera ficam em ~/.habblaud/codex-hook.json, que o hook lê):
 //   mudar a porta não pede aprovação nova; mudar a espera muda o timeout do PermissionRequest e pede.
 // Rodar de novo não duplica (o grupo do Habblaud é reconhecido pelo comando).
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -555,11 +555,18 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
   return failures ? 1 : 0;
 }
 
-/** Versão de um Node: o do shell de login do Codex (`$SHELL -lc`, bin ausente) ou de um caminho. Falha = undefined. */
+/**
+ * Versão de um Node: o do shell de login do Codex (`$SHELL -lc`; no Windows, o que o cmd.exe acha no PATH), com bin
+ * ausente, ou de um caminho. Falha = undefined.
+ */
 function probeNode(bin: string | undefined): string | undefined {
   try {
     const opts = { encoding: 'utf8' as const, timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] as ['ignore', 'pipe', 'ignore'] };
-    const out = bin ? execFileSync(bin, ['--version'], opts) : execFileSync(process.env.SHELL || '/bin/sh', ['-lc', 'node --version'], opts);
+    const out = bin
+      ? execFileSync(bin, ['--version'], opts)
+      : process.platform === 'win32'
+        ? execSync('node --version', opts)
+        : execFileSync(process.env.SHELL || '/bin/sh', ['-lc', 'node --version'], opts);
     return out.trim().split('\n').pop();
   } catch {
     return undefined;
@@ -580,7 +587,7 @@ async function main(): Promise<void> {
     hookPath: HOOK_SCRIPT,
     out: (l) => console.log(l),
     nodeProbe: probeNode,
-    nodeCandidates: ['/opt/homebrew/bin/node', '/usr/local/bin/node', process.execPath],
+    nodeCandidates: process.platform === 'win32' ? [process.execPath] : ['/opt/homebrew/bin/node', '/usr/local/bin/node', process.execPath],
   });
 }
 

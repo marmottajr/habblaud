@@ -69,7 +69,7 @@ function splitList(v: string | undefined): string[] {
 export function expandHome(p: string, home: string): string {
   const expanded = p
     .trim()
-    .replace(/^~(?=\/|$)/, home)
+    .replace(/^~(?=[\\/]|$)/, home)
     .replace(/\$\{HOME\}|\$HOME\b/g, home);
   const abs = resolve(expanded);
   return abs.length > 1 ? abs.replace(/\/+$/, '') : abs;
@@ -120,9 +120,19 @@ function hasClaudeLayout(p: string): boolean {
   return isDir(join(p, 'projects')) || isDir(join(p, 'sessions'));
 }
 
-/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex. */
+/**
+ * A pasta é do omp (oh-my-pi, uma agent dir como ~/.omp/agent)? Ela também tem `sessions/`, mas só com pastas de projeto
+ * dentro (o Claude Code guarda `sessions/<pid>.json` direto ali). Marcas que o Claude Code nunca grava, só pela
+ * EXISTÊNCIA (`agent.db` e `models.yml` nunca são abertos). Com `projects/` é sempre do Claude Code.
+ */
+export function isOmpDir(p: string): boolean {
+  if (isDir(join(p, 'projects')) || !isDir(join(p, 'sessions'))) return false;
+  return isFile(join(p, 'agent.db')) || isFile(join(p, 'models.yml'));
+}
+
+/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex nem do omp. */
 export function isClaudeDir(p: string): boolean {
-  return hasClaudeLayout(p) && !isCodexHome(p);
+  return hasClaudeLayout(p) && !isCodexHome(p) && !isOmpDir(p);
 }
 
 export function isDefaultDir(dir: string, home: string): boolean {
@@ -168,6 +178,7 @@ function scanClaudeDirs(env: NodeJS.ProcessEnv, home: string): { dirs: string[];
   const codex: string[] = [];
   /** Fora se for do Codex (anotado em `codex`). */
   const notCodex = (p: string) => {
+    if (isOmpDir(p)) return false; // pasta do omp: tem fonte própria (sources/omp), não vira conta do Claude Code
     if (!isCodexHome(p)) return true;
     codex.push(p);
     return false;
@@ -219,11 +230,16 @@ const ALIAS_TOOLS: Record<Provider, { invokes: RegExp; dir: RegExp }> = {
     invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?codex(?=$|[\s;&|)])/,
     dir: /\bCODEX_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
   },
+  omp: {
+    invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?omp(?=$|[\s;&|)])/,
+    dir: /\bPI_CODING_AGENT_DIR=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
+  },
 };
 
 /**
- * Extrai os aliases de shell que invocam a ferramenta (`claude` ou `codex`), com a pasta da conta (CLAUDE_CONFIG_DIR
- * ou CODEX_HOME). Considera SOMENTE linhas `alias NOME='...'` (ou com aspas duplas); qualquer outra linha é ignorada.
+ * Extrai os aliases de shell que invocam a ferramenta (`claude`, `codex` ou `omp`), com a pasta da conta
+ * (CLAUDE_CONFIG_DIR, CODEX_HOME ou PI_CODING_AGENT_DIR). Considera SOMENTE linhas `alias NOME='...'` (ou com aspas
+ * duplas); qualquer outra linha é ignorada.
  */
 export function parseToolAliases(text: string, home: string, tool: Provider): ClaudeAlias[] {
   const { invokes, dir: dirRe } = ALIAS_TOOLS[tool];
