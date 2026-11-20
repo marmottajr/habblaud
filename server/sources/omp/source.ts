@@ -23,7 +23,7 @@
 // Uso do plano (opts.usage, config.ompUsage): com uma sessão principal aberta, roda `omp usage --json` (bin.ts) na
 // agent dir da conta a cada USAGE_EVERY_MS e empurra ao AccountsService as janelas do provedor do modelo em uso
 // (usage.ts). Uma consulta em voo por vez; troca de provedor lê na hora; falha tenta de novo em USAGE_RETRY_MS.
-import { watch, type FSWatcher } from 'node:fs';
+import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Activity, AgentStatus, SourceInfo } from '../../../shared/types';
@@ -41,9 +41,9 @@ import { detectOmpAccounts, OMP_SESSIONS_DIR } from './accounts';
 import { LivenessCache, OmpIndex, readOmpHead, statFile, subagentsOf, type OmpFile } from './files';
 import type { OmpLive } from './live';
 import { createOmpTerminalParser } from './terminal';
-import { createOmpState, describeOmpTool, parseOmpLine, type OmpLineResult, type OmpState } from './parser';
+import { createOmpState, describeOmpTool, parseOmpLine, projectDir, type OmpLineResult, type OmpState } from './parser';
 import { ompBinFrom, runOmpUsage, type RunOmpUsage } from './bin';
-import { ompProviderOf, parseOmpUsage } from './usage';
+import { ompProviderOf, parseOmpProviders, parseOmpUsage } from './usage';
 import type { OmpHead } from './parser';
 
 /** Varredura completa das pastas de sessões (o resto do polling só re-confere os arquivos conhecidos). */
@@ -76,6 +76,8 @@ export interface OmpSourceOptions {
   watch?: boolean;
   /** Uso do plano por `omp usage --json` (config.ompUsage): desligado = nunca roda o omp. */
   usage?: boolean;
+  /** Sala segue o projeto quando o cwd não é repositório git (OmpSettings, Configurações); lida a cada ciclo. Ausente = sala do cwd. */
+  roomByProject?: () => boolean;
   /** Injeção para testes: substitui runOmpUsage. */
   runUsage?: RunOmpUsage;
   /** Injeção para testes: caminho do omp (padrão ompBinFrom). */
@@ -135,6 +137,8 @@ interface Tracker {
   /** Subagente que já entregou. */
   subDone: boolean;
   watcher?: FSWatcher;
+  /** Modelos informados pela extensão no session_start. */
+  models?: string[];
 }
 
 /** `anthropic/claude-sonnet-5-5` → `claude-sonnet-5-5`. */
@@ -324,6 +328,8 @@ export class OmpSource implements AgentSource, OmpLive {
             return;
           }
           acc.usageFailed = false;
+          const all = parseOmpProviders(raw, this.now());
+          if (all?.length) u.ompProviders = all;
           this.opts.accounts.setUsage(acc.id, u);
         })
         .catch((err) => {
@@ -446,8 +452,14 @@ export class OmpSource implements AgentSource, OmpLive {
 
   // ---------------------------------------------------------------- presença
 
+  /**
+   * Sala do agente: o cwd da sessão; com `roomByProject` ligado e o cwd fora de um repositório git (pasta que junta
+   * vários projetos), a pasta do projeto em que as últimas ferramentas trabalharam (projectDir).
+   */
   private cwdOf(t: Tracker): string | undefined {
-    return t.head?.header?.cwd ?? t.eventCwd;
+    const cwd = t.head?.header?.cwd ?? t.eventCwd;
+    if (!cwd || t.kind !== 'main' || !this.opts.roomByProject?.() || existsSync(join(cwd, '.git'))) return cwd;
+    return projectDir(cwd, t.state.paths);
   }
 
   private beatRecent(t: Tracker, now: number): boolean {
@@ -464,7 +476,9 @@ export class OmpSource implements AgentSource, OmpLive {
       return t.inOffice || t.status === 'working' || t.status === 'waiting';
     }
     if (!this.cwdOf(t)) return false;
-    if (t.state.exited) return false;
+    // Batimento recente vence o session_exit do fim do arquivo: `omp --resume/--restore` reabre a sessão sem escrever
+    // nada até a próxima mensagem, e o último registro ainda é o session_exit do processo anterior.
+    if (t.state.exited && !(t.extSeen && this.beatRecent(t, now))) return false;
     if (t.closedAt !== undefined) {
       // Fechada por shutdown/batimento perdido: só uma escrita nova (e viva) no arquivo a reabre; eventos reabrem em applyEvent.
       if (t.fileLive && (t.lastWriteAt ?? 0) > t.closedAt + REOPEN_GAP_MS) delete t.closedAt;
@@ -485,6 +499,7 @@ export class OmpSource implements AgentSource, OmpLive {
       return;
     }
     if (!t.inOffice) this.enter(t, now);
+    else if (t.kind === 'main') this.opts.office.moveMain(t.key, this.cwdOf(t)!);
   }
 
   private enter(t: Tracker, now: number): void {
@@ -677,6 +692,8 @@ export class OmpSource implements AgentSource, OmpLive {
     if (s.title) summary.title = s.title;
     const model = shortModel(s.model);
     if (model) summary.model = model;
+    if (s.thinking) summary.thinking = s.thinking;
+    if (t.models) summary.models = t.models;
     if (s.firstAt !== undefined) summary.firstAt = s.firstAt;
     if (s.lastAt !== undefined) summary.lastAt = s.lastAt;
     this.opts.office.applyTranscript(t.key, summary);
@@ -730,6 +747,10 @@ export class OmpSource implements AgentSource, OmpLive {
       }
     }
     t.extSeen = true;
+    if (ev.models && JSON.stringify(ev.models) !== JSON.stringify(t.models)) {
+      t.models = ev.models;
+      this.applySummary(t);
+    }
     switch (ev.event) {
       case 'session_start':
         t.lastBeatAt = now;

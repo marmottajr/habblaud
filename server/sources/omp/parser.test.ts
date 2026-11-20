@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createOmpState, describeOmpTool, parseOmpHead, parseOmpLine, type OmpHead, type OmpLineResult, type OmpSignal, type OmpState } from './parser';
+import { createOmpState, describeOmpTool, parseOmpHead, parseOmpLine, projectDir, toolPaths, type OmpHead, type OmpLineResult, type OmpSignal, type OmpState } from './parser';
 
 const FIX = join(import.meta.dirname, 'fixtures');
 const text = (name: string) => readFileSync(join(FIX, name), 'utf8');
@@ -82,6 +82,14 @@ describe('saída limpa (session_exit)', () => {
 
   it('modelo da última resposta (vale mais que o model_change), com o provedor como no model_change', () => {
     expect(r.state.model).toBe('anthropic/claude-sonnet-5-5');
+  });
+
+  it('thinking_level_change (linha real do omp 18.12.6) vira thinking', () => {
+    const state = createOmpState();
+    const line = '{"type":"thinking_level_change","id":"6fcd91f3","parentId":null,"timestamp":"2026-10-24T14:14:42.698Z","configured":"low","thinkingLevel":"low"}';
+    const res = parseOmpLine(state, line, { idPrefix: 'omp:t', now: 1 });
+    expect(state.thinking).toBe('low');
+    expect(res.changed).toBe(true);
   });
 
   it('o mesmo arquivo lido de novo gera os mesmos ids (o Office não duplica)', () => {
@@ -186,5 +194,37 @@ describe('robustez', () => {
     expect(r.signals).toEqual([{ type: 'turnStart' }]);
     expect(r.activities).toEqual([]);
     expect(s.title).toBeUndefined();
+  });
+});
+
+describe('projectDir (sala segue o projeto)', () => {
+  const root = '/home/u/dev';
+  const f = (path: string) => ({ path, dir: false });
+  const d = (path: string) => ({ path, dir: true });
+
+  it('sem caminhos, fora do cwd ou arquivo solto na raiz: fica no cwd', () => {
+    expect(projectDir(root, [])).toBe(root);
+    expect(projectDir(root, [f('/etc/hosts'), f('README.md'), f('../x/y.ts'), f('/home/u/devx/a/b')])).toBe(root);
+    expect(projectDir(root, [f('https://github.com/a/b'), f('skill://x/SKILL.md'), d('local://plan.md')])).toBe(root);
+  });
+
+  it('subdiretório mais citado vence; empate vai para o mais recente', () => {
+    expect(projectDir(root, [f('a/x.ts'), f('/home/u/dev/a/y.ts'), d('b')])).toBe(`${root}/a`);
+    expect(projectDir(root, [f('a/x.ts'), d('/home/u/dev/b')])).toBe(`${root}/b`);
+  });
+
+  it('toolPaths: cwd do bash, path com seletor do read e [arquivo#TAG] do edit', () => {
+    expect(toolPaths({ cwd: 'xbi2', command: 'ls' })).toEqual([d('xbi2')]);
+    expect(toolPaths({ path: 'gowa/src/a.ts:50-80;outro' })).toEqual([f('gowa/src/a.ts')]);
+    expect(toolPaths({ input: '[/home/u/dev/yt/main.py#A1B2]\nPUT 1.=1:\n+x' })).toEqual([f('/home/u/dev/yt/main.py')]);
+  });
+
+  it('o parser guarda só as últimas 5 citações', () => {
+    const s = createOmpState();
+    const call = (path: string) =>
+      JSON.stringify({ type: 'message', timestamp: '2026-10-24T10:00:00.000Z', message: { role: 'assistant', content: [{ type: 'toolCall', id: path, name: 'read', arguments: { path } }], stopReason: 'toolUse' } });
+    for (const p of ['a/1', 'a/2', 'a/3', 'b/1', 'b/2', 'b/3']) parseOmpLine(s, call(p), { idPrefix: 'k', now: 0 });
+    expect(s.paths.map((p) => p.path)).toEqual(['a/2', 'a/3', 'b/1', 'b/2', 'b/3']);
+    expect(projectDir(root, s.paths)).toBe(`${root}/b`);
   });
 });

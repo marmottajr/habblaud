@@ -4,7 +4,9 @@ import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
 import { CharacterEditor } from './character-editor';
+import { OMP_THINKING_LEVELS } from '../../../shared/messages';
 import { MessageComposer } from './composer';
+import { OFFLINE_ERROR } from './composer-model';
 import type { UiComponent, UiContext } from './context';
 import { copyText, h, iconButton, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import {
@@ -15,6 +17,7 @@ import {
   formatInt,
   formatTokens,
   formatUSD,
+  modelGroups,
   permissionLabel,
   plural,
   prettyModel,
@@ -258,6 +261,15 @@ class AgentView {
   /** Quantos itens da linha do tempo aparecem agora. */
   private timelineShown = TIMELINE_STEP;
   private stats: KvList<StatKey>;
+  /** Modelo e raciocínio: texto, ou seletor quando o agente é do omp e aceita o controle (a extensão aplica). */
+  private modelText = h('span');
+  private modelSel = h('select', { class: 'ui-ctl-select', attrs: { 'aria-label': tr('Modelo') } });
+  private thinkText = h('span');
+  private thinkSel = h('select', { class: 'ui-ctl-select', attrs: { 'aria-label': tr('Raciocínio') } });
+  private ctlStatus = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+  private ctlTimer: ReturnType<typeof setTimeout> | null = null;
+  private modelOptions = '';
+  private composerKind: 'ready' | 'hint' | 'off' = 'off';
   private social: SocialSection;
   readonly character: CharacterEditor;
   private sessionValue: HTMLElement;
@@ -392,7 +404,8 @@ class AgentView {
       ['cost', tr('Custo estimado')],
       ['lines', tr('Linhas'), h('span', { class: 'ui-lines' }, this.linesPlus, this.linesMinus)],
       ['subs', tr('Subagentes disparados')],
-      ['model', tr('Modelo')],
+      ['model', tr('Modelo'), h('span', {}, this.modelText, this.modelSel)],
+      ['thinking', tr('Raciocínio'), h('span', {}, this.thinkText, this.thinkSel)],
       ['branch', 'Branch'],
       ['perm', tr('Permissões')],
       ['session', tr('Sessão'), h('span', { class: 'ui-copy-row' }, this.sessionValue, copyButton(() => this.last?.sessionId ?? '', tr('Copiar id da sessão')))],
@@ -400,7 +413,10 @@ class AgentView {
       ['duration', tr('Duração')],
       ['bg', tr('Execução')],
     ]);
-    const statsSec = section(tr('Estatísticas'), this.stats.el);
+    for (const level of OMP_THINKING_LEVELS) this.thinkSel.append(h('option', { text: level, attrs: { value: level } }));
+    this.modelSel.addEventListener('change', () => void this.control({ model: this.modelSel.value }));
+    this.thinkSel.addEventListener('change', () => void this.control({ thinking: this.thinkSel.value }));
+    const statsSec = section(tr('Estatísticas'), this.stats.el, this.ctlStatus);
     this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
 
     this.el = h(
@@ -437,6 +453,7 @@ class AgentView {
     this.character.open(id);
     this.id = id;
     this.last = null;
+    this.sayControl('');
     this.history = [];
     this.timelineShown = TIMELINE_STEP;
     this.timeline.clear();
@@ -618,7 +635,8 @@ class AgentView {
     setText(this.actDetail, detail);
 
     // Mandar mensagem: só para principais presentes (com o recurso ligado e a página local; sem o plugin, a dica).
-    setHidden(this.msgSec.el, this.composer.render(live, this.id) === 'off');
+    this.composerKind = this.composer.render(live, this.id);
+    setHidden(this.msgSec.el, this.composerKind === 'off');
 
     // Vida social (personalidade, carteira, rodas): só de quem está no escritório.
     if (live) this.social.render(a.id, now);
@@ -731,6 +749,67 @@ class AgentView {
     );
   }
 
+  private renderControls(a: AgentInfo, editable: boolean): void {
+    const st = this.stats;
+    st.show('model', true);
+    st.show('thinking', editable || !!a.thinking);
+    setText(this.modelText, prettyModel(a.model));
+    setText(this.thinkText, a.thinking ?? '');
+    for (const [text, sel] of [[this.modelText, this.modelSel], [this.thinkText, this.thinkSel]] as const) {
+      setHidden(text, editable);
+      setHidden(sel, !editable);
+    }
+    if (!editable) return;
+    const models = a.models ?? [];
+    const current = models.find((m) => m.replace(/^[^/]+\//, '') === a.model) ?? '';
+    // Sem lista da extensão (ou modelo fora dela): só o atual, para o seletor nunca mentir.
+    const options = current ? models : [...(a.model ? [''] : []), ...models];
+    const key = `${options.join('\n')}|${a.model ?? ''}`;
+    if (key !== this.modelOptions) {
+      this.modelOptions = key;
+      this.modelSel.replaceChildren(
+        ...(current ? [] : [h('option', { text: prettyModel(a.model), attrs: { value: '' } })]),
+        ...modelGroups(models, current).map((g) => {
+          const group = h('optgroup', { attrs: { label: g.label } });
+          group.append(...g.options.map((o) => h('option', { text: o.label, attrs: { value: o.value } })));
+          return group;
+        }),
+      );
+    }
+    // Não mexe no seletor aberto: o usuário está escolhendo.
+    if (document.activeElement !== this.modelSel) this.modelSel.value = current;
+    if (document.activeElement !== this.thinkSel) this.thinkSel.value = a.thinking ?? '';
+  }
+
+  private sayControl(text: string, error = false): void {
+    if (this.ctlTimer) clearTimeout(this.ctlTimer);
+    setText(this.ctlStatus, text);
+    setHidden(this.ctlStatus, !text);
+    this.ctlStatus.classList.toggle('is-error', error);
+    this.ctlStatus.classList.toggle('is-ok', !error);
+    if (text && !error) this.ctlTimer = setTimeout(() => setHidden(this.ctlStatus, true), 5_000);
+  }
+
+  /** Pede a troca ao servidor e acompanha a entrega até a extensão confirmar (ou recusar, com o motivo). */
+  private async control(change: { model?: string; thinking?: string }): Promise<void> {
+    const agentId = this.id;
+    if (!agentId || (change.model !== undefined && !change.model)) return;
+    this.sayControl(tr('Enviando…'));
+    try {
+      const r = await this.ctx.store.controlAgent(agentId, change);
+      if ('error' in r) return this.sayControl(r.error, true);
+      for (let i = 0; i < 20; i++) {
+        await new Promise((ok) => setTimeout(ok, 500));
+        const m = await this.ctx.store.messageStatus(r.message.id);
+        if (!m || m.status === 'delivered') return this.sayControl(tr('Aplicado: o omp mostra a mudança em instantes.'));
+        if (m.status === 'failed') return this.sayControl(m.error ?? tr('o omp não aplicou a troca'), true);
+      }
+      this.sayControl(tr('O omp ainda não confirmou a troca.'), true);
+    } catch {
+      this.sayControl(OFFLINE_ERROR, true);
+    }
+  }
+
   private renderStats(a: AgentInfo, now: number): void {
     const s = a.stats;
     const st = this.stats;
@@ -745,7 +824,9 @@ class AgentView {
     setText(this.linesPlus, `+${formatInt(s.linesAdded ?? 0)}`);
     setText(this.linesMinus, `−${formatInt(s.linesRemoved ?? 0)}`);
     st.set('subs', a.kind === 'main' ? formatInt(s.subagents) : null);
-    st.set('model', prettyModel(a.model));
+    // omp com a caixa de mensagem pronta: modelo e raciocínio viram seletores (a extensão aplica na sessão viva).
+    const editable = provider === 'omp' && a.kind === 'main' && this.composerKind === 'ready' && !this.ctx.store.mock && !!this.ctx.agent(a.id);
+    this.renderControls(a, editable);
     st.set('branch', a.gitBranch ?? null);
     // Codex: a política de aprovação (quando o servidor a manda) no lugar do modo de permissão do Claude Code. omp: sem
     // modo de permissão no transcript; a linha só aparece se o servidor mandar um.
@@ -763,7 +844,7 @@ class AgentView {
   }
 }
 
-type StatKey = 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
+type StatKey = 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'thinking' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
 
 /** Lista chave/valor de linhas fixas: cada linha é criada uma vez e só tem o texto/visibilidade atualizados. */
 class KvList<K extends string> {

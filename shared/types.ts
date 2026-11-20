@@ -162,6 +162,10 @@ export interface AgentInfo {
   /** Shells rodando que o agente espera: em segundo plano e o comando em primeiro plano ainda sem resultado. */
   shells?: ShellJob[];
   model?: string;
+  /** Nível de raciocínio (thinking) da sessão omp: off, minimal, low, medium, high, xhigh ou max. */
+  thinking?: string;
+  /** Modelos que a sessão omp aceita (`provedor/id`), informados pela extensão; só no agente principal. */
+  models?: string[];
   gitBranch?: string;
   permissionMode?: string;
   startedAt: number;
@@ -275,6 +279,31 @@ export interface UsageWindow {
   resetsAt?: number;
 }
 
+/** Um limite de um provedor do omp, como o `omp usage --json` informa (rótulos em inglês, do omp). */
+export interface OmpUsageLimit {
+  /** Ex.: "Claude 5 Hour", "Gemini", "Claude & GPT (shared)". */
+  label: string;
+  /** Duração da janela (ms), quando o omp informa. */
+  windowMs?: number;
+  /** Percentual usado, 0–100 (sem número quando o provedor não informa). */
+  utilization?: number;
+  resetsAt?: number;
+  /** O omp marcou o limite como esgotado (status diferente de ok com 100%). */
+  exhausted?: boolean;
+}
+
+/** Uso de um provedor (uma credencial) do omp: todos os limites, para a lista de provedores no cartão de uso. */
+export interface OmpProviderUsage {
+  /** Id do provedor no omp (`anthropic`, `openai-codex`, `google-antigravity`…). */
+  provider: string;
+  /** Plano, quando o omp informa (ex.: "plus"). */
+  plan?: string;
+  limits: OmpUsageLimit[];
+  /** Explicação do omp quando não há limites (como veio, em inglês). */
+  note?: string;
+  fetchedAt: number;
+}
+
 export interface AccountUsage {
   /** Sessão de 5 horas. */
   fiveHour?: UsageWindow;
@@ -296,6 +325,8 @@ export interface AccountUsage {
   via?: 'mod' | 'tap';
   /** Só 'omp': provedor do omp de onde vieram as janelas (`anthropic`, `openai-codex`, `google-antigravity`…). */
   ompProvider?: string;
+  /** Só 'omp': todos os provedores do omp desta conta, com todos os limites (lista no cartão de uso). */
+  ompProviders?: OmpProviderUsage[];
   /** Só 'omp': explicação do próprio omp quando o provedor não tem janelas de 5 h/7 d (ex.: Ollama), como veio (inglês). */
   note?: string;
   /**
@@ -382,6 +413,8 @@ export interface OfficeSnapshot {
      * e à linha do tempo). Ausente nos testes e no timelapse.
      */
     world?: WorldMeta;
+    /** Configurações › Sala do omp segue o projeto (OmpSettings). Ausente = sem omp. */
+    ompRoomByProject?: boolean;
   };
 }
 
@@ -740,6 +773,8 @@ export interface PtyInfo {
 /** Mensagem entregue ao plugin habblaud-mensagens (POST /api/mod/inbox). */
 export interface InboxMessage {
   id: string;
-  /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. */
+  /** O texto como foi digitado: o plugin o manda à sessão como se você o tivesse digitado. Vazio quando há `control`. */
   text: string;
+  /** Troca de modelo e/ou raciocínio da sessão omp (POST /api/messages/control). */
+  control?: { model?: string; thinking?: string };
 }

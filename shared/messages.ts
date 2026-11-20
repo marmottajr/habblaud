@@ -10,6 +10,9 @@ export const MESSAGE_TOOL = 'HabblaudMessage';
 /** Detalhe da atividade: o começo do texto, mascarado e cortado (o texto inteiro vai só para a sessão). */
 const DETAIL_MAX = 300;
 
+/** Níveis de raciocínio (thinking) do omp, do menor ao maior. */
+export const OMP_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
 /**
  * Atividade "Mensagem pelo Habblaud" de uma mensagem entregue à sessão (entrou nela ou na fila dela: não quer dizer
  * que o agente já leu).

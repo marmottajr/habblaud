@@ -373,6 +373,22 @@ describe('MessageRegistry: agentes do omp', () => {
     expect(registry.get(idB)?.status).toBe('queued');
   });
 
+  it('control: só omp, valida o corpo e entra na caixa com control e texto vazio, sem atividade no feed', () => {
+    const { office, registry } = setupOmp();
+    registry.inbox({ session: SESSION });
+    registry.inbox({ session: OMP_SESSION });
+    for (const body of [{ agentId: OMP_A }, { agentId: OMP_A, thinking: 'altíssimo' }, { agentId: OMP_A, model: '  ' }, { agentId: OMP_A, model: 5 }, {}]) {
+      expect(() => registry.control(body), JSON.stringify(body)).toThrow();
+    }
+    expect(registry.control({ agentId: 'nao-existe', thinking: 'low' })).toEqual({ error: 'not-found' });
+    expect(registry.control({ agentId: MAIN, thinking: 'low' })).toMatchObject({ error: 'unavailable' });
+    const id = sent(registry.control({ agentId: OMP_A, model: 'anthropic/a', thinking: 'high' }));
+    expect(registry.inbox({ session: OMP_SESSION })).toEqual([{ id, text: '', control: { model: 'anthropic/a', thinking: 'high' } }]);
+    registry.ack({ session: OMP_SESSION, results: [{ id, ok: true }] });
+    expect(registry.get(id)?.status).toBe('delivered');
+    expect(snapAgent(office, OMP_A)?.recent ?? []).toEqual([]);
+  });
+
   it('mensagem do Claude não sai para a sessão do omp (e vice-versa)', () => {
     const { registry } = setupOmp();
     registry.inbox({ session: SESSION });

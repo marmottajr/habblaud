@@ -151,10 +151,15 @@ describe('cartão do omp', () => {
     expect(OMP_PERMISSION_NOTE).toMatch(/respondido primeiro/);
   });
 
-  it('o omp nunca pergunta pelo escritório; o Claude Code (provider ausente ou claude) continua perguntando', () => {
+  it('o omp pergunta pelo escritório (o ask da extensão) como o Claude Code; o Codex nunca', () => {
     const q: AskQuestion = { index: 0, question: 'Qual?', options: [{ index: 0, label: 'A' }] };
-    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q], provider: 'omp' })).toBe(false);
+    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q], provider: 'omp' })).toBe(true);
     expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q] })).toBe(true);
-    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q], provider: 'claude' })).toBe(true);
+    expect(isQuestionRequest({ tool: 'AskUserQuestion', questions: [q], provider: 'codex' })).toBe(false);
+  });
+
+  it('pergunta do omp: recusa sem motivo obrigatório, sem interromper e sem a nota do modo de decisão', () => {
+    const q: AskQuestion = { index: 0, question: 'Qual?', options: [{ index: 0, label: 'A' }] };
+    expect(permissionOptions({ provider: 'omp', tool: 'AskUserQuestion', questions: [q] }, { kind: 'main' })).toEqual({ always: false, interrupt: false, reasonRequired: false, seconds: false, note: '' });
   });
 });

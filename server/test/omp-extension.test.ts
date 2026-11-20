@@ -6,6 +6,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ASK_TOOL,
+  ASK_WAIT_MS,
+  askResult,
+  askToHabblaud,
   create,
   DECISION_UI_MS,
   decisionTimeoutMs,
@@ -17,6 +21,8 @@ import {
   type Deps,
   type OmpApi,
   type OmpContext,
+  type ToolContext,
+  type ToolDefinition,
 } from '../../mod/habblaud-omp/habblaud';
 import { tempDir } from './fixtures';
 
@@ -47,12 +53,13 @@ function fakeHabblaud(answer: (c: Call) => { status: number; json: unknown } | '
   return { calls, fetchImpl, of: (path: string) => calls.filter((c) => c.path === path) };
 }
 
-function setup(opts: { env?: NodeJS.ProcessEnv; answer?: Parameters<typeof fakeHabblaud>[0]; home: string }) {
+function setup(opts: { pi?: Partial<OmpApi>; env?: NodeJS.ProcessEnv; answer?: Parameters<typeof fakeHabblaud>[0]; home: string }) {
   const handlers = new Map<string, Handler>();
   const sent: Array<{ text: string; options?: unknown }> = [];
   const pi: OmpApi = {
     on: (event, h) => void handlers.set(event, h),
     sendUserMessage: (text, options) => void sent.push({ text, options }),
+    ...opts.pi,
   };
   const habblaud = fakeHabblaud(opts.answer ?? (() => undefined));
   const deps: Deps = { env: opts.env ?? {}, home: opts.home, fetch: habblaud.fetchImpl, now: () => 1_000, shared: {} };
@@ -61,6 +68,7 @@ function setup(opts: { env?: NodeJS.ProcessEnv; answer?: Parameters<typeof fakeH
 }
 
 interface CtxOpts {
+  models?: { provider: string; id: string }[];
   id?: string;
   hasUI?: boolean;
   kind?: 'main' | 'sub';
@@ -74,6 +82,7 @@ function makeCtx(o: CtxOpts = {}): OmpContext & { confirms: number; aborted: boo
     cwd: '/projetos/demo',
     agent: { kind: o.kind ?? 'main' },
     isIdle: () => o.idle ?? true,
+    ...(o.models ? { models: { list: () => o.models!, resolve: (s: string) => o.models!.find((m) => `${m.provider}/${m.id}` === s || m.id === s) } } : {}),
     confirms: 0,
     aborted: false,
     notices: [] as string[],
@@ -161,7 +170,7 @@ describe('omp extension: eventos', () => {
   it('registra exatamente os nomes de evento do omp (sem tool_call fora do modo de decisão)', () => {
     const { handlers } = setup({ home: tmp.dir });
     expect([...handlers.keys()].sort()).toEqual(
-      ['agent_end', 'agent_start', 'session_shutdown', 'session_start', 'tool_approval_requested', 'tool_approval_resolved', 'tool_execution_end', 'tool_execution_start'].sort(),
+      ['agent_end', 'agent_start', 'session_shutdown', 'session_start', 'session_switch', 'tool_approval_requested', 'tool_approval_resolved', 'tool_execution_end', 'tool_execution_start'].sort(),
     );
     expect([...setup({ home: tmp.dir, env: { HABBLAUD_OMP_PERMISSOES: '1' } }).handlers.keys()]).toContain('tool_call');
   });
@@ -193,6 +202,15 @@ describe('omp extension: eventos', () => {
     await t.fire('session_shutdown', makeCtx({ id: 'b' }));
     expect(t.habblaud.of('/api/omp/events').map((c) => `${c.body?.event}:${c.body?.sessionId}`)).toEqual(['session_start:a', 'session_shutdown:a', 'session_start:b', 'agent_start:b', 'session_shutdown:b']);
   });
+
+  it('/new (session_switch): anuncia a sessão nova na hora e a caixa de entrada passa a ser a dela', async () => {
+    const t = setup({ home: tmp.dir });
+    t.fire('session_start', makeCtx({ id: 'a' }));
+    t.fire('session_switch', makeCtx({ id: 'b' }), { reason: 'new' });
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox').some((c) => c.body?.session === 'b')).toBe(true));
+    await t.fire('session_shutdown', makeCtx({ id: 'b' }));
+    expect(t.habblaud.of('/api/omp/events').map((c) => `${c.body?.event}:${c.body?.sessionId}`)).toEqual(['session_start:a', 'session_shutdown:a', 'session_start:b', 'session_shutdown:b']);
+  });
 });
 
 describe('omp extension: mensagens', () => {
@@ -216,6 +234,78 @@ describe('omp extension: mensagens', () => {
     const acks = t.habblaud.of('/api/mod/inbox/ack');
     expect(acks).toHaveLength(1);
     expect(acks[0].body).toEqual({ session: 'sess-1', results: [{ id: 'm1', ok: true }, { id: 'm2', ok: true }] });
+  });
+
+  it('sessão trocada durante a busca: nada é entregue à nova e o ack da anterior diz que a conversa mudou', async () => {
+    const SESSION_CHANGED = 'a conversa mudou (/new ou /resume) antes da entrega';
+    let t: ReturnType<typeof setup> | undefined;
+    const t0 = setup({
+      home: tmp.dir,
+      answer: (c) => {
+        if (c.path !== '/api/mod/inbox' || c.body?.session !== 'a') return undefined;
+        // /new chega enquanto a resposta da busca da sessão "a" está a caminho.
+        t?.fire('session_switch', makeCtx({ id: 'b' }), { reason: 'new' });
+        return { status: 200, json: { messages: [{ id: 'm1', text: 'oi' }, { id: 'k1', text: '', control: { model: 'x/y' } }] } };
+      },
+    });
+    t = t0;
+    t0.fire('session_start', makeCtx({ id: 'a' }));
+    await vi.waitFor(() => expect(t0.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+    expect(t0.sent).toEqual([]);
+    const ack = t0.habblaud.of('/api/mod/inbox/ack')[0].body;
+    expect(ack?.session).toBe('a');
+    expect(ack?.results).toEqual([
+      { id: 'm1', ok: false, error: SESSION_CHANGED },
+      { id: 'k1', ok: false, error: SESSION_CHANGED },
+    ]);
+    await t0.fire('session_shutdown', makeCtx({ id: 'b' }));
+  });
+
+  it('session_start leva a lista de modelos do omp (provedor/id)', async () => {
+    const t = setup({ home: tmp.dir });
+    const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }, { provider: 'openai', id: 'b' }] });
+    t.fire('session_start', ctx);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/omp/events')).toHaveLength(1));
+    await t.fire('session_shutdown', ctx);
+    expect(t.habblaud.of('/api/omp/events')[0].body?.models).toEqual(['anthropic/a', 'openai/b']);
+  });
+
+  it('control: troca o modelo (resolve → setModel) e o raciocínio; desconhecido ou recusado vira falha com motivo', async () => {
+    const setModel = vi.fn(async (m: unknown) => (m as { id: string }).id !== 'recusado');
+    const setThinkingLevel = vi.fn();
+    const t = setup({
+      home: tmp.dir,
+      pi: { setModel, setThinkingLevel },
+      answer: inbox([
+        { id: 'c1', text: '', control: { model: 'openai/b', thinking: 'high' } },
+        { id: 'c2', text: '', control: { model: 'openai/nao-existe' } },
+        { id: 'c3', text: '', control: { model: 'recusado', thinking: 'low' } },
+        { id: 'c4', text: '', control: { thinking: 'off' } },
+      ]),
+    });
+    const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }, { provider: 'openai', id: 'b' }, { provider: 'openai', id: 'recusado' }] });
+    t.fire('session_start', ctx);
+    await vi.waitFor(() => expect(t.habblaud.of('/api/mod/inbox/ack')).toHaveLength(1));
+    await t.fire('session_shutdown', ctx);
+    expect(setModel.mock.calls.map((c) => (c[0] as { id: string }).id)).toEqual(['b', 'recusado']);
+    expect(setThinkingLevel.mock.calls).toEqual([['high'], ['off']]);
+    expect(t.sent).toEqual([]);
+    expect(t.habblaud.of('/api/mod/inbox/ack')[0].body?.results).toEqual([
+      { id: 'c1', ok: true },
+      { id: 'c2', ok: false, error: 'modelo desconhecido' },
+      { id: 'c3', ok: false, error: 'o omp recusou o modelo' },
+      { id: 'c4', ok: true },
+    ]);
+  });
+
+  it('o batimento repete a lista de modelos', async () => {
+    vi.useFakeTimers();
+    const t = setup({ home: tmp.dir });
+    const ctx = makeCtx({ models: [{ provider: 'anthropic', id: 'a' }] });
+    t.fire('session_start', ctx);
+    await vi.advanceTimersByTimeAsync(10_500);
+    expect(t.habblaud.of('/api/omp/events').find((c) => c.body?.event === 'heartbeat')?.body?.models).toEqual(['anthropic/a']);
+    await t.fire('session_shutdown', ctx);
   });
 
   it('agente ocupado: tudo como continuação, sem interromper', async () => {
@@ -364,5 +454,116 @@ describe('omp extension: modo de decisão', () => {
     const c2 = makeCtx({ hasUI: true });
     off.fire('tool_approval_requested', c2, { toolName: 'bash', approvalMode: 'always-ask' });
     expect(c2.notices).toHaveLength(0);
+  });
+});
+
+describe('omp extension: ask pelo escritório', () => {
+  let tmp: ReturnType<typeof tempDir>;
+  beforeEach(() => (tmp = tempDir('habblaud-omp-ext-')));
+  afterEach(() => tmp.cleanup());
+
+  const PARAMS = {
+    questions: [
+      { id: 'banco', question: 'Qual banco?', header: 'Banco', options: [{ label: 'SQLite', description: 'arquivo' }, { label: 'Postgres' }], recommended: 0 },
+      { id: 'testes', question: 'Quais testes?', options: [{ label: 'Unidade' }, { label: 'E2E' }], multi: true },
+    ],
+  };
+
+  it('a chamada vira AskUserQuestion (header, descrição, multiSelect); fora do formato = undefined', () => {
+    expect(askToHabblaud(PARAMS)).toEqual({
+      questions: [
+        { question: 'Qual banco?', header: 'Banco', options: [{ label: 'SQLite', description: 'arquivo' }, { label: 'Postgres' }], multiSelect: false },
+        { question: 'Quais testes?', options: [{ label: 'Unidade' }, { label: 'E2E' }], multiSelect: true },
+      ],
+    });
+    expect(askToHabblaud({ questions: [] })).toBeUndefined();
+    expect(askToHabblaud({ questions: [{ id: 'x', question: 'Q', options: [{}] }] })).toBeUndefined();
+  });
+
+  it('resposta no mesmo texto do ask do omp: uma pergunta (opção, várias, texto livre de várias linhas) e várias perguntas', () => {
+    const one = { questions: [PARAMS.questions[0]] };
+    expect(askResult(one, [{ question: 0, options: [1] }])).toEqual({
+      content: [{ type: 'text', text: 'User selected: Postgres' }],
+      details: { question: 'Qual banco?', options: ['SQLite', 'Postgres'], multi: false, selectedOptions: ['Postgres'] },
+    });
+    expect(askResult(one, [{ question: 0, other: 'MySQL\nversão 8' }])!.content[0].text).toBe('User provided custom input:\n  MySQL\n  versão 8');
+    expect(askResult({ questions: [PARAMS.questions[1]] }, [{ question: 0, options: [0, 1], other: 'carga' }])!.content[0].text).toBe('User selected: Unidade, E2E\nUser provided custom input: carga');
+    const both = askResult(PARAMS, [
+      { question: 0, other: 'MySQL' },
+      { question: 1, options: [1] },
+    ])!;
+    expect(both.content[0].text).toBe('User answers:\nbanco: "MySQL"\ntestes: [E2E]');
+    expect(both.details).toMatchObject({ results: [{ id: 'banco', customInput: 'MySQL', selectedOptions: [] }, { id: 'testes', selectedOptions: ['E2E'] }] });
+  });
+
+  /** omp falso com o `ask` nativo: o diálogo do terminal fica aberto até `answerLocal` ou o signal. */
+  function askSetup(answer: Parameters<typeof fakeHabblaud>[0]) {
+    const tools: ToolDefinition[] = [];
+    const handlers = new Map<string, Handler>();
+    const NATIVE_SCHEMA = { kind: 'schema-do-omp' };
+    const pi: OmpApi = {
+      on: (event, h) => void handlers.set(event, h),
+      sendUserMessage: () => undefined,
+      getAllTools: () => [{ name: 'ask', description: 'descrição nativa', parameters: NATIVE_SCHEMA }, ...tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }))],
+      registerTool: (t) => void tools.push(t),
+    };
+    const habblaud = fakeHabblaud(answer);
+    create(pi, { env: {}, home: tmp.dir, fetch: habblaud.fetchImpl, now: () => 1_000, shared: {} });
+    const local = Promise.withResolvers<unknown>();
+    let nativeSignal: AbortSignal | undefined;
+    const ctx: ToolContext = {
+      ...makeCtx({ hasUI: true }),
+      invokeTool: (_params, options) => {
+        nativeSignal = options?.signal;
+        options?.signal?.addEventListener('abort', () => local.reject(new Error('Ask input was cancelled')), { once: true });
+        return local.promise;
+      },
+    };
+    handlers.get('session_start')?.({}, ctx);
+    handlers.get('session_start')?.({}, ctx);
+    const run = () => tools[0].execute('call-1', PARAMS, undefined, undefined, ctx);
+    return { tools, habblaud, run, local, nativeAborted: () => nativeSignal?.aborted === true, schema: NATIVE_SCHEMA };
+  }
+
+  type Answer = ReturnType<Parameters<typeof fakeHabblaud>[0]>;
+  const registerOk = (c: Call, wait: Answer): Answer => (c.path === '/api/permissions' ? { status: 201, json: { id: 'p1' } } : c.path.endsWith('/wait') ? wait : undefined);
+
+  it('troca o ask uma vez só, com a descrição e o schema do nativo e aprovação de leitura', () => {
+    const t = askSetup(() => undefined);
+    expect(t.tools).toHaveLength(1);
+    expect(t.tools[0]).toMatchObject({ name: 'ask', description: 'descrição nativa', parameters: t.schema, approval: 'read' });
+  });
+
+  it('respondido no escritório: fecha o diálogo do terminal e devolve o texto do ask; o pedido vai como AskUserQuestion', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'answer', answers: [{ question: 0, options: [0] }, { question: 1, options: [0, 1] }] } }));
+    const result = (await t.run()) as { content: Array<{ text: string }> };
+    expect(result.content[0].text).toBe('User answers:\nbanco: SQLite\ntestes: [Unidade, E2E]');
+    expect(t.nativeAborted()).toBe(true);
+    expect(t.habblaud.of('/api/permissions')[0].body).toMatchObject({ provider: 'omp', tool_name: ASK_TOOL, timeout_ms: ASK_WAIT_MS, tool_input: askToHabblaud(PARAMS) });
+    expect(t.habblaud.of('/api/permissions/p1/decision')).toHaveLength(0);
+  });
+
+  it('respondido no terminal primeiro: devolve o nativo e retira o cartão ({behavior: terminal})', async () => {
+    const t = askSetup((c) => registerOk(c, 'hang'));
+    const pending = t.run();
+    t.local.resolve({ content: [{ type: 'text', text: 'User selected: Postgres' }] });
+    expect(await pending).toEqual({ content: [{ type: 'text', text: 'User selected: Postgres' }] });
+    expect(t.habblaud.of('/api/permissions/p1/decision')[0].body).toEqual({ behavior: 'terminal' });
+  });
+
+  it('"Não responder" no escritório: fecha o diálogo e vira erro da ferramenta com o motivo', async () => {
+    const t = askSetup((c) => registerOk(c, { status: 200, json: { status: 'decided', behavior: 'deny', message: 'decida você' } }));
+    await expect(t.run()).rejects.toThrow('User declined to answer: decida você');
+    expect(t.nativeAborted()).toBe(true);
+  });
+
+  it('Habblaud fora do ar ou sem ninguém olhando: só o diálogo do terminal', async () => {
+    for (const answer of [() => 'down' as const, (c: Call) => (c.path === '/api/permissions' ? { status: 200, json: { skip: 'no-viewers' } } : undefined)]) {
+      const t = askSetup(answer);
+      const pending = t.run();
+      t.local.resolve('nativo');
+      expect(await pending).toBe('nativo');
+      expect(t.nativeAborted()).toBe(false);
+    }
   });
 });

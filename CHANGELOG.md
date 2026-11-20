@@ -12,6 +12,9 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Histórico de sessões e Entregas com o omp:** as conversas do omp dos últimos 7 dias (abertas ou encerradas) entram
+  no histórico de sessões, com título e projeto, e abrem no terminal; as Entregas passam a mostrar o que os agentes
+  do omp terminaram. Antes os dois painéis ficavam vazios com o omp.
 - **Windows nativo (sem Docker nem WSL):** o Habblaud roda no Windows 10/11 com Node, inclusive o terminal
   interativo, Assumir daqui, os instaladores e o Novo agente. O acesso pelo celular funciona pelo IP (sem o
   anúncio `.local` automático). `npm run demo` passa a usar `--demo` (vale também fora do Windows); o CI roda
@@ -26,6 +29,15 @@ do meio (0.**3**.0).
   `docker:up` monta só as `sessions/` do omp, somente leitura. No topo, a conta do omp tem o seu cartão: uso de 5 h e
   da semana do provedor do modelo em uso, por `omp usage --json` (a cada 5 min, com sessão aberta;
   `HABBLAUD_OMP_USAGE=0` desliga), e a dica traz ferramenta, provedor, pasta e sessões abertas.
+- **omp: modelo e raciocínio pela gaveta.** Com a extensão, os seletores Modelo (agrupados por provedor, nome curto,
+  versão mais nova primeiro) e Raciocínio trocam a sessão ao vivo (`POST /api/messages/control`, `pi.setModel` /
+  `setThinkingLevel`); pelo celular, com `messages` em `HABBLAUD_REMOTE_ALLOW`.
+- **omp: perguntas do `ask` pelo escritório.** O cartão **Pergunta para você** abre junto com o diálogo do terminal e
+  vale a primeira resposta; o modelo recebe o mesmo texto do `ask` do omp.
+- **omp: todos os provedores no cartão de uso.** O botão **N ▾** do cartão da conta do omp lista cada provedor com
+  todos os limites (5 h, semana, por modelo ou grupo; esgotados em destaque).
+- **omp: sala por projeto** (Configurações, desligada por padrão): com o omp numa pasta que junta vários projetos e não
+  é repositório git, o personagem vai para a sala da subpasta em que as ferramentas estão trabalhando.
 
 ### Corrigido
 
@@ -41,6 +53,12 @@ do meio (0.**3**.0).
 - Agente que ficava "trabalhando" depois de terminar: duas gravações do registro de sessões no mesmo tique do relógio
   e do mesmo tamanho ("busy" -> "idle") não eram relidas. Acontecia mais no Windows (mtime avança a cada ~16 ms).
 - Testes que passavam do prazo ou dependiam de `/` e de permissões POSIX agora passam no Windows.
+- omp: mensagem ou troca de modelo mandada pela página logo antes de um `/new` ou `/resume` não cai na conversa nova;
+  ela aparece como não entregue (a conversa mudou).
+- omp: sessão reaberta com `omp --resume`/`--restore` não aparecia no escritório até a próxima mensagem (o arquivo
+  ainda terminava no encerramento do processo anterior).
+- omp: a conversa aberta por `/new` ou `/resume` só aparecia (e só recebia mensagens) depois do primeiro prompt no
+  terminal do omp.
 
 ## [1.0.3] - 2026-10-16
 

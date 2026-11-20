@@ -6,9 +6,10 @@
 // Pedido do Codex (`provider: 'codex'`): o hook dele só espera alguns segundos e o terminal só mostra a aprovação
 // depois que você responder aqui ou o prazo acabar; não há "sempre permitir" nem "interromper", e recusar pede um
 // motivo. O Codex nunca pergunta pelo escritório (sem cartão de pergunta).
-// Pedido do omp (`provider: 'omp'`, só no modo de decisão, HABBLAUD_OMP_PERMISSOES=1): mesmas regras do Codex (sem
-// "sempre permitir", sem "interromper", recusa com motivo, sem perguntas), mas o diálogo do omp fica aberto junto no
-// terminal e a extensão retira o pedido daqui quando ele é respondido lá.
+// Pedido do omp (`provider: 'omp'`): permissões só no modo de decisão (HABBLAUD_OMP_PERMISSOES=1), com as mesmas
+// regras do Codex (sem "sempre permitir", sem "interromper", recusa com motivo); e as perguntas do `ask`, que a
+// extensão manda no formato do AskUserQuestion e se respondem como as do Claude Code. Nos dois, o diálogo do omp fica
+// aberto junto no terminal e a extensão retira o pedido daqui quando ele é respondido lá.
 import { access, isLoopbackHostname } from '../net/access';
 import { ANSWER_OTHER_MAX, ASK_TOOL, checkAnswers } from '../../../shared/answers';
 import type { AgentInfo, AskQuestion, PermissionAnswer, PermissionDecision, PermissionRequestInfo, PermissionSuggestionInfo } from '../../../shared/types';
@@ -67,8 +68,13 @@ export interface PermissionOptions {
   note: string;
 }
 
-export function permissionOptions(p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'>, agent: Pick<AgentInfo, 'kind' | 'background'>): PermissionOptions {
+export function permissionOptions(
+  p: Pick<PermissionRequestInfo, 'provider' | 'suggestions'> & Partial<Pick<PermissionRequestInfo, 'tool' | 'questions'>>,
+  agent: Pick<AgentInfo, 'kind' | 'background'>,
+): PermissionOptions {
   if (p.provider === 'codex') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: CODEX_PERMISSION_NOTE };
+  // Pergunta do omp: como a do Claude Code, só sem interromper (a extensão não interrompe o agente).
+  if (p.provider === 'omp' && p.tool === ASK_TOOL && !!p.questions?.length) return { always: false, interrupt: false, reasonRequired: false, seconds: false, note: '' };
   if (p.provider === 'omp') return { always: false, interrupt: false, reasonRequired: true, seconds: true, note: OMP_PERMISSION_NOTE };
   // Subagente em segundo plano: o Claude Code só mostra o diálogo depois que o hook responde.
   const blocking = agent.kind === 'sub' && !!agent.background;
@@ -103,9 +109,9 @@ export function focusPermission(ctx: UiContext, agentId: string): void {
 /** A página foi aberta pelo próprio computador? (a regra antiga; quem decide agora é o servidor, ver net/access.ts) */
 export const isLocalHostname = isLoopbackHostname;
 
-/** Pedido que se responde escolhendo (as perguntas do AskUserQuestion), não aprovando. O Codex e o omp nunca perguntam. */
+/** Pedido que se responde escolhendo (as perguntas do AskUserQuestion, e as do `ask` do omp), não aprovando. O Codex nunca pergunta. */
 export function isQuestionRequest(p: Pick<PermissionRequestInfo, 'tool' | 'questions' | 'provider'> | undefined): boolean {
-  return !!p && (p.provider ?? 'claude') === 'claude' && p.tool === ASK_TOOL && !!p.questions?.length;
+  return !!p && p.provider !== 'codex' && p.tool === ASK_TOOL && !!p.questions?.length;
 }
 
 /** O que está marcado numa pergunta do cartão: as opções (posições do original) e o "Outro" (marcado, e o texto). */
@@ -354,7 +360,7 @@ export class PermissionCard {
       this.timer,
       codex
         ? tr('Pedido feito às {0}. Sem resposta aqui até {1}, o Codex segue sem a decisão do escritório e pede a aprovação no terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)])
-        : omp
+        : omp && !ask
           ? tr('Pedido feito às {0}. Sem resposta aqui nem no terminal até {1}, o omp recusa a ferramenta.', [formatClock(p.createdAt), formatClock(p.expiresAt)])
           : tr('Pedido feito às {0}. Sem resposta aqui até {1}, o Habblaud devolve o pedido ao terminal.', [formatClock(p.createdAt), formatClock(p.expiresAt)]),
     );

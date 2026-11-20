@@ -188,6 +188,8 @@ export function describeOmpTool(rawName: string, rawInput: unknown): { desc: Act
 export interface OmpState {
   /** `provedor/modelo` do último model_change (ou o `provider`/`model` da última resposta). */
   model?: string;
+  /** `thinkingLevel` do último thinking_level_change. */
+  thinking?: string;
   /** Título: title_change > slot da linha 1 > primeira instrução. */
   title?: string;
   /** O título veio de uma fonte explícita (slot ou title_change): a primeira instrução não o troca. */
@@ -206,10 +208,54 @@ export interface OmpState {
   pending: Map<string, string>;
   /** Atividade atual (para não repetir "Pensando…"). */
   current?: { kind: Activity['kind']; at: number };
+  /** Pastas/arquivos citados pelas últimas ferramentas (mais nova no fim), para a sala seguir o projeto (projectDir). */
+  paths: { path: string; dir: boolean }[];
+}
+
+const PATHS_WINDOW = 5;
+
+/** Caminhos que uma chamada de ferramenta do omp toca: `cwd` (pasta), `path`/`file`/`file_path` e os `[arquivo#TAG]` do edit. */
+export function toolPaths(args: Record<string, unknown>): { path: string; dir: boolean }[] {
+  const out: { path: string; dir: boolean }[] = [];
+  if (typeof args.cwd === 'string' && args.cwd.trim()) out.push({ path: args.cwd.trim(), dir: true });
+  for (const k of ['path', 'file', 'file_path']) {
+    const v = args[k];
+    // read aceita "arquivo:50-80" e listas "a;b": vale o primeiro, sem seletor
+    if (typeof v === 'string' && v.trim()) out.push({ path: v.split(';')[0]!.trim().replace(/:[^/]*$/, ''), dir: false });
+  }
+  if (typeof args.input === 'string') {
+    const m = /^\[([^\]#\n]+)#[0-9A-Fa-f]{4}\]/m.exec(args.input);
+    if (m) out.push({ path: m[1]!.trim(), dir: false });
+  }
+  return out;
+}
+
+/**
+ * Pasta do projeto em que o agente está trabalhando: o subdiretório imediato de `cwd` mais citado nas últimas ferramentas
+ * (empate: o mais recente). Caminho fora de `cwd`, arquivo solto na raiz ou nada citado: `cwd`. Aceita `\` (Windows).
+ */
+export function projectDir(cwd: string, paths: readonly { path: string; dir: boolean }[]): string {
+  const sep = cwd.includes('\\') && !cwd.includes('/') ? '\\' : '/';
+  const root = cwd.replace(/\\/g, '/').replace(/\/+$/, '');
+  const count = new Map<string, number>();
+  let best: string | undefined;
+  for (const p of paths) {
+    // URL e URIs internas do omp (https://, skill://, local://...) não são pasta
+    if (/^[A-Za-z][\w+.-]*:\/\//.test(p.path)) continue;
+    const raw = p.path.replace(/\\/g, '/');
+    const abs = raw.startsWith('/') || raw.startsWith('~') || /^[A-Za-z]:/.test(raw) ? raw : `${root}/${raw}`;
+    if (!abs.startsWith(`${root}/`)) continue;
+    const segs = abs.slice(root.length + 1).split('/').filter((s) => s && s !== '.');
+    if (!segs.length || segs[0] === '..' || (!p.dir && segs.length < 2)) continue;
+    const seg = segs[0]!;
+    count.set(seg, (count.get(seg) ?? 0) + 1);
+    if (!best || count.get(seg)! >= count.get(best)!) best = seg;
+  }
+  return best ? `${cwd.replace(/[\\/]+$/, '')}${sep}${best}` : cwd;
 }
 
 export function createOmpState(head?: OmpHead): OmpState {
-  const s: OmpState = { tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, pending: new Map() };
+  const s: OmpState = { tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, pending: new Map(), paths: [] };
   if (head?.title) {
     s.title = head.title;
     s.titleExplicit = true;
@@ -305,6 +351,14 @@ class OmpLineParser {
       case 'model_change': {
         const model = str(this.j.model);
         if (model) this.setModel(model);
+        return;
+      }
+      case 'thinking_level_change': {
+        const thinking = str(this.j.thinkingLevel);
+        if (thinking && thinking !== this.s.thinking) {
+          this.s.thinking = thinking;
+          this.out.changed = true;
+        }
         return;
       }
       case 'title_change': {
@@ -435,6 +489,8 @@ class OmpLineParser {
       if (this.s.pending.size > MAX_PENDING) this.s.pending.delete(this.s.pending.keys().next().value as string);
     }
     if (name === 'task' && Array.isArray(args.tasks)) this.s.stats.subagents += args.tasks.length;
+    const paths = toolPaths(args);
+    if (paths.length) this.s.paths = [...this.s.paths, ...paths].slice(-PATHS_WINDOW);
     const { desc, tool } = describeOmpTool(name, args);
     this.push(desc, { key: id ?? this.key(), tool, callId: id });
   }

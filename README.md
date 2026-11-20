@@ -635,16 +635,25 @@ subagents (omp's `task`) and terminal. The omp account chip is hollow, with the 
 (e.g. Anthropic), read from `omp usage --json` every 5 min while an omp session is open — omp queries the provider,
 with its own credentials and cache; Habblaud only runs the command. A provider without these windows (Ollama, free
 Codex) shows up as "no 5 h or weekly usage". `HABBLAUD_OMP_USAGE=0` turns it off; `HABBLAUD_OMP_BIN` points to the
-executable; in Docker it's always off.
+executable; in Docker it's always off. omp is multi-provider: with more than one provider (or limits beyond the two
+bars), the card's **N ▾** button opens all of them, each with all its limits (5 h, week, per model or group; exhausted
+ones stand out).
 
 - **Without installing anything**, Habblaud reads the files omp writes in `~/.omp/agent/sessions/`. The session joins the
   office with the first record in the file and leaves when omp writes the end-of-session record. If the process dies without
   ending it (the terminal was force-closed, it crashed), the character stays idle for up to **10 minutes** before leaving.
 - **With the extension** (`npm run omp:install`), omp notifies Habblaud at every step: the session shows up right away, the status
-  changes at the start and end of each turn and, if the process dies, the character leaves within 30 seconds.
+  changes at the start and end of each turn and, if the process dies, the character leaves within 30 seconds. This also
+  covers the session opened by `/new` or `/resume`, and one reopened with `omp --resume`/`--restore` (which only writes
+  to the file again at the next message).
 - **Sending messages:** the **Send message** box works for omp with the extension installed. With the agent idle, the
   message starts a new turn; while it's working, it goes in as a follow-up right after the current turn, without interrupting
   what it's doing.
+- **Model and reasoning:** with the extension installed, the drawer's Model and Reasoning selectors change the live session (`pi.setModel` / `setThinkingLevel`); from the phone, only with `messages` in `HABBLAUD_REMOTE_ALLOW`.
+- **Questions (`ask`):** with the extension, the questions the agent asks with the `ask` tool also open in the office's
+  **Question for you** card (from the phone, with `permissions` in `HABBLAUD_REMOTE_ALLOW`). The first answer wins:
+  answering in the office closes the terminal dialog and the model gets the same text as omp's own `ask`; answering in
+  the terminal removes the card. With Habblaud down, only the terminal.
 - **Approvals**, in two ways:
   - **Default:** when omp asks for approval in the terminal, the character raises a hand and the office shows which
     tool is waiting; the decision stays in the terminal.
@@ -658,6 +667,10 @@ executable; in Docker it's always off.
   HABBLAUD_OMP_PERMISSOES=1 omp --approval-mode yolo          # bash/zsh
   $env:HABBLAUD_OMP_PERMISSOES=1; omp --approval-mode yolo    # PowerShell
   ```
+- **Room by project:** with omp running in a folder that holds several projects and is not a git repository (e.g.
+  `~/Development`), **Settings › omp room follows the project** moves the character to the room of the subfolder its
+  tools are working in (the most cited among the last 5 tool calls). Off by default; the choice is stored in
+  `omp.json`, in the data folder. Only from this computer.
 - `npm run omp:uninstall` removes the extension; `HABBLAUD_OMP=0` turns omp off in the office. If omp has
   `extensionHandlers.toolCallTimeoutMs` different from 30 s and is headless: give the same value in
   `HABBLAUD_OMP_TIMEOUT_MS` in omp's environment.

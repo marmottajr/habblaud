@@ -1,6 +1,7 @@
-// Pedidos de aprovação do omp no registro de permissões: o agente pela sessão (session_id) entre os agentes do omp,
-// sem sugestões nem perguntas, recusa só com motivo (interromper e "sempre permitir" = unsupported), retirada pela
-// extensão ({behavior: 'terminal'}), sem busca da resposta no transcript e títulos com as ferramentas do omp.
+// Pedidos do omp no registro de permissões: o agente pela sessão (session_id) entre os agentes do omp, sem
+// sugestões, recusa só com motivo (interromper e "sempre permitir" = unsupported), retirada pela extensão
+// ({behavior: 'terminal'}), sem busca da resposta no transcript, títulos com as ferramentas do omp e as perguntas do
+// `ask` (mandadas como AskUserQuestion), que se respondem com `answer`.
 // Dados sintéticos.
 import { describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
@@ -131,11 +132,16 @@ describe('PermissionRegistry: pedidos do omp', () => {
     expect(registry.decide(id, { behavior: 'terminal' })).toBe('not-found');
   });
 
-  it('AskUserQuestion vindo do omp não é pergunta', () => {
+  it('pergunta do omp (o ask como AskUserQuestion) se responde com answer, não se aprova; a extensão recebe as posições', async () => {
     const { registry } = setup();
-    const id = registered(registry.register(ompInput({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Qual?', options: [{ label: 'A' }] }] } })));
-    expect(registry.detail(id)!.questions).toBeUndefined();
-    expect(registry.decide(id, { behavior: 'allow' })).toBe('ok');
+    const questions = [{ question: 'Qual banco?', options: [{ label: 'SQLite' }, { label: 'Postgres' }], multiSelect: false }];
+    const id = registered(registry.register(ompInput({ tool_name: 'AskUserQuestion', tool_input: { questions } })));
+    expect(registry.detail(id)!.questions).toEqual([expect.objectContaining({ index: 0, question: 'Qual banco?' })]);
+    expect(registry.decide(id, { behavior: 'allow' })).toBe('invalid-answer');
+    expect(registry.decide(id, { behavior: 'answer', answers: [{ question: 0, options: [0, 1] }] })).toBe('invalid-answer');
+    const w = registry.wait(id, 25_000)!;
+    expect(registry.decide(id, { behavior: 'answer', answers: [{ question: 0, options: [1] }] })).toBe('ok');
+    expect(await w.result).toEqual({ status: 'decided', behavior: 'answer', answers: [{ question: 0, options: [1] }] });
   });
 
   it('ferramenta do omp sem tradução segue com o nome bruto', () => {

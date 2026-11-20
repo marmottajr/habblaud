@@ -22,6 +22,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
+import { OmpSettings } from './sources/omp/settings';
 import { createPtyRoutes } from './http/pty';
 import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
 import { loadHeadlessScreen } from './pty/screen';
@@ -37,6 +38,7 @@ import type { CodexLive } from './sources/codex/live';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
+import { OmpHistory } from './sources/omp/history';
 import { CodexSource } from './sources/codex/source';
 import { OmpSource } from './sources/omp/source';
 import type { OmpLive } from './sources/omp/live';
@@ -80,6 +82,9 @@ names.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
+// Opções do omp escolhidas em Configurações (sala por projeto).
+const ompSettings = new OmpSettings(join(config.dataDir, 'omp.json'));
+ompSettings.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
@@ -132,6 +137,7 @@ const office = new Office({
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('desligado') }, list: [] }),
   updates: () => updates.status(),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
+  ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
@@ -147,7 +153,7 @@ const codexLive: CodexLive | undefined = codex;
 // A do omp (quando há agent dir com sessions/; HABBLAUD_OMP=0 desliga) entra do mesmo jeito; `omp` também recebe os eventos
 // da extensão do Habblaud no omp (POST /api/omp/events, OmpLive); sem ela a rota responde {ok: false}.
 const omp = config.ompDirs.length
-  ? new OmpSource({ accounts, office, dirs: config.ompDirs, env: process.env, home: config.home, usage: config.ompUsage })
+  ? new OmpSource({ accounts, office, dirs: config.ompDirs, env: process.env, home: config.home, usage: config.ompUsage, roomByProject: () => ompSettings.roomByProject })
   : undefined;
 if (omp) agents.add(omp);
 const ompLive: OmpLive | undefined = omp;
@@ -206,6 +212,7 @@ const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+if (history && omp) history.add(new OmpHistory({ accounts: () => accounts.entriesOf('omp'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -356,6 +363,13 @@ const api = createApiHandler({
     office.refreshRoomNames();
     return office.roomName(id);
   },
+  setOmpRoomByProject: config.ompDirs.length
+    ? (on) => {
+        ompSettings.setRoomByProject(on);
+        office.markDirty();
+        return ompSettings.roomByProject;
+      }
+    : undefined,
   office,
   hub,
   accounts,

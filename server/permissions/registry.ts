@@ -169,12 +169,15 @@ function isIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
-/** Pedido que se responde com `answer` (as perguntas do AskUserQuestion; o Codex e o omp não as mandam pelo hook). */
+/**
+ * Pedido que se responde com `answer` (as perguntas do AskUserQuestion). O omp manda o `ask` dele nesse formato
+ * (mod/habblaud-omp); o Codex não pergunta pelo hook.
+ */
 function isQuestion(info: { tool: string; provider?: string }): boolean {
-  return info.tool === ASK_TOOL && !isCli(info.provider);
+  return info.tool === ASK_TOOL && info.provider !== 'codex';
 }
 
-/** Codex e omp: o hook só aprova ou recusa com motivo, sem sugestões nem perguntas. */
+/** Codex e omp: o hook só aprova ou recusa com motivo (e o omp responde perguntas), sem sugestões. */
 function isCli(provider: string | undefined): provider is 'codex' | 'omp' {
   return provider === 'codex' || provider === 'omp';
 }

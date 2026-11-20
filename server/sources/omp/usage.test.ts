@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ompProviderOf, parseOmpUsage } from './usage';
+import { ompProviderOf, parseOmpProviders, parseOmpUsage } from './usage';
 
 const RAW = readFileSync(join(__dirname, 'fixtures', 'usage.json'), 'utf8');
 const NOW = 1792518300000;
@@ -59,6 +59,29 @@ describe('parseOmpUsage (saída real de omp usage --json --redact)', () => {
 
   it('nada de metadata (e-mails, ids) no resultado', () => {
     expect(JSON.stringify(parseOmpUsage(RAW, 'anthropic', NOW))).not.toMatch(/email|accountId|orgName/);
+  });
+});
+
+describe('parseOmpProviders (todos os provedores, saída real)', () => {
+  it('cada report vira um provedor com todos os limites (inclusive os de tier/grupo), o plano e a nota', () => {
+    const list = parseOmpProviders(RAW, NOW)!;
+    expect(list.map((p) => p.provider)).toEqual(['anthropic', 'openai-codex', 'google-antigravity', 'ollama-cloud']);
+    expect(list[0].limits.map((l) => l.label)).toEqual(['Claude 5 Hour', 'Claude 7 Day', 'Claude 7 Day (Fable)']);
+    expect(list[0].limits[0]).toEqual({ label: 'Claude 5 Hour', windowMs: 18_000_000, utilization: 11, resetsAt: 1792533000000 });
+    expect(list[1]).toMatchObject({ plan: 'free', limits: [{ label: '30 days', windowMs: 30 * 86_400_000, utilization: 0 }] });
+    expect(list[3]).toMatchObject({ limits: [], note: expect.stringMatching(/^Ollama /) });
+  });
+
+  it('limite repetido (o Google repete um por modelo do grupo) entra uma vez; esgotado fica marcado', () => {
+    const google = parseOmpProviders(RAW, NOW)![2];
+    expect(google.limits.map((l) => `${l.label} ${l.windowMs}`)).toEqual(['Gemini 604800000', 'Gemini 18000000', 'Claude & GPT (shared) 604800000', 'Claude & GPT (shared) 18000000']);
+    const raw = JSON.stringify({ reports: [{ provider: 'x', limits: [{ label: 'Tudo', window: { durationMs: 1 }, amount: { usedFraction: 1 }, status: 'exhausted' }] }] });
+    expect(parseOmpProviders(raw, NOW)![0].limits[0]).toMatchObject({ utilization: 100, exhausted: true });
+  });
+
+  it('sem e-mails nem ids; JSON inválido = undefined', () => {
+    expect(JSON.stringify(parseOmpProviders(RAW, NOW))).not.toMatch(/email|accountId|orgName|@/);
+    expect(parseOmpProviders('{', NOW)).toBeUndefined();
   });
 });
 

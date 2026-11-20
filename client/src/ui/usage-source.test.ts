@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountInfo } from '../../../shared/types';
-import { cardState, codexUsageNote, ompUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle } from './usage';
+import { cardState, codexUsageNote, limitGroup, ompProviderViews, ompUsageNote, showsUsageAge, sourceLabel, usageMessage, usageSubtitle, windowShort } from './usage';
 
 const MIN = 60_000;
 type Acc = Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider' | 'email' | 'plan' | 'configDir'>;
@@ -90,5 +90,41 @@ describe('cartão de uso de uma conta do omp', () => {
     expect(ompUsageNote(a, 0)).toMatch(/^Na última leitura \(/);
     expect(ompUsageNote(codex(), 0)).toBe('');
     expect(codexUsageNote(omp(), 0)).toBe('');
+  });
+});
+
+describe('provedores do omp (painel do cartão)', () => {
+  const H = 3_600_000;
+  it('rótulo sem a janela agrupa os limites; janela curta', () => {
+    expect(limitGroup('Claude 7 Day (Fable)')).toBe('Claude (Fable)');
+    expect(limitGroup('Claude 5 Hour')).toBe('Claude');
+    expect(limitGroup('7 days')).toBe('');
+    expect(limitGroup('Claude & GPT (shared)')).toBe('Claude & GPT (shared)');
+    expect([windowShort(5 * H), windowShort(168 * H), windowShort(720 * H), windowShort(undefined)]).toEqual(['5h', 'Sem.', '30d', '']);
+  });
+
+  it('o provedor em uso vem primeiro; credencial repetida ganha número; limites agrupados na ordem do omp', () => {
+    const views = ompProviderViews({
+      source: 'omp',
+      ompProvider: 'anthropic',
+      fetchedAt: 0,
+      ompProviders: [
+        { provider: 'openai-codex', plan: 'plus', limits: [{ label: '7 days', windowMs: 168 * H, utilization: 1 }], fetchedAt: 0 },
+        { provider: 'anthropic', limits: [{ label: 'Claude 5 Hour', windowMs: 5 * H, utilization: 4 }, { label: 'Claude 7 Day', windowMs: 168 * H, utilization: 7 }, { label: 'Claude 7 Day (Fable)', windowMs: 168 * H, utilization: 0 }], fetchedAt: 0 },
+        { provider: 'anthropic', limits: [], note: 'sem limites', fetchedAt: 0 },
+      ],
+    });
+    expect(views.map((v) => [v.title, v.current])).toEqual([
+      ['Anthropic (1)', true],
+      ['OpenAI Codex', false],
+      ['Anthropic (2)', false],
+    ]);
+    expect(views[0].groups.map((g) => [g.label, g.limits.length])).toEqual([
+      ['Claude', 2],
+      ['Claude (Fable)', 1],
+    ]);
+    expect(views[1]).toMatchObject({ plan: 'plus', groups: [{ label: '', limits: [{ utilization: 1 }] }] });
+    expect(views[2]).toMatchObject({ note: 'sem limites', groups: [] });
+    expect(ompProviderViews(undefined)).toEqual([]);
   });
 });

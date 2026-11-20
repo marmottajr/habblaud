@@ -667,16 +667,25 @@ lleva el sello **OMP**. Arriba, la tarjeta de la cuenta de omp muestra el uso de
 del modelo en uso (p. ej., Anthropic), leído de `omp usage --json` cada 5 min mientras haya una sesión de omp abierta —
 es omp quien consulta al proveedor, con sus credenciales y su caché; Habblaud solo ejecuta el comando. Un proveedor sin
 esas ventanas (Ollama, Codex gratuito) aparece como "sin uso de 5 h ni semanal". `HABBLAUD_OMP_USAGE=0` lo desactiva;
-`HABBLAUD_OMP_BIN` indica el ejecutable; en Docker siempre está desactivado.
+`HABBLAUD_OMP_BIN` indica el ejecutable; en Docker siempre está desactivado. omp es multiproveedor: con más de un
+proveedor (o límites además de las dos barras), el botón **N ▾** de la tarjeta los abre todos, cada uno con todos sus
+límites (5 h, semana, por modelo o grupo; los agotados resaltan).
 
 - **Sin instalar nada**, Habblaud lee los archivos que omp guarda en `~/.omp/agent/sessions/`. La sesión entra en la
   oficina con el primer registro del archivo y sale cuando omp guarda el cierre. Si el proceso muere sin cerrar (cerraste
   la terminal a la fuerza, se colgó), el personaje se queda inactivo hasta **10 minutos** antes de salir.
 - **Con la extensión** (`npm run omp:install`), omp le avisa a Habblaud en cada paso: la sesión aparece al instante, el
-  estado cambia al inicio y al final de cada turno y, si el proceso muere, el personaje sale en hasta 30 segundos.
+  estado cambia al inicio y al final de cada turno y, si el proceso muere, el personaje sale en hasta 30 segundos. Vale
+  también para la sesión abierta con `/new` o `/resume`, y para la reabierta con `omp --resume`/`--restore` (que solo
+  vuelve a escribir en el archivo en el siguiente mensaje).
 - **Enviar mensajes:** el cuadro **Enviar mensaje** funciona para omp con la extensión instalada. Con el agente
   inactivo, el mensaje inicia un turno nuevo; si está trabajando, entra como continuación justo después del turno actual,
   sin interrumpir lo que está haciendo.
+- **Modelo y razonamiento:** con la extensión instalada, los selectores Modelo y Razonamiento del panel cambian la sesión en vivo (`pi.setModel` / `setThinkingLevel`); desde el celular, solo con `messages` en `HABBLAUD_REMOTE_ALLOW`.
+- **Preguntas (`ask`):** con la extensión, las preguntas que el agente hace con la herramienta `ask` se abren también en
+  la tarjeta **Pregunta para ti** de la oficina (desde el celular, con `permissions` en `HABBLAUD_REMOTE_ALLOW`). Vale la
+  primera respuesta: responder en la oficina cierra el diálogo de la terminal y el modelo recibe el mismo texto que el
+  `ask` de omp; responder en la terminal retira la tarjeta. Con Habblaud caído, solo la terminal.
 - **Aprobaciones**, de dos maneras:
   - **Predeterminada:** cuando omp pide aprobación en la terminal, el personaje levanta la mano y la oficina muestra qué
     herramienta espera; la decisión sigue en la terminal.
@@ -690,6 +699,10 @@ esas ventanas (Ollama, Codex gratuito) aparece como "sin uso de 5 h ni semanal".
   HABBLAUD_OMP_PERMISSOES=1 omp --approval-mode yolo          # bash/zsh
   $env:HABBLAUD_OMP_PERMISSOES=1; omp --approval-mode yolo    # PowerShell
   ```
+- **Sala por proyecto:** con omp en una carpeta que reúne varios proyectos y no es un repositorio git (p. ej.,
+  `~/Desarrollo`), **Configuración › La sala de omp sigue el proyecto** lleva al personaje a la sala de la subcarpeta en
+  la que trabajan sus herramientas (la más citada en las últimas 5 llamadas). Desactivado por defecto; la elección queda
+  en `omp.json`, en la carpeta de datos. Solo desde la propia computadora.
 - `npm run omp:uninstall` quita la extensión; `HABBLAUD_OMP=0` desactiva omp en la oficina. Si omp tiene
   `extensionHandlers.toolCallTimeoutMs` distinto de 30 s y está sin pantalla: indica el mismo valor en
   `HABBLAUD_OMP_TIMEOUT_MS` en el entorno de omp.

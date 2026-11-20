@@ -1059,6 +1059,93 @@
   color: inherit;
 }
 
+/* omp: "N ▾" abre o painel com todos os provedores (ui-omp-usage). Fica na ponta direita do cabeçalho. */
+.ui-usage-card__provs {
+  flex: none;
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ui-muted);
+  font: 600 10.5px/13px var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-usage-card__provs:hover,
+.ui-usage-card__provs[aria-expanded='true'] {
+  color: var(--ui-text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ui-usage-card__state:not([hidden]) ~ .ui-usage-card__provs {
+  margin-left: 4px;
+}
+
+/* Painel dos provedores do omp: um bloco por provedor, os limites agrupados (Gemini, Claude & GPT…). */
+.ui-omp-usage {
+  width: min(360px, calc(100vw - 16px));
+}
+
+.ui-omp-usage__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px;
+}
+
+.ui-omp-usage__prov {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+}
+
+.ui-omp-usage__prov.is-current {
+  border-color: var(--ui-line-strong);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ui-omp-usage__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-omp-usage__chip {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ui-muted);
+  font-size: 10.5px;
+}
+
+.ui-omp-usage__chip.is-current {
+  color: var(--ui-accent);
+}
+
+.ui-omp-usage__label {
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+/* Limite esgotado (o omp marcou): o percentual em negrito, além da cor de nível crítico da barra. */
+.ui-meter.is-exhausted .ui-meter__pct {
+  font-weight: 700;
+}
+
+.ui-omp-usage__note,
+.ui-omp-usage__foot {
+  color: var(--ui-faint);
+  font-size: 11px;
+}
+
+.ui-omp-usage__foot {
+  padding: 8px 16px 2px;
+}
+
 /* As duas linhas (5h e Semana) dividem as mesmas colunas (subgrid): barras alinhadas e a coluna do
    reinício do tamanho do texto mais longo; quem cede espaço é a barra. */
 .ui-usage-card__meters {
@@ -6756,6 +6843,18 @@ html.is-replay #world {
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
+}
+
+.ui-ctl-select {
+  max-width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ui-line-strong);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ui-text);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
 }
 
 .ui-day__select {

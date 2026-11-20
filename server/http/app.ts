@@ -71,6 +71,8 @@ export interface ApiDeps {
    * loopback.
    */
   ompLive?: OmpLive;
+  /** Configurações › Sala do omp segue o projeto (OmpSettings): POST /api/omp/settings. Ausente = sem omp (404). */
+  setOmpRoomByProject?: (on: boolean) => boolean;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -293,6 +295,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (typeof body?.enabled !== 'boolean') throw new HttpError(400, tr('esperado {enabled: boolean}'));
     office.setDemo(body.enabled);
     sendJson(res, 200, { ok: true, demo: office.isDemo() });
+  };
+
+  const handleOmpSettings = async (req: IncomingMessage, res: ServerResponse, set: (on: boolean) => boolean) => {
+    const body = (await readJson(req)) as { roomByProject?: unknown };
+    if (typeof body?.roomByProject !== 'boolean') throw new HttpError(400, tr('esperado {roomByProject: boolean}'));
+    sendJson(res, 200, { ok: true, roomByProject: set(body.roomByProject) });
   };
 
   const handleCharacter = async (req: IncomingMessage, res: ServerResponse, id: string, method: string) => {
@@ -706,6 +714,13 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       if (method !== 'POST') methodNotAllowed(res, 'POST');
       else if (isRemote(req)) sendJson(res, 403, { error: tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') });
       else handleDemo(req, res).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/omp/settings') {
+      // Muda a sala de todos os agentes do omp: só pelo computador (isLocalOnlyPath já barra a porta remota).
+      if (!deps.setOmpRoomByProject) sendJson(res, 404, { error: tr('desligado') });
+      else if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else handleOmpSettings(req, res, deps.setOmpRoomByProject).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/updates') {

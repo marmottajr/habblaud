@@ -27,6 +27,14 @@
 //    HABBLAUD_OMP_TIMEOUT_MS (o `extensionHandlers.toolCallTimeoutMs` do omp, 30 000 por padrão) menos 3 s. Sem
 //    resposta: "sem resposta a tempo". Habblaud que não aceita o registro em 2 s: só o diálogo (sem UI: recusa "Habblaud
 //    fora do ar"). Esse modo é para o omp em --approval-mode yolo; em outro modo, um aviso único por sessão.
+// 4. Perguntas (ferramenta `ask`): no session_start, troca o `ask` do omp por um de mesmo nome, descrição e
+//    parâmetros (pi.registerTool com os do nativo, de pi.getAllTools) que abre a pergunta nos dois lugares: o diálogo
+//    do omp no terminal (o nativo, por ctx.invokeTool) e o cartão "Pergunta para você" no escritório (POST
+//    /api/permissions, tool_name "AskUserQuestion", as perguntas no formato do Claude Code). A primeira resposta
+//    vale: resposta no escritório fecha o diálogo (signal) e volta ao modelo no mesmo texto do `ask` nativo;
+//    resposta no terminal retira o cartão ({behavior: "terminal"}). "Não responder" no escritório vira erro da
+//    ferramenta com o motivo, e o agente segue. Habblaud fora do ar, ninguém olhando ou pergunta que o cartão não
+//    mostra inteira (mais de 4): só o diálogo, como sem a extensão.
 //
 // Subagentes (ctx.agent.kind === 'sub'): o omp refaz as extensões para cada um; eles não mandam eventos nem
 // perguntam o inbox (o escritório já vê os subagentes pelo arquivo da sessão), mas as ferramentas deles passam pelo
@@ -58,6 +66,10 @@ const POLL_SECONDS = 25;
 /** Fila de eventos: passando disso o Habblaud está travado e os eventos novos de ferramenta são largados. */
 const MAX_QUEUE = 32;
 const MAX_DIALOG_DETAIL = 800;
+/** Ferramenta do cartão de pergunta no escritório (o nome do Claude Code). */
+export const ASK_TOOL = 'AskUserQuestion';
+/** Espera do Habblaud por uma pergunta: o `ask` do omp não tem prazo (ask.timeout 0), então o máximo do servidor. */
+export const ASK_WAIT_MS = 24 * 60 * 60_000;
 
 /**
  * Ferramentas só de leitura do omp: nunca entram no modo de decisão. O omp não expõe o nível da ferramenta ao
@@ -105,6 +117,7 @@ export interface OmpContext {
     confirm(title: string, message: string, options?: { signal?: AbortSignal }): Promise<boolean>;
     notify(message: string, type?: 'info' | 'warning' | 'error'): void;
   };
+  models?: { list(): { provider: string; id: string }[]; resolve?(spec: string): unknown };
   sessionManager: {
     getSessionId(): string;
     getSessionFile?(): string | undefined;
@@ -112,9 +125,35 @@ export interface OmpContext {
   };
 }
 
+/** Contexto do `execute` de uma ferramenta registrada: o da sessão mais o nativo de mesmo nome. */
+export interface ToolContext extends OmpContext {
+  invokeTool?(params: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
+}
+
+export interface ToolInfo {
+  name: string;
+  description?: string;
+  /** Schema do omp (opaco: repassado como veio). */
+  parameters?: unknown;
+}
+
+export interface ToolDefinition {
+  name: string;
+  label: string;
+  description: string;
+  parameters: unknown;
+  approval: 'read';
+  execute(toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: unknown, ctx: ToolContext): Promise<unknown>;
+}
+
 export interface OmpApi {
   on(event: string, handler: (event: Rec, ctx: OmpContext) => unknown): void;
   sendUserMessage(text: string, options?: { deliverAs?: 'followUp' }): void;
+  /** Troca o modelo da sessão; o omp devolve false quando não há credencial para ele. */
+  setModel?(model: unknown): Promise<boolean> | boolean;
+  setThinkingLevel?(level: string): void;
+  getAllTools?(): ToolInfo[];
+  registerTool?(tool: ToolDefinition): void;
 }
 
 export interface ToolCallResult {
@@ -166,6 +205,8 @@ export function portOf(env: NodeJS.ProcessEnv, home: string): number {
 export interface InboxMessage {
   id: string;
   text: string;
+  /** Troca de modelo e/ou raciocínio (POST /api/messages/control): sem texto. */
+  control?: { model?: string; thinking?: string };
 }
 
 export interface AckResult {
@@ -193,7 +234,14 @@ export function parseInbox(text: string): InboxMessage[] | undefined {
     if (!item || typeof item !== 'object') continue;
     const m = item as Rec;
     if (typeof m.id !== 'string' || !m.id) continue;
-    out.push({ id: m.id, text: typeof m.text === 'string' ? m.text : '' });
+    const msg: InboxMessage = { id: m.id, text: typeof m.text === 'string' ? m.text : '' };
+    const c = m.control && typeof m.control === 'object' ? (m.control as Rec) : undefined;
+    if (c) {
+      msg.control = {};
+      if (typeof c.model === 'string' && c.model) msg.control.model = c.model;
+      if (typeof c.thinking === 'string' && c.thinking) msg.control.thinking = c.thinking;
+    }
+    out.push(msg);
   }
   return out;
 }
@@ -234,12 +282,104 @@ export function dialogDetail(toolName: string, input: unknown): string {
   return text.length > MAX_DIALOG_DETAIL ? `${text.slice(0, MAX_DIALOG_DETAIL - 1)}…` : text;
 }
 
+interface AskQuestion {
+  id: string;
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  header?: string;
+  multi: boolean;
+}
+
+/** Resposta do escritório a uma pergunta: a posição dela, as posições das opções e o texto livre ("Outro"). */
+export interface AskAnswer {
+  question: number;
+  options?: number[];
+  other?: string;
+}
+
+export interface AskToolResult {
+  content: Array<{ type: 'text'; text: string }>;
+  details: unknown;
+}
+
+/** As perguntas da chamada do `ask` (os campos que o cartão usa); undefined = fora do formato. */
+function askQuestions(params: unknown): AskQuestion[] | undefined {
+  const raw = params && typeof params === 'object' ? (params as Rec).questions : undefined;
+  if (!Array.isArray(raw) || !raw.length) return undefined;
+  const out: AskQuestion[] = [];
+  for (const item of raw) {
+    const q = item && typeof item === 'object' ? (item as Rec) : undefined;
+    if (!q || typeof q.id !== 'string' || typeof q.question !== 'string' || !Array.isArray(q.options)) return undefined;
+    const options: AskQuestion['options'] = [];
+    for (const o of q.options) {
+      const r = o && typeof o === 'object' ? (o as Rec) : undefined;
+      if (!r || typeof r.label !== 'string') return undefined;
+      options.push({ label: r.label, ...(typeof r.description === 'string' && r.description ? { description: r.description } : {}) });
+    }
+    out.push({ id: q.id, question: q.question, options, ...(typeof q.header === 'string' && q.header ? { header: q.header } : {}), multi: q.multi === true });
+  }
+  return out;
+}
+
+/** A chamada do `ask` no formato do AskUserQuestion do Claude Code (o que o cartão de pergunta do escritório lê). */
+export function askToHabblaud(params: unknown): { questions: Array<{ question: string; header?: string; options: AskQuestion['options']; multiSelect: boolean }> } | undefined {
+  const qs = askQuestions(params);
+  return qs && { questions: qs.map((q) => ({ question: q.question, ...(q.header ? { header: q.header } : {}), options: q.options, multiSelect: q.multi })) };
+}
+
+/** Texto com mais de uma linha recuado embaixo do rótulo, como no `ask` do omp. */
+const indented = (label: string, text: string): string => (text.includes('\n') ? `${label}:\n${text.split('\n').map((l) => `  ${l}`).join('\n')}` : `${label}: ${text}`);
+
+/**
+ * Resposta do escritório no mesmo resultado do `ask` do omp (texto e `details`), para o modelo não ver diferença
+ * entre responder lá ou aqui. undefined = a chamada não está no formato esperado.
+ */
+export function askResult(params: unknown, answers: readonly AskAnswer[]): AskToolResult | undefined {
+  const qs = askQuestions(params);
+  if (!qs) return undefined;
+  const results = qs.map((q, i) => {
+    const a = answers.find((x) => x.question === i);
+    const selectedOptions = (a?.options ?? []).flatMap((k) => (q.options[k] ? [q.options[k].label] : []));
+    return { id: q.id, question: q.question, options: q.options.map((o) => o.label), multi: q.multi, selectedOptions, ...(a?.other ? { customInput: a.other } : {}) };
+  });
+  if (results.length === 1) {
+    const { id: _id, ...r } = results[0];
+    const lines: string[] = [];
+    if (r.selectedOptions.length) lines.push(`User selected: ${r.multi ? r.selectedOptions.join(', ') : r.selectedOptions[0]}`);
+    if (r.customInput !== undefined) lines.push(indented('User provided custom input', r.customInput));
+    const text = lines.length ? lines.join('\n') : r.multi ? 'User did not select any options' : 'User cancelled the selection';
+    return { content: [{ type: 'text', text }], details: r };
+  }
+  const line = (r: (typeof results)[number]): string => {
+    const custom = r.customInput === undefined ? undefined : `"${r.customInput}"`;
+    if (!r.selectedOptions.length) return `${r.id}: ${custom ?? (r.multi ? '[]' : '(cancelled)')}`;
+    const picked = r.multi ? `[${r.selectedOptions.join(', ')}]` : r.selectedOptions[0];
+    return `${r.id}: ${custom === undefined ? picked : `${picked} + ${custom}`}`;
+  };
+  return { content: [{ type: 'text', text: ['User answers:', ...results.map(line)].join('\n') }], details: { results } };
+}
+
+/** As respostas de uma decisão `answer` vinda do Habblaud (já conferidas lá); undefined = fora do formato. */
+function parseAnswers(raw: unknown): AskAnswer[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: AskAnswer[] = [];
+  for (const item of raw) {
+    const a = item && typeof item === 'object' ? (item as Rec) : undefined;
+    if (!a || typeof a.question !== 'number') return undefined;
+    const options = Array.isArray(a.options) ? a.options.filter((k): k is number => typeof k === 'number') : undefined;
+    out.push({ question: a.question, ...(options?.length ? { options } : {}), ...(typeof a.other === 'string' && a.other ? { other: a.other } : {}) });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // A extensão
 // ---------------------------------------------------------------------------------------------
 
 type Outcome =
   | { kind: 'habblaud'; allowed: boolean; message?: string }
+  /** Respostas a uma pergunta (`ask`). */
+  | { kind: 'answer'; answers: AskAnswer[] }
   | { kind: 'terminal'; allowed: boolean }
   | { kind: 'timeout' }
   /** O Habblaud largou o pedido (página fechada, pedido desconhecido). */
@@ -249,6 +389,9 @@ interface Reply {
   status: number;
   text: string;
 }
+
+/** Promessa que nunca se cumpre: tira um lado de uma corrida (Promise.race). */
+const never = <T>(): Promise<T> => Promise.withResolvers<T>().promise;
 
 /** Espera `ms`, ou até o sinal: devolve false se foi cancelada. */
 function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
@@ -320,6 +463,9 @@ export function create(pi: OmpApi, deps: Deps): void {
     return sent;
   }
 
+  /** Modelos da sessão atual: lidos no session_start e repetidos no batimento (o Habblaud pode ter reiniciado). */
+  let models: string[] | undefined;
+
   function sessionFields(ctx: OmpContext): Partial<OmpEvent> {
     const out: Partial<OmpEvent> = {};
     try {
@@ -330,6 +476,12 @@ export function create(pi: OmpApi, deps: Deps): void {
     } catch {
       // contexto já descartado: só o id
     }
+    try {
+      models = ctx.models?.list().map((m) => `${m.provider}/${m.id}`);
+    } catch {
+      models = undefined; // sem lista de modelos: o seletor da gaveta usa só o atual
+    }
+    if (models?.length) out.models = models;
     return out;
   }
 
@@ -359,7 +511,7 @@ export function create(pi: OmpApi, deps: Deps): void {
     if (closed) return;
     if (!heartbeat) {
       heartbeat = setInterval(() => {
-        if (sessionId) void emit('heartbeat', sessionId);
+        if (sessionId) void emit('heartbeat', sessionId, models?.length ? { models } : {});
       }, OMP_HEARTBEAT_MS);
       heartbeat.unref?.();
     }
@@ -390,7 +542,11 @@ export function create(pi: OmpApi, deps: Deps): void {
   // extensibility/extensions/types.ts do omp e provado contra um omp real (tarefa 5.1).
   observe('session_start', () => {
     // track() já anunciou a sessão.
+    shadowAsk();
   });
+  // /new, /resume e /fork trocam de sessão no mesmo processo sem session_start: o ctx do session_switch já é o da
+  // sessão nova, e track() fecha a anterior e anuncia a nova (sem isso, a nova só aparecia no próximo prompt).
+  observe('session_switch', () => undefined);
   observe('agent_start', (_e, _c, id) => {
     busy = true;
     void emit('agent_start', id);
@@ -457,13 +613,22 @@ export function create(pi: OmpApi, deps: Deps): void {
     return !busy;
   }
 
+  /** A conversa trocou entre a busca e a entrega: cada mensagem vale só para a sessão em que foi mandada. */
+  const SESSION_CHANGED = 'a conversa mudou (/new ou /resume) antes da entrega';
+
   /**
    * Entrega cada mensagem, na ordem. Nunca lança. A primeira, com o agente livre, inicia um turno; o que vier depois
-   * (da mesma rodada ou com o agente ocupado) entra como continuação, depois do turno atual.
+   * (da mesma rodada ou com o agente ocupado) entra como continuação, depois do turno atual. Item de uma sessão que
+   * já não é a atual vira falha, sem entrega.
    */
-  function deliver(messages: readonly InboxMessage[]): AckResult[] {
+  async function deliver(session: string, messages: readonly InboxMessage[]): Promise<AckResult[]> {
     let idle = idleNow();
-    return messages.map((m): AckResult => {
+    const results: AckResult[] = [];
+    for (const m of messages) results.push(sessionId === session ? await deliverOne(m) : { id: m.id, ok: false, error: SESSION_CHANGED });
+    return results;
+
+    async function deliverOne(m: InboxMessage): Promise<AckResult> {
+      if (m.control) return applyControl(m.id, m.control);
       if (!m.text.trim()) return { id: m.id, ok: false, error: 'mensagem vazia' };
       try {
         if (idle) {
@@ -474,7 +639,26 @@ export function create(pi: OmpApi, deps: Deps): void {
       } catch (err) {
         return { id: m.id, ok: false, error: reasonText(err, 'falha ao entregar a mensagem') };
       }
-    });
+    }
+  }
+
+  /** Troca o modelo e/ou o raciocínio da sessão. O arquivo da sessão ganha model_change/thinking_level_change, que o Habblaud já lê. */
+  async function applyControl(id: string, control: NonNullable<InboxMessage['control']>): Promise<AckResult> {
+    try {
+      if (control.model) {
+        const target = mainCtx?.models?.resolve?.(control.model);
+        if (!target) return { id, ok: false, error: 'modelo desconhecido' };
+        if (!pi.setModel) return { id, ok: false, error: 'este omp não troca de modelo pela extensão' };
+        if ((await pi.setModel(target)) === false) return { id, ok: false, error: 'o omp recusou o modelo' };
+      }
+      if (control.thinking) {
+        if (!pi.setThinkingLevel) return { id, ok: false, error: 'este omp não troca o raciocínio pela extensão' };
+        pi.setThinkingLevel(control.thinking);
+      }
+      return { id, ok: true };
+    } catch (err) {
+      return { id, ok: false, error: reasonText(err, 'falha ao aplicar a troca') };
+    }
   }
 
   /** Uma rodada: pergunta, entrega, confirma. Uma por vez (o próximo agendamento só sai no fim). */
@@ -489,7 +673,7 @@ export function create(pi: OmpApi, deps: Deps): void {
         const messages = ok(res) ? parseInbox(res.text) : undefined;
         if (!messages) next = INBOX_OFFLINE_MS;
         else if (messages.length) {
-          const results = deliver(messages);
+          const results = await deliver(session, messages);
           await request('POST', '/api/mod/inbox/ack', { session, results });
         }
       }
@@ -538,6 +722,8 @@ export function create(pi: OmpApi, deps: Deps): void {
       if (j.status === 'decided') {
         if (j.behavior === 'allow') return { kind: 'habblaud', allowed: true };
         if (j.behavior === 'deny') return { kind: 'habblaud', allowed: false, message: str(j.message) };
+        const answers = j.behavior === 'answer' ? parseAnswers(j.answers) : undefined;
+        if (answers) return { kind: 'answer', answers };
         return { kind: 'gone' };
       }
       if (j.status === 'released') return j.reason === 'expired' ? { kind: 'timeout' } : { kind: 'gone' };
@@ -576,7 +762,6 @@ export function create(pi: OmpApi, deps: Deps): void {
 
     const abort = new AbortController();
     const entries: Array<Promise<Outcome>> = [];
-    const never = <T>(): Promise<T> => Promise.withResolvers<T>().promise;
 
     // O prazo: com o diálogo aberto o omp não conta o tempo do handler, então a espera vai até timeoutMs.
     entries.push(sleep(timeoutMs, abort.signal).then((elapsed): Outcome | Promise<Outcome> => (elapsed ? { kind: 'timeout' } : never<Outcome>())));
@@ -611,6 +796,7 @@ export function create(pi: OmpApi, deps: Deps): void {
       case 'timeout':
         return block('sem resposta a tempo');
       case 'gone':
+      case 'answer':
         return block('pedido encerrado no Habblaud');
     }
   }
@@ -625,6 +811,73 @@ export function create(pi: OmpApi, deps: Deps): void {
         // Falha inesperada do modo de decisão: recusa (o modo é opt-in: na dúvida, não executa).
         return block(`erro no Habblaud: ${reasonText(err, 'falha inesperada')}`);
       }
+    });
+  }
+
+  // ---- perguntas (ask) pelo escritório --------------------------------------------------------
+
+  /**
+   * A pergunta nos dois lugares ao mesmo tempo: o diálogo nativo no terminal e o cartão no escritório. A primeira
+   * resposta vale e fecha a outra. Sem o cartão (subagente, Habblaud fora do ar, ninguém olhando, pergunta que ele
+   * não mostra inteira), só o nativo.
+   */
+  async function ask(params: unknown, signal: AbortSignal | undefined, ctx: ToolContext): Promise<unknown> {
+    const native = ctx.invokeTool;
+    if (!native) throw new Error('Habblaud: o ask do omp não está disponível');
+    const input = isSub(ctx) ? undefined : askToHabblaud(params);
+    let sid: string | undefined;
+    let cwd = '';
+    try {
+      sid = input ? track(ctx) : undefined;
+      cwd = ctx.cwd ?? ctx.sessionManager.getCwd?.() ?? '';
+    } catch {
+      sid = undefined;
+    }
+    const id = sid && input ? (await register(sid, ASK_TOOL, input, cwd, ASK_WAIT_MS))?.id : undefined;
+    if (!id) return native(params, signal ? { signal } : undefined);
+
+    const stop = new AbortController();
+    const onAbort = () => stop.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      const local = native(params, { signal: stop.signal }).then(
+        (value) => ({ kind: 'local' as const, value }),
+        (error: unknown) => ({ kind: 'local-error' as const, error }),
+      );
+      // Do escritório só valem a resposta e o "Não responder"; o resto (pedido largado, prazo) deixa o terminal.
+      const remote = poll(id, stop.signal).then((o) => (o?.kind === 'answer' || (o?.kind === 'habblaud' && !o.allowed) ? o : never<never>()));
+      const first = await Promise.race([local, remote]);
+      stop.abort();
+      if (first.kind === 'local' || first.kind === 'local-error') {
+        await withdraw(id);
+        if (first.kind === 'local-error') throw first.error;
+        return first.value;
+      }
+      await local;
+      if (first.kind === 'habblaud') throw new Error(first.message ? `User declined to answer: ${first.message}` : 'User declined to answer');
+      const result = askResult(params, first.answers);
+      if (!result) throw new Error('Habblaud: resposta fora do formato do ask');
+      return result;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
+  let askShadowed = false;
+
+  /** Troca o `ask` nativo pelo de cima, com o mesmo nome, descrição e parâmetros (o nativo segue no invokeTool). */
+  function shadowAsk(): void {
+    if (askShadowed || !pi.getAllTools || !pi.registerTool) return;
+    const native = pi.getAllTools().find((t) => t.name === 'ask');
+    if (!native?.parameters) return;
+    askShadowed = true;
+    pi.registerTool({
+      name: 'ask',
+      label: 'Ask',
+      description: native.description ?? '',
+      parameters: native.parameters,
+      approval: 'read',
+      execute: (_id, params, signal, _onUpdate, ctx) => ask(params, signal, ctx),
     });
   }
 }
