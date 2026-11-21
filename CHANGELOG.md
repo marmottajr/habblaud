@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Contas espelhadas de outra máquina.** Uma pasta do Claude Code copiada de outro servidor (rsync, sshfs) com um
+  arquivo `.habblaud-remote` na raiz não tem o PID das sessões conferido nesta máquina, então as sessões ativas de lá
+  aparecem no escritório. Quem copia deve trazer só os registros (`sessions/*.json`) de sessões vivas.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido
