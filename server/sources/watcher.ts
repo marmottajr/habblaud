@@ -13,7 +13,7 @@ import type { Activity, AgentStatus, SourceInfo } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { errMsg, log } from '../log';
 import type { Office, TranscriptSummary } from '../model/office';
-import { compareVersions, registryStatus, RegistryReader, SHELL_STATUS_VERSION, type RegistryEntry } from './registry';
+import { compareVersions, isRemoteDir, registryStatus, RegistryReader, SHELL_STATUS_VERSION, type RegistryEntry } from './registry';
 import { SHELL_FALLBACK_MAX_AGE_MS, ShellTracker, toShellJob, type ShellFinish } from './shells';
 import type { AgentSource } from './source';
 import {
@@ -268,7 +268,10 @@ export class ClaudeWatcher implements AgentSource {
     for (const acc of this.opts.accounts.entries()) {
       let reader = this.readers.get(acc.dir);
       if (!reader) {
-        reader = new RegistryReader(acc.dir, { checkPid: !this.opts.inDocker, isAlive: this.opts.isAlive });
+        reader = new RegistryReader(acc.dir, {
+          checkPid: !this.opts.inDocker && !isRemoteDir(acc.dir),
+          isAlive: this.opts.isAlive,
+        });
         this.readers.set(acc.dir, reader);
         this.watchDir(join(acc.dir, 'sessions'));
       }

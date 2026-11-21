@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
-import { compareVersions, parseRegistryEntry, registryStatus, RegistryReader } from './registry';
+import { compareVersions, isRemoteDir, parseRegistryEntry, registryStatus, RegistryReader, REMOTE_MARKER } from './registry';
 
 const entry = (pid: number, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ pid, sessionId: `s-${pid}`, cwd: '/projetos/app', startedAt: 1, kind: 'interactive', status: 'idle', ...extra });
@@ -55,6 +55,12 @@ describe('registro de sessões', () => {
     expect(reader.poll().entries.map((e) => e.pid)).toEqual([10]);
     const docker = new RegistryReader(tmp.dir, { checkPid: false });
     expect(docker.poll().entries.map((e) => e.pid).sort()).toEqual([10, 11]);
+  });
+
+  it('pasta espelhada de outra máquina é marcada pelo arquivo .habblaud-remote', () => {
+    expect(isRemoteDir(tmp.dir)).toBe(false);
+    writeFileSync(join(tmp.dir, REMOTE_MARKER), '');
+    expect(isRemoteDir(tmp.dir)).toBe(true);
   });
 
   it('JSON inválido (gravação em andamento) mantém a última versão boa', () => {

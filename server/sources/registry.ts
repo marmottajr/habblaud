@@ -1,7 +1,7 @@
 // Registro de sessões ABERTAS do Claude Code: <configDir>/sessions/<pid>.json.
 // O arquivo existe enquanto o processo vive. Fora do Docker também confirmamos o PID
 // (um arquivo pode sobrar se o processo morrer sem limpar); no Docker os PIDs são do host.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentStatus } from '../../shared/types';
 import { describeWaitingFor } from '../../shared/activity';
@@ -92,6 +92,16 @@ export function registryStatus(e: RegistryEntry): { status?: AgentStatus; waitin
     default:
       return {};
   }
+}
+
+/**
+ * why: uma pasta espelhada de outra máquina (rsync/sshfs) traz PIDs que não existem aqui; o processo de cópia já só
+ * traz os registros de sessões vivas lá, então conferir o PID localmente esconderia todas elas.
+ */
+export const REMOTE_MARKER = '.habblaud-remote';
+
+export function isRemoteDir(configDir: string): boolean {
+  return existsSync(join(configDir, REMOTE_MARKER));
 }
 
 export function pidAlive(pid: number): boolean {
