@@ -10,6 +10,27 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Recolher o terminal.** Um botão na barra (ao lado do expandir), a tecla H ou Ctrl/⌘+Shift+H (que vale até
+  digitando) recolhem a janela da conversa numa barra no canto de baixo; a conversa continua chegando e o mesmo atalho,
+  o botão ou um duplo clique na barra abrem de novo.
+- **Anexos na caixa de mensagem.** O clipe, colar uma imagem (Ctrl/⌘+V) ou soltar arquivos na caixa anexam até 8
+  arquivos à mensagem; eles são gravados em `~/.habblaud/attachments/` (POST `/api/messages/attachments`, a mesma trava
+  das mensagens) e a mensagem leva os caminhos para o agente ler.
+- **Sessões do DeepSeek Harness no escritório.** As sessões em `~/.dsh/sessions` (`HABBLAUD_DSH_DIR` muda a
+  pasta, `HABBLAUD_DSH=0` desliga) viram agentes: trabalhando durante o turno, esperando numa aprovação, com as
+  ferramentas, as tarefas, o modelo e os tokens de cada sessão aberta na última hora.
+- **Terminal ao vivo dos agentes do DeepSeek Harness.** A tecla T (ou o botão do terminal) abre a conversa da
+  sessão do DSH — prompts, raciocínio, ferramentas e resultados — lida direto do `session.v4.jsonl.zstd`.
+- **Mensagens pelo escritório para o DeepSeek Harness.** Com o bundle `mod/dsh-habblaud-mensagens` instalado no DSH
+  (Plugins › Adicionar plugin › pasta local), o que você digita na caixa do agente entra na fila da sessão do DSH.
+- **Subagentes do DeepSeek Harness.** Os subagentes que uma sessão do DSH abre (`subagent`, `workflow`) entram na
+  sala junto do agente que os chamou, com o rótulo da tarefa e o terminal ao vivo, e entregam o trabalho (📦) quando
+  terminam.
+- **Chinês simplificado (简体中文)**, agora o idioma padrão (`HABBLAUD_LANG` ou Configurações › Idioma trocam). O
+  Habblaud World, que não tem chinês, recebe inglês.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

@@ -656,6 +656,10 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private movable: Movable;
   /** Caixa de mensagem do rodapé (só a sessão ao vivo de um agente principal). */
   private composer: MessageComposer;
+  /** Recolhido: só a barra, no canto de baixo (a conversa continua chegando). */
+  private minimized = false;
+  private minBtn: HTMLButtonElement;
+  private minKey: string;
 
   constructor(
     private ctx: UiContext,
@@ -678,6 +682,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.findBtn = iconButton(ICONS.search, tr('Buscar na conversa ({0})', [findKey]), () => this.toggleSearch(), 'ui-icon-btn--sm ui-term__find');
     setAttr(this.findBtn, 'aria-expanded', 'false');
     const close = iconButton(ICONS.close, tr('Fechar terminal (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
+    this.minBtn = iconButton(ICONS.minimize, '', () => this.toggleMinimize(), 'ui-icon-btn--sm ui-term__min');
+    this.minKey = mac ? '⌘⇧H' : 'Ctrl+Shift+H';
     const bar = h(
       'div',
       { class: 'ui-term__bar' },
@@ -687,9 +693,15 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       this.reconnEl,
       this.findBtn,
       ...(this.actions ? [this.actions.el] : []),
+      this.minBtn,
       maximizeButton(() => this.movable),
       close,
     );
+    // Recolhido, um duplo clique na barra abre de novo.
+    bar.addEventListener('dblclick', (e) => {
+      if (!this.minimized || (e.target instanceof Element && e.target.closest('button, a, input'))) return;
+      this.setMinimized(false);
+    });
 
     // Barra de ferramentas: filtro (segmentado) e a busca, que aparece com Ctrl/⌘+F ou a lupa.
     const filters = h('div', { class: 'ui-seg ui-term__filter', role: 'radiogroup', attrs: { 'aria-label': tr('Filtrar a conversa') } });
@@ -761,6 +773,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     // Arrastar pela barra solta a janela (ui/movable.ts).
     this.movable = new Movable(this.el, bar, { key: 'habblaud.move.term', enabled: () => !ctx.isNarrow() });
     this.renderFilter();
+    this.syncMinimize();
     // Janela redimensionada: quem está no fim continua vendo o fim.
     if (typeof ResizeObserver === 'function') new ResizeObserver(() => this.follow && this.scrollToEnd()).observe(this.scroll);
   }
@@ -793,11 +806,47 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.session = null;
     this.last = null;
     this.el.hidden = true;
+    if (this.minimized) {
+      this.minimized = false;
+      this.syncMinimize();
+    }
     this.clear();
     const opener = this.opener;
     this.opener = null;
     if (hadFocus && opener?.isConnected) opener.focus({ preventScroll: true });
     this.ctx.invalidate();
+  }
+
+  get isMinimized(): boolean {
+    return this.minimized;
+  }
+
+  /** Recolhe a janela na barra (ou abre de novo): atalho H fora dela, Ctrl/⌘+Shift+H dentro. */
+  toggleMinimize(): void {
+    if (this.id === null) return;
+    this.setMinimized(!this.minimized);
+  }
+
+  private setMinimized(next: boolean): void {
+    if (next === this.minimized) return;
+    if (next && this.movable.maximized) this.movable.toggleMaximize(false);
+    this.minimized = next;
+    this.syncMinimize();
+    if (!next) {
+      if (this.follow) requestAnimationFrame(() => this.scrollToEnd());
+      if (this.id !== null) this.focusLog();
+    } else if (this.el.contains(document.activeElement)) this.minBtn.focus({ preventScroll: true });
+    this.ctx.invalidate();
+  }
+
+  private syncMinimize(): void {
+    const min = this.minimized;
+    this.el.classList.toggle('is-min', min);
+    this.minBtn.innerHTML = min ? ICONS.unminimize : ICONS.minimize;
+    const label = min ? tr('Abrir a conversa ({0})', [this.minKey]) : tr('Recolher a conversa ({0})', [this.minKey]);
+    setTitle(this.minBtn, label);
+    setAttr(this.minBtn, 'aria-label', label);
+    setAttr(this.minBtn, 'aria-expanded', String(!min));
   }
 
   toggle(agentId: string, opener: HTMLElement | null = activeElement()): void {
@@ -829,6 +878,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   /** Abre o painel numa conversa nova (agente ou sessão do histórico); a mesma conversa só recebe o foco. */
   private start(id: string, session: RecentSession | null, opener: HTMLElement | null): void {
     if (opener && !this.el.contains(opener)) this.opener = opener;
+    // Abrir (de novo) uma conversa tira a janela do canto.
+    if (this.minimized) this.setMinimized(false);
     if (this.id === id) {
       this.focusLog();
       return;
@@ -895,6 +946,12 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     if (e.defaultPrevented) return;
     const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
     const key = e.key.toLowerCase();
+    if (mod && e.shiftKey && key === 'h') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleMinimize();
+      return;
+    }
     // Ctrl/⌘+F com o terminal em foco busca na conversa (fora dele, continua sendo a busca do navegador).
     if (mod && !e.shiftKey && key === 'f') {
       e.preventDefault();

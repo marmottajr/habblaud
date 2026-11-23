@@ -16,7 +16,7 @@ import { handleStatsRoute } from './stats';
 import type { TerminalStreams } from './terminal';
 import { tr } from '../../shared/i18n';
 import type { SpawnService } from '../spawn/spawn';
-import { ATTACHMENT_BODY_MAX, parseAttachment, type AttachmentStore } from '../spawn/attachments';
+import { ATTACHMENT_BODY_MAX, attachmentsRoot, parseAttachment, writeAttachments, type AttachmentStore } from '../spawn/attachments';
 import type { SpawnFolder } from '../spawn/folders';
 import { AUDIO_BODY_MAX, type DictationService } from '../dictation/dictation';
 import type { DeliveryIndex } from '../deliveries/deliveries';
@@ -640,6 +640,18 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         });
       } else if (!trusted(req, 'messages')) {
         sendJson(res, 403, { error: denied(req, tr('mensagens só são mandadas pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else if (path === '/api/messages/attachments') {
+        // Anexo da caixa de mensagem: gravado na hora em ~/.habblaud/attachments/ e a mensagem leva o caminho.
+        if (method !== 'POST') methodNotAllowed(res, 'POST');
+        else
+          readJson(req, ATTACHMENT_BODY_MAX)
+            .then((body) => {
+              const a = parseAttachment(body);
+              if ('error' in a) return sendJson(res, 400, { error: a.error });
+              const [file] = writeAttachments(attachmentsRoot(), `msg${Math.random().toString(36).slice(2, 7)}`, [a]);
+              sendJson(res, 201, { path: file, name: a.name, size: a.data.length });
+            })
+            .catch((err) => fail(res, err));
       } else {
         deps.messages(req, res, path);
       }

@@ -50,7 +50,7 @@ export class Movable {
     handle.addEventListener('pointerup', (e) => this.onUp(e, handle));
     handle.addEventListener('pointercancel', (e) => this.onUp(e, handle));
     handle.addEventListener('dblclick', (e) => {
-      if (interactive(e.target)) return;
+      if (interactive(e.target) || this.parked) return;
       if (this.max) this.toggleMaximize();
       else this.dock();
     });
@@ -69,7 +69,7 @@ export class Movable {
     // Redimensionado pelo canto (resize: both): guarda o tamanho novo.
     if (typeof ResizeObserver === 'function') {
       new ResizeObserver(() => {
-        if (!this.box || this.max || this.drag?.moving || this.sizing || this.el.hidden) return;
+        if (!this.box || this.max || this.parked || this.drag?.moving || this.sizing || this.el.hidden) return;
         const w = this.el.offsetWidth;
         const h = this.el.offsetHeight;
         if (!w || !h || (w === this.box.w && h === this.box.h)) return;
@@ -78,6 +78,11 @@ export class Movable {
         this.opts.onMove?.();
       }).observe(el);
     }
+  }
+
+  /** Recolhida na barra (classe is-min): não arrasta, não redimensiona e não guarda o tamanho. */
+  private get parked(): boolean {
+    return this.el.classList.contains('is-min');
   }
 
   get floating(): boolean {
@@ -137,7 +142,7 @@ export class Movable {
     g.className = `ui-resize ui-resize--${edge}`;
     g.setAttribute('aria-hidden', 'true');
     g.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || this.max || !this.allowed()) return;
+      if (e.button !== 0 || this.max || this.parked || !this.allowed()) return;
       e.preventDefault();
       e.stopPropagation();
       const r = this.el.getBoundingClientRect();
@@ -184,7 +189,7 @@ export class Movable {
   }
 
   private onDown(e: PointerEvent, handle: HTMLElement): void {
-    if (e.button !== 0 || this.max || interactive(e.target) || !this.allowed()) return;
+    if (e.button !== 0 || this.max || this.parked || interactive(e.target) || !this.allowed()) return;
     const r = this.el.getBoundingClientRect();
     this.drag = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top, sx: e.clientX, sy: e.clientY, moving: false };
     handle.setPointerCapture(e.pointerId);

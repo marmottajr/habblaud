@@ -83,6 +83,7 @@ const SHORTCUTS: [string[], string][] = [
   [['/'], tr('Buscar agente, projeto ou conta')],
   [['F'], tr('Seguir o agente selecionado')],
   [['T'], tr('Abrir ou fechar o terminal do agente selecionado')],
+  [['H', 'Ctrl+Shift+H'], tr('Recolher o terminal aberto no canto (ou abrir de novo); Ctrl+Shift+H vale até digitando')],
   [['Ctrl+F'], tr('Com o terminal em foco: buscar na conversa (⌘F no Mac); Enter e Shift+Enter navegam')],
   [['L'], tr('Abrir ou fechar o timelapse do dia')],
   [['P'], tr('Ir até o próximo pedido de permissão ou pergunta para responder pelo escritório')],

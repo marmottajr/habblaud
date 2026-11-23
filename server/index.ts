@@ -37,9 +37,10 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { discoverDshDir, DshSource } from './sources/dsh/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
-import { getLocale, tr } from '../shared/i18n';
+import { getLocale, tr, worldLocaleOf } from '../shared/i18n';
 import type { WorldLocale } from '../shared/world/protocol';
 import { createCliRunner, createOpener, SpawnService } from './spawn/spawn';
 import { runnableClaudeBin } from './claude-bin';
@@ -135,6 +136,10 @@ const office = new Office({
 // ela mesma (accounts.setProviderAccounts). `codex` também recebe os eventos dos hooks do Codex (CodexLive).
 const claude = new ClaudeWatcher({ accounts, office, inDocker: config.inDocker });
 const agents = new SourceSet([claude]);
+// Sessões do DeepSeek Harness (~/.dsh/sessions; HABBLAUD_DSH_DIR muda a pasta, HABBLAUD_DSH=0 desliga).
+const dshDir = config.dsh ? discoverDshDir(process.env, config.home) : undefined;
+const dsh = dshDir ? new DshSource({ accounts, office, dir: dshDir, env: process.env }) : undefined;
+if (dsh) agents.add(dsh);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
@@ -162,7 +167,7 @@ const worldUplink =
           const b = readBuildInfo(config.rootDir);
           return { commit: b.commit, dirty: b.dirty };
         },
-        locale: () => getLocale() as WorldLocale,
+        locale: (): WorldLocale => worldLocaleOf(),
         store: worldStore,
         canAct: () => config.terminal,
         agents: () => office.list(),
@@ -480,6 +485,12 @@ server.listen(config.port, config.host, () => {
     const src = agents.sources().find((s) => s.label === a.id);
     const usage = accounts.usageView(a.id).status;
     log.info(tr('   Conta {0} ({1}): {2} sessão(ões) aberta(s) · uso: {3} · {4}', [a.detected.short, a.id, src?.sessions ?? 0, usage, a.dir]));
+  }
+  if (dsh) {
+    const open = dsh.sources().reduce((n, s) => n + s.sessions, 0);
+    log.info(tr('   DeepSeek Harness: {0} sessão(ões) aberta(s) · {1}', [open, dshDir]));
+  } else {
+    log.info(tr('   DeepSeek Harness: {0}.', [config.dsh ? tr('pasta ~/.dsh/sessions não encontrada (defina HABBLAUD_DSH_DIR)') : tr('desligado (HABBLAUD_DSH=0)')]));
   }
   if (codex) {
     const codexAccounts = codex.accountEntries();

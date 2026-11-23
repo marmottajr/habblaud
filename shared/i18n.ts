@@ -9,10 +9,11 @@
 // Os textos de atividade são montados pelo servidor, então seguem o idioma do servidor.
 import { DICTIONARIES } from './locales/all';
 
-export type Locale = 'pt-BR' | 'en' | 'es' | 'fr';
+export type Locale = 'zh-CN' | 'pt-BR' | 'en' | 'es' | 'fr';
 
 /** Na ordem do seletor; o nome de cada idioma vai na própria língua, para quem não entende o idioma atual. */
 export const LOCALES: { id: Locale; name: string }[] = [
+  { id: 'zh-CN', name: '简体中文' },
   { id: 'pt-BR', name: 'Português' },
   { id: 'en', name: 'English' },
   { id: 'es', name: 'Español' },
@@ -34,6 +35,7 @@ export function registerDictionary(l: Locale, dict: Readonly<Record<string, stri
 export function normalizeLocale(v: string | null | undefined): Locale | undefined {
   const s = (v ?? '').trim().toLowerCase().replace('_', '-');
   if (!s) return undefined;
+  if (s === 'zh' || s.startsWith('zh-')) return 'zh-CN';
   if (s === 'fr' || s.startsWith('fr-')) return 'fr';
   if (s === 'pt' || s.startsWith('pt-')) return 'pt-BR';
   if (s === 'en' || s.startsWith('en-')) return 'en';
@@ -47,14 +49,11 @@ export function normalizeLocale(v: string | null | undefined): Locale | undefine
  * containers vêm em inglês por padrão (en_US, ou o en-US do Node sem LANG), mesmo para quem usa outra língua, e o
  * escritório mudaria de idioma sozinho. Para o servidor em inglês: HABBLAUD_LANG=en.
  */
-export function serverLocale(env: Record<string, string | undefined>, intl?: string): Locale {
-  const own = normalizeLocale(env.HABBLAUD_LANG);
-  if (own) return own;
-  for (const v of [env.LC_ALL, env.LC_MESSAGES, env.LANG, intl]) {
-    const n = normalizeLocale(v);
-    if (n && n !== 'en') return n;
-  }
-  return 'pt-BR';
+/** Idioma padrão desta instalação: chinês simplificado (sem preferência salva nem HABBLAUD_LANG). */
+export const DEFAULT_LOCALE: Locale = 'zh-CN';
+
+export function serverLocale(env: Record<string, string | undefined>, _intl?: string): Locale {
+  return normalizeLocale(env.HABBLAUD_LANG) ?? DEFAULT_LOCALE;
 }
 
 function detect(): Locale {
@@ -71,11 +70,7 @@ function detect(): Locale {
     } catch {
       // localStorage bloqueado (modo privado, iframe): segue para os idiomas do navegador.
     }
-    for (const l of g.navigator?.languages ?? [g.navigator?.language ?? '']) {
-      const n = normalizeLocale(l);
-      if (n) return n;
-    }
-    return 'pt-BR';
+    return DEFAULT_LOCALE;
   }
   const env = g.process?.env ?? {};
   // Os testes comparam textos em PT: ficam em PT mesmo numa máquina em outro idioma.
@@ -111,7 +106,12 @@ export function tr(src: string, args?: readonly unknown[]): string {
   return s.replace(/\{(\d+)\}/g, (m, i: string) => (Number(i) < args.length ? String(args[Number(i)]) : m));
 }
 
+/** Idioma para o Habblaud World, que só conhece pt-BR, en, es e fr: os outros (zh-CN) vão como inglês. */
+export function worldLocaleOf(l: Locale = current): 'pt-BR' | 'en' | 'es' | 'fr' {
+  return l === 'zh-CN' ? 'en' : l;
+}
+
 /** Idioma no formato do Intl (datas, números). */
 export function intlLocale(): string {
-  return current === 'fr' ? 'fr-FR' : current === 'en' ? 'en-US' : current === 'es' ? 'es' : 'pt-BR';
+  return current === 'zh-CN' ? 'zh-CN' : current === 'fr' ? 'fr-FR' : current === 'en' ? 'en-US' : current === 'es' ? 'es' : 'pt-BR';
 }

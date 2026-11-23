@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Habblaud messages",
+    "description": "Every 2 seconds asks the local Habblaud (http://127.0.0.1:4747, or HABBLAUD_PORT) whether someone typed a message for a running session in the office, and queues it into that session as if you had typed it. Only talks to 127.0.0.1."
+  }
+}

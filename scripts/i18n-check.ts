@@ -6,10 +6,11 @@ import { join, relative } from 'node:path';
 import { EN } from '../shared/locales/en';
 import { ES } from '../shared/locales/es';
 import { FR } from '../shared/locales/fr';
+import { ZH } from '../shared/locales/zh';
 
 const ROOT = join(import.meta.dirname, '..');
 const DIRS = ['client/src', 'shared', 'server', 'scripts'];
-const DICTS: Record<string, Readonly<Record<string, string>>> = { en: EN, es: ES, fr: FR };
+const DICTS: Record<string, Readonly<Record<string, string>>> = { en: EN, es: ES, fr: FR, zh: ZH };
 
 /** Primeiro argumento literal de cada tr('...') do código (sem os testes). */
 export function collectKeys(root = ROOT): Map<string, string[]> {

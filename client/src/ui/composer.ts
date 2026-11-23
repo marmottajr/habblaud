@@ -25,9 +25,24 @@ import {
 } from './composer-model';
 import type { UiContext } from './context';
 import { DictationButton, dictationAvailable, insertDictation } from './dictation';
-import { h, setAttr, setHidden, setText, setTitle } from './dom';
+import { h, iconButton, setAttr, setHidden, setText, setTitle } from './dom';
+import { ICONS } from './icons';
+import { fileToBase64, formatBytes, MAX_FILE_BYTES, MAX_FILES } from './spawn';
 import { access } from '../net/access';
 import { tr } from '../../../shared/i18n';
+
+/** Anexo escolhido para a próxima mensagem (sobe ao mandar: POST /api/messages/attachments, um por arquivo). */
+interface PendingFile {
+  file: File;
+  url?: string;
+}
+
+/** A mensagem com os caminhos dos anexos no fim (o agente lê os arquivos pelos caminhos). */
+export function textWithAttachments(text: string, paths: readonly string[]): string {
+  if (!paths.length) return text;
+  const head = paths.length === 1 ? tr('Anexo enviado pelo Habblaud:') : tr('Anexos enviados pelo Habblaud:');
+  return `${text.trim() ? `${text}\n\n` : ''}${head}\n${paths.map((p) => `- ${p}`).join('\n')}`;
+}
 
 export type ComposerVariant = 'drawer' | 'terminal';
 
@@ -65,6 +80,13 @@ export class MessageComposer {
   /** Rascunho que recebe o ditado em andamento (o agente pode mudar enquanto o Mac transcreve). */
   private dictKey = '';
   private canDictate = false;
+  /** Anexos de cada agente esperando o envio (como o rascunho, só na memória). */
+  private files = new Map<string, PendingFile[]>();
+  private fileInput: HTMLInputElement;
+  private attachBtn: HTMLButtonElement;
+  private fileList: HTMLElement;
+  /** Aviso dos anexos (grande demais, limite, falha ao subir). */
+  private fileNote: HTMLElement;
 
   constructor(
     private ctx: UiContext,
@@ -102,9 +124,24 @@ export class MessageComposer {
     );
     this.dictate.el.classList.add('ui-msg__mic');
     setHidden(this.dictate.el, true);
-    this.row = h('div', { class: `ui-msg__row${term ? ' ui-term__prompt ui-term__prompt--mic' : ''}` });
+    // Anexos: o clipe, colar uma imagem (Ctrl/⌘+V) ou soltar arquivos na caixa.
+    this.fileInput = h('input', { type: 'file', hidden: true, attrs: { multiple: true, 'aria-hidden': 'true', tabindex: '-1' } });
+    this.fileInput.addEventListener('change', () => {
+      this.addFiles([...(this.fileInput.files ?? [])]);
+      this.fileInput.value = '';
+    });
+    this.attachBtn = iconButton(ICONS.attach, tr('Anexar imagens ou arquivos (ou cole/solte na caixa)'), () => this.fileInput.click(), 'ui-msg__attach');
+    this.fileList = h('ul', { class: 'ui-spawn__files ui-msg__files', attrs: { 'aria-label': tr('Anexos') } });
+    this.fileNote = h('p', { class: 'ui-msg__status is-error', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
+    this.box.addEventListener('paste', (e) => {
+      const list = [...(e.clipboardData?.files ?? [])];
+      if (!list.length || this.box.disabled) return;
+      e.preventDefault();
+      this.addFiles(list);
+    });
+    this.row = h('div', { class: `ui-msg__row${term ? ' ui-term__prompt ui-term__prompt--mic ui-term__prompt--attach' : ''}` });
     if (term) this.row.append(h('span', { class: 'ui-term__caret', text: '>', attrs: { 'aria-hidden': 'true' } }));
-    this.row.append(this.box, this.dictate.el, this.sendBtn);
+    this.row.append(this.box, this.attachBtn, this.dictate.el, this.sendBtn, this.fileInput);
     // Clique na "linha do prompt" (fora do botão) põe o cursor na caixa, como num terminal.
     this.row.addEventListener('mousedown', (e) => {
       if (e.target === this.row && !this.box.disabled) {
@@ -115,7 +152,23 @@ export class MessageComposer {
     this.hint = h('p', { class: 'ui-msg__hint', hidden: true });
     this.status = h('p', { class: 'ui-msg__status', role: 'status', hidden: true, attrs: { 'aria-live': 'polite' } });
     this.tip = term ? null : h('p', { class: 'ui-msg__tip', text: composerTip() });
-    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.row, this.dictStatus, this.status, this.tip);
+    this.el = h('div', { class: `ui-msg ui-msg--${variant}` }, this.hint, this.fileList, this.row, this.fileNote, this.dictStatus, this.status, this.tip);
+    this.el.addEventListener('dragover', (e) => {
+      if (this.mode.kind !== 'ready' || !e.dataTransfer?.types.includes('Files')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      this.el.classList.add('is-drop');
+    });
+    this.el.addEventListener('dragleave', (e) => {
+      if (!this.el.contains(e.relatedTarget as Node | null)) this.el.classList.remove('is-drop');
+    });
+    this.el.addEventListener('drop', (e) => {
+      this.el.classList.remove('is-drop');
+      const list = [...(e.dataTransfer?.files ?? [])];
+      if (this.mode.kind !== 'ready' || !list.length) return;
+      e.preventDefault();
+      this.addFiles(list);
+    });
   }
 
   /**
@@ -144,8 +197,12 @@ export class MessageComposer {
       this.box.value = ready ? (this.drafts.get(key) ?? '') : '';
       this.box.style.height = '';
       if (ready) requestAnimationFrame(() => this.resize());
+      setHidden(this.fileNote, true);
+      this.renderFiles();
     }
     this.box.disabled = !ready;
+    setHidden(this.attachBtn, !ready);
+    setHidden(this.fileList, !ready);
     const name = agent?.name ?? tr('o agente');
     const placeholder = ready ? (term ? tr('Mensagem para {0} (Enter manda, Shift+Enter quebra a linha)', [name]) : tr('Mensagem para {0}…', [name])) : mode.text;
     setAttr(this.box, 'placeholder', placeholder);
@@ -228,7 +285,100 @@ export class MessageComposer {
   }
 
   private syncButton(): void {
-    this.sendBtn.disabled = this.mode.kind !== 'ready' || !canSend(this.box.value) || this.states.get(this.agentId)?.phase === 'sending';
+    this.sendBtn.disabled = this.mode.kind !== 'ready' || !this.sendable(this.agentId, this.box.value) || this.states.get(this.agentId)?.phase === 'sending';
+  }
+
+  /** Dá para mandar: texto válido, ou só anexos (com texto vazio). */
+  private sendable(agentId: string, raw: string): boolean {
+    if (canSend(raw)) return true;
+    return !!this.files.get(agentId)?.length && messageText(raw).length <= MESSAGE_MAX;
+  }
+
+  // ---------------------------------------------------------------- anexos
+
+  private addFiles(list: File[]): void {
+    const key = this.agentId;
+    const cur = this.files.get(key) ?? [];
+    let note = '';
+    for (const file of list) {
+      if (cur.length >= MAX_FILES) {
+        note = tr('No máximo {0} anexos por pedido.', [MAX_FILES]);
+        break;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        note = tr('{0} passa de {1} MB.', [file.name, MAX_FILE_BYTES / 1024 / 1024]);
+        continue;
+      }
+      if (!file.size) continue;
+      cur.push({ file, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined });
+    }
+    this.files.set(key, cur);
+    setText(this.fileNote, note);
+    setHidden(this.fileNote, !note);
+    this.renderFiles();
+    this.syncButton();
+    this.box.focus({ preventScroll: true });
+  }
+
+  private removeFile(key: string, item: PendingFile): void {
+    if (item.url) URL.revokeObjectURL(item.url);
+    const left = (this.files.get(key) ?? []).filter((f) => f !== item);
+    if (left.length) this.files.set(key, left);
+    else this.files.delete(key);
+    if (key === this.agentId) {
+      this.renderFiles();
+      this.syncButton();
+    }
+  }
+
+  private clearFiles(key: string, sent: readonly PendingFile[]): void {
+    for (const f of sent) this.removeFile(key, f);
+  }
+
+  /** Lista dos anexos da caixa atual (miniatura da imagem, nome, tamanho e o × para tirar). */
+  private renderFiles(): void {
+    const key = this.agentId;
+    const items = this.files.get(key) ?? [];
+    this.fileList.replaceChildren(
+      ...items.map((item) => {
+        const { file, url } = item;
+        const thumb = url
+          ? h('img', { class: 'ui-spawn__thumb', attrs: { src: url, alt: '' } })
+          : h('span', { class: 'ui-spawn__thumb ui-spawn__thumb--doc', attrs: { 'aria-hidden': 'true' }, text: (file.name.split('.').pop() ?? '').slice(0, 4).toUpperCase() || tr('ARQ') });
+        const remove = iconButton(ICONS.close, tr('Tirar {0}', [file.name]), () => this.removeFile(key, item), 'ui-icon-btn--sm ui-spawn__file-x');
+        return h(
+          'li',
+          { class: 'ui-spawn__file' },
+          thumb,
+          h('span', { class: 'ui-spawn__file-name', text: file.name, attrs: { title: file.name } }),
+          h('span', { class: 'ui-spawn__file-size', text: formatBytes(file.size) }),
+          remove,
+        );
+      }),
+    );
+  }
+
+  /** Sobe os anexos (um por vez) e devolve os caminhos gravados no computador. */
+  private async upload(items: readonly PendingFile[]): Promise<string[] | { error: string }> {
+    const paths: string[] = [];
+    for (const item of items) {
+      let res: Response;
+      try {
+        res = await fetch('/api/messages/attachments', {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: item.file.name, type: item.file.type, data: await fileToBase64(item.file) }),
+        });
+      } catch {
+        return { error: OFFLINE_ERROR };
+      }
+      const body = (await res.json().catch(() => ({}))) as { path?: string; error?: string };
+      if (!res.ok || typeof body.path !== 'string') return { error: body.error ?? tr('erro {0}', [res.status]) };
+      paths.push(body.path);
+    }
+    return paths;
   }
 
   /** Cresce com o texto até o limite do CSS (~6 linhas; depois rola). Escondida, mede quando aparecer. */
@@ -248,15 +398,26 @@ export class MessageComposer {
   private async send(): Promise<void> {
     const agentId = this.agentId;
     const raw = this.box.value;
-    if (this.mode.kind !== 'ready' || !canSend(raw) || this.states.get(agentId)?.phase === 'sending') return;
+    if (this.mode.kind !== 'ready' || !this.sendable(agentId, raw) || this.states.get(agentId)?.phase === 'sending') return;
     this.providers.set(agentId, this.provider);
     this.setState(agentId, { phase: 'sending', at: Date.now() });
+    const attached = [...(this.files.get(agentId) ?? [])];
     let r: { message: OutboxMessage } | { error: string };
-    try {
-      r = await this.ctx.store.sendMessage(agentId, messageText(raw));
-    } catch {
-      r = { error: OFFLINE_ERROR };
+    const paths = attached.length ? await this.upload(attached) : [];
+    if (!Array.isArray(paths)) r = paths;
+    else {
+      const text = textWithAttachments(messageText(raw), paths);
+      if (text.length > MESSAGE_MAX) r = { error: tr('a mensagem com os anexos passa de {0} caracteres', [MESSAGE_MAX]) };
+      else {
+        try {
+          r = await this.ctx.store.sendMessage(agentId, text);
+        } catch {
+          r = { error: OFFLINE_ERROR };
+        }
+      }
     }
+    // Aceita: os anexos mandados saem da caixa (os escolhidos enquanto subiam ficam).
+    if (!('error' in r)) this.clearFiles(agentId, attached);
     if ('error' in r) {
       // Recusada: o texto continua na caixa para tentar de novo.
       this.setState(agentId, { phase: 'rejected', error: r.error, at: Date.now() });

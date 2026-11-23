@@ -381,7 +381,14 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   addEventListener('keydown', (e) => onKey(e));
 
   function onKey(e: KeyboardEvent): void {
-    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.defaultPrevented) return;
+    // Ctrl/⌘+Shift+H em qualquer lugar (até digitando): recolhe ou abre a janela da conversa.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'h' && terminal.isOpen && !inCity()) {
+      e.preventDefault();
+      terminal.toggleMinimize();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     // Na cidade os atalhos do escritório ficam desligados: Esc fecha o cartão aberto ou volta ao escritório.
     if (inCity()) {
       if (e.key === 'Escape') {
@@ -397,7 +404,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     if (e.key === 'Escape') {
       if (help.isOpen || settings.isOpen || worldDialog.isOpen || history.isOpen) return; // diálogo/popover tratam o próprio Esc
       // O terminal flutua sobre tudo: fecha primeiro (a busca dele, depois ele; a gaveta continua aberta).
-      if (terminal.isOpen) {
+      // Recolhido no canto, o terminal não consome o Esc (fecha-se pelo × dele).
+      if (terminal.isOpen && !terminal.isMinimized) {
         terminal.escape();
         e.preventDefault();
       } else if (ctx.isNarrow() && panels.sidebar) {
@@ -454,6 +462,13 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       case 'M':
         e.preventDefault();
         day.toggle();
+        break;
+      case 'h':
+      case 'H':
+        // H: recolhe a conversa aberta na barra (ou abre de novo).
+        if (!terminal.isOpen) break;
+        e.preventDefault();
+        terminal.toggleMinimize();
         break;
       case '[':
         e.preventDefault();

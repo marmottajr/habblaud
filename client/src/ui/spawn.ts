@@ -71,7 +71,7 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
 }
 
-function fileToBase64(file: Blob): Promise<string> {
+export function fileToBase64(file: Blob): Promise<string> {
   return new Promise((ok, fail) => {
     const r = new FileReader();
     r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, ''));

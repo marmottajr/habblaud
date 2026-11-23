@@ -3,7 +3,7 @@
 // do protocolo conferidas contra o resto do código.
 import { describe, expect, it } from 'vitest';
 import * as appearance from '../appearance';
-import { LOCALES as UI_LOCALES } from '../i18n';
+import { LOCALES as UI_LOCALES, worldLocaleOf } from '../i18n';
 import schemaJson from './schema.json';
 import { compileValidator } from './schema-validator';
 import {
@@ -215,7 +215,9 @@ describe('listas do protocolo', () => {
     expect(TRAIT_CLASHES.map((p) => p.join('×'))).toEqual(['timidez×piadas', 'timidez×fofoca', 'apostas×economia', 'esporte×sonecas', 'calma×competicao']);
     for (const [a, b] of TRAIT_CLASHES) expect(TRAIT_IDS.includes(a) && TRAIT_IDS.includes(b)).toBe(true);
     expect(LOCALES).toBe(WORLD_LOCALES);
-    expect([...WORLD_LOCALES]).toEqual(UI_LOCALES.map((l) => l.id));
+    // Todo idioma do mundo existe na interface; um da interface que o mundo não tem (zh-CN) vai como um dele.
+    for (const l of WORLD_LOCALES) expect(UI_LOCALES.map((u) => u.id)).toContain(l);
+    for (const u of UI_LOCALES) expect(WORLD_LOCALES).toContain(worldLocaleOf(u.id));
     expect(GOODBYE_REASONS).toEqual(expect.arrayContaining(['waiting', 'unauthorized', 'banned', 'suspended', 'update', 'no_player']));
     expect(PLAYER_NAME_LIMITS).toEqual({ min: 3, max: 20 });
   });

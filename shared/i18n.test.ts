@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLocale, intlLocale, normalizeLocale, serverLocale, setLocale, tr } from './i18n';
+import { getLocale, intlLocale, normalizeLocale, serverLocale, setLocale, tr, worldLocaleOf } from './i18n';
 import { EN } from './locales/en';
 import { ES } from './locales/es';
 import { FR } from './locales/fr';
+import { ZH } from './locales/zh';
 
 const placeholders = (s: string) => new Set(s.match(/\{\w+\}/g) ?? []);
 
@@ -43,16 +44,22 @@ describe('i18n', () => {
     expect(tr('{0} e {1}', ['um'])).toBe('um e {1}');
   });
 
-  it('servidor: HABBLAUD_LANG vale para qualquer idioma; do sistema, o inglês não conta', () => {
+  it('servidor: HABBLAUD_LANG vale para qualquer idioma; sem ele, chinês simplificado', () => {
     expect(serverLocale({ HABBLAUD_LANG: 'en' }, 'pt-BR')).toBe('en');
     expect(serverLocale({ HABBLAUD_LANG: 'es-MX', LANG: 'fr_FR.UTF-8' })).toBe('es');
-    // Mac com LANG em inglês e o container sem LANG (Intl en-US): o escritório fica em português.
-    expect(serverLocale({ LANG: 'en_US.UTF-8' }, 'en-US')).toBe('pt-BR');
-    expect(serverLocale({}, 'en-US')).toBe('pt-BR');
-    expect(serverLocale({ LANG: 'en_US.UTF-8' }, 'pt-BR')).toBe('pt-BR');
-    expect(serverLocale({ LANG: 'fr_FR.UTF-8' })).toBe('fr');
-    expect(serverLocale({ LC_ALL: 'es_ES.UTF-8', LANG: 'en_US.UTF-8' })).toBe('es');
-    expect(serverLocale({}, 'es-AR')).toBe('es');
+    expect(serverLocale({ HABBLAUD_LANG: 'pt' })).toBe('pt-BR');
+    expect(serverLocale({ LANG: 'en_US.UTF-8' }, 'en-US')).toBe('zh-CN');
+    expect(serverLocale({}, 'pt-BR')).toBe('zh-CN');
+    expect(normalizeLocale('zh_CN.UTF-8')).toBe('zh-CN');
+  });
+
+  it('chinês simplificado traduz; o Habblaud World recebe inglês', () => {
+    setLocale('zh-CN');
+    expect(tr('Lendo {0}', ['app.ts'])).toContain('app.ts');
+    expect(tr('Lendo {0}', ['app.ts'])).not.toBe('Lendo app.ts');
+    expect(intlLocale()).toBe('zh-CN');
+    expect(worldLocaleOf()).toBe('en');
+    expect(worldLocaleOf('fr')).toBe('fr');
   });
 
   it('inglês e espanhol traduzem e usam o formato de data do idioma', () => {
@@ -63,7 +70,7 @@ describe('i18n', () => {
   });
 
   it('nenhuma tradução fica vazia nem perde ou inventa lacunas', () => {
-    for (const [lang, dict] of Object.entries({ en: EN, es: ES, fr: FR })) {
+    for (const [lang, dict] of Object.entries({ en: EN, es: ES, fr: FR, zh: ZH })) {
       for (const [pt, t] of Object.entries(dict)) {
         expect(t.trim(), `${lang}: ${pt}`).not.toBe('');
         const original = placeholders(pt);

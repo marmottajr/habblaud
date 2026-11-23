@@ -15,6 +15,7 @@ import { demoTerminalEntries } from '../../shared/demo/terminal';
 import type { Activity, AgentInfo, TerminalEntry, TerminalInit } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
+import { ZstdTail } from '../sources/dsh/terminal';
 import { FileTail } from '../sources/tail';
 import { createTerminalParser, type TerminalParser } from '../sources/terminal';
 import { sendJson } from './app';
@@ -95,8 +96,13 @@ function parseInto(parser: TerminalParser, lines: readonly string[], out: Termin
  * Agente real (ou sessão do histórico): lê o transcript JSONL com um FileTail próprio. `transcriptPathOf`
  * informa a troca de transcript do principal (/clear); numa sessão do histórico ele nunca muda.
  */
+/** Leitor do transcript: o JSONL comprimido do DeepSeek Harness (.jsonl.zstd) ou JSONL puro. */
+function openTail(path: string): FileTail | ZstdTail {
+  return path.endsWith('.zstd') ? new ZstdTail(path) : new FileTail(path);
+}
+
 class TranscriptSource implements ConversationSource {
-  private tail: FileTail;
+  private tail: FileTail | ZstdTail;
   /** Criado em load(), que sempre roda antes do primeiro poll(). */
   private parser!: TerminalParser;
 
@@ -106,7 +112,7 @@ class TranscriptSource implements ConversationSource {
     private readonly o: Required<Pick<TerminalOptions, 'transcriptPathOf' | 'createParser' | 'initTailBytes' | 'initEntries'>>,
     readonly intervalMs: number,
   ) {
-    this.tail = new FileTail(path);
+    this.tail = openTail(path);
   }
 
   load(): TerminalInit {
@@ -136,7 +142,7 @@ class TranscriptSource implements ConversationSource {
     // /clear ou /resume no mesmo processo: o principal continua o mesmo, o transcript é outro.
     const path = this.o.transcriptPathOf(this.agentId);
     if (path && path !== this.tail.path) {
-      this.tail = new FileTail(path);
+      this.tail = openTail(path);
       return { init: this.load() };
     }
     const fresh: TerminalEntry[] = [];

@@ -1,0 +1,4 @@
+- insert:
+    - id: habblaud-mensagens
+      name: '@habblaud/dsh-habblaud-mensagens'
+      config: {}

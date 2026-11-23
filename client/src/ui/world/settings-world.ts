@@ -10,7 +10,7 @@
 // A janela chama render() a cada quadro sujo: o miolo só é refeito quando a tela muda (senão o que foi digitado e o
 // foco se perderiam); o status é buscado ao abrir a janela, depois de cada ação e quando o meta.world do snapshot
 // muda, nunca dentro do render.
-import { getLocale, intlLocale, tr } from '../../../../shared/i18n';
+import { getLocale, intlLocale, tr, worldLocaleOf } from '../../../../shared/i18n';
 import type { Appearance } from '../../art/api';
 import { access } from '../../net/access';
 import {
@@ -599,7 +599,7 @@ export class WorldSettingsGroup {
       const problem = passwordProblem(password.input.value, mail);
       if (problem) return form.setError(passwordProblemText(problem), password.input);
       if (!accept.checked) return form.setError(tr('Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.'), accept);
-      const r = await this.run(form, 'register', (c) => c.register({ email: mail, password: password.input.value.normalize('NFC'), name: parsed.name, locale: getLocale() }), email.input);
+      const r = await this.run(form, 'register', (c) => c.register({ email: mail, password: password.input.value.normalize('NFC'), name: parsed.name, locale: worldLocaleOf() }), email.input);
       if (!r) return;
       if (r.ok) return this.dispatch({ type: 'code_sent', email: mail, name: parsed.name });
       // Os erros do nome vão para o campo do nome (o `run` já mostrou o texto genérico do código).
