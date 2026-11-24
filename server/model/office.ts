@@ -30,7 +30,7 @@ import { describeGitHubEvent, githubEventKey, RoomEffects, type GitHubEvent } fr
 import { hash32 } from '../../shared/hash';
 import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
-import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
+import { isScratchWorkspace, normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 import { tr } from '../../shared/i18n';
 import type { WorldMeta } from '../../shared/world/api';
 
@@ -668,7 +668,12 @@ export class Office {
       else info[k] = v;
       changed = true;
     };
-    if (info.kind === 'main') set('title', t.title);
+    if (info.kind === 'main') {
+      const before = info.title;
+      set('title', t.title);
+      // Sala de pasta temporária do app desktop: o nome dela é o título da sessão.
+      if (info.title !== before && isScratchWorkspace(this.rooms.get(info.roomId)?.path ?? '')) this.recomputeRoomNames();
+    }
     set('tasks', t.tasks.map((x) => ({ ...x })));
     set('stats', { ...t.stats });
     set('model', t.model);
@@ -1052,7 +1057,21 @@ export class Office {
     for (const [id, path] of paths) {
       const alias = this.deps.roomAlias?.(path);
       if (alias) this.roomNames.set(id, alias);
+      else if (isScratchWorkspace(path)) {
+        const title = this.scratchRoomTitle(id);
+        if (title) this.roomNames.set(id, title);
+      }
     }
+  }
+
+  /** Título da sessão principal numa sala de pasta temporária do app desktop (a mais recente com título). */
+  private scratchRoomTitle(roomId: string): string | undefined {
+    let best: AgentInfo | undefined;
+    for (const { info } of this.agents.values()) {
+      if (info.roomId !== roomId || info.kind !== 'main' || !info.title) continue;
+      if (!best || info.lastEventAt > best.lastEventAt) best = info;
+    }
+    return best?.title;
   }
 
   /** Um nome de sala mudou (renomear): recalcula e transmite. */

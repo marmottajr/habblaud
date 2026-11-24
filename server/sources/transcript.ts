@@ -64,6 +64,32 @@ function todosToTasks(raw: unknown): TaskItem[] {
   return out;
 }
 
+/**
+ * Lista de tarefas do app desktop do Claude (`mcp__ccd_turn__update_plan`): `items` substitui a lista inteira;
+ * `advance` conclui a tarefa em andamento e começa a próxima pendente; `done` (1-based) conclui; `start` (1-based)
+ * começa uma. Ids são as posições (1, 2, 3...), as mesmas que `done`/`start` usam.
+ */
+export function planToTasks(current: readonly TaskItem[], input: Record<string, unknown>): TaskItem[] {
+  if (Array.isArray(input.items)) return todosToTasks(input.items).map((t, i) => ({ ...t, id: String(i + 1) }));
+  const tasks = current.map((t) => ({ ...t }));
+  const at = (n: unknown): TaskItem | undefined => (typeof n === 'number' && Number.isInteger(n) ? tasks[n - 1] : undefined);
+  if (input.advance === true) {
+    const i = tasks.findIndex((t) => t.status === 'in_progress');
+    if (i >= 0) tasks[i]!.status = 'completed';
+    const next = tasks.findIndex((t, j) => j > i && t.status === 'pending');
+    if (next >= 0) tasks[next]!.status = 'in_progress';
+  }
+  if (Array.isArray(input.done)) for (const n of input.done) { const t = at(n); if (t) t.status = 'completed'; }
+  const started = at(input.start);
+  if (started) started.status = 'in_progress';
+  return tasks;
+}
+
+/** `mcp__ccd_turn__wrap_up` fecha o turno e dá a lista como concluída. */
+export function wrapUpTasks(current: readonly TaskItem[]): TaskItem[] {
+  return current.map((t) => ({ ...t, status: 'completed' as TaskStatus }));
+}
+
 // ------------------------------------------------------------------ estado
 
 export interface SpawnInfo {
@@ -462,6 +488,16 @@ class LineParser {
     this.push(describeTool(name, input), { suffix, tool: name, toolUseId: id, msgId });
     const gh = githubCallOf(name, input);
     if (gh) remember(s.github, id, gh, 64);
+
+    // Lista de tarefas do app desktop do Claude (substitui TodoWrite/TaskCreate nas sessões do app).
+    if (name.endsWith('ccd_turn__update_plan')) {
+      this.taskOp({ op: 'replace', tasks: planToTasks(s.tasks, input) });
+      return;
+    }
+    if (name.endsWith('ccd_turn__wrap_up')) {
+      if (s.tasks.length) this.taskOp({ op: 'replace', tasks: wrapUpTasks(s.tasks) });
+      return;
+    }
 
     switch (name) {
       case 'Agent':
