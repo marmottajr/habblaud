@@ -7,12 +7,12 @@
 // Conta do Codex: os números vêm dos arquivos de sessão dele, que só se renovam enquanto alguma sessão roda; por isso
 // a idade ("há 12 min") fica sempre à mostra. Sem cota nem créditos ("sem cota") nunca vira 0%. Não há o que
 // instalar para o uso: "Como funciona" abre a ajuda na seção do Codex. Sem Opus/Sonnet nem e-mail (só o plano).
-import type { AccountInfo } from '../../../shared/types';
+import type { AccountInfo, Provider } from '../../../shared/types';
 import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { FIVE_HOURS_MS, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
 import { ICONS } from './icons';
-import { isCodex } from './provider';
+import { isAntigravity, isCodex, isPi, providerOf, showsProviderTag } from './provider';
 import { usageRowFits } from './usage-row';
 import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
 import { tr } from '../../../shared/i18n';
@@ -24,8 +24,9 @@ export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], s
 };
 
 /** Origem para mostrar: o arquivo ao vivo pode ter sido gravado pelo mod do Habblaud ou pelo tap. */
-export function sourceLabel(u: NonNullable<AccountInfo['usage']>): string {
+export function sourceLabel(u: NonNullable<AccountInfo['usage']>, provider?: Provider): string {
   if (u.source === 'statusline' && u.via === 'mod') return tr('ao vivo (mod do Habblaud)');
+  if (u.source === 'statusline' && provider === 'antigravity') return tr('ao vivo (statusline do Antigravity)');
   return SOURCE_LABEL[u.source] ?? u.source;
 }
 
@@ -178,6 +179,7 @@ export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pr
 export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
   if (a.email) return a.email;
   if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
+  if (isPi(a)) return 'Pi';
   return a.configDir;
 }
 
@@ -185,6 +187,7 @@ export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir
 export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): [string, string] {
   const state = cardState(a);
   if (state === 'noquota') return [tr('sem cota'), tr('sem cota')];
+  if (isPi(a)) return [tr('sessões locais'), tr('local')];
   if (isCodex(a)) return [tr('sem dados ainda'), tr('sem dados')];
   return [tr('sem dados de uso'), tr('sem dados')];
 }
@@ -337,12 +340,14 @@ export class UsageCards {
     const r = this.refs.get(card)!;
     const now = this.ctx.now();
     const codex = isCodex(a);
+    const agy = isAntigravity(a);
+    const pi = isPi(a);
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
-    updateProviderTag(r.prov, codex ? 'codex' : 'claude', a.name);
+    updateProviderTag(r.prov, providerOf(a), a.name);
     setText(r.email, usageSubtitle(a));
-    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
+    setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : agy ? ' (Antigravity)' : pi ? ' (Pi)' : '']));
 
     const usage = a.usage;
     const state = cardState(a);
@@ -381,7 +386,7 @@ export class UsageCards {
     setText(r.msgLong, msgLong);
     setText(r.msgShort, msgShort);
     setHidden(r.msg, state !== 'empty' && state !== 'noquota');
-    setHidden(r.how, state === 'noquota');
+    setHidden(r.how, state === 'noquota' || pi);
     r.msg.classList.toggle('is-noquota', state === 'noquota');
     setTitle(r.msg, state === 'noquota' ? codexUsageNote(a, now) : '');
     setText(r.howLong, codex ? tr('Como funciona') : tr('Como ativar'));
@@ -393,9 +398,14 @@ export class UsageCards {
 
   private updateTip(r: CardRefs, a: AccountInfo, state: CardState, five: UsageWindowView | null, week: UsageWindowView | null, now: number): void {
     const codex = isCodex(a);
-    setText(r.tipTitle, `${a.name}${codex && !/codex/i.test(a.name) ? ' · Codex' : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
+    const agy = isAntigravity(a);
+    const pi = isPi(a);
+    const tag = showsProviderTag(providerOf(a), a.name) ? ` · ${codex ? 'Codex' : agy ? 'Antigravity' : 'Pi'}` : '';
+    setText(r.tipTitle, `${a.name}${tag}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
     const rows: [string, string][] = [];
     if (codex) rows.push([tr('Ferramenta'), 'Codex']);
+    else if (agy) rows.push([tr('Ferramenta'), 'Antigravity CLI']);
+    else if (pi) rows.push([tr('Ferramenta'), 'Pi']);
     if (a.email) rows.push(['E-mail', a.email]);
     if (a.organization) rows.push([tr('Organização'), a.organization]);
     if (a.plan) rows.push([tr('Plano'), a.plan]);
@@ -405,18 +415,25 @@ export class UsageCards {
     if (u && (u.fiveHour || u.sevenDay)) {
       rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
       rows.push([tr('Semana'), week?.summary ?? '—']);
-      // Opus e Sonnet são janelas do Claude: no Codex não existem.
-      const opus = codex ? null : usageWindowView(u.sevenDayOpus, u.fetchedAt, now, WEEK_MS);
-      const sonnet = codex ? null : usageWindowView(u.sevenDaySonnet, u.fetchedAt, now, WEEK_MS);
+      // Opus e Sonnet são janelas do Claude: no Codex e no Antigravity não existem.
+      const opus = codex || agy ? null : usageWindowView(u.sevenDayOpus, u.fetchedAt, now, WEEK_MS);
+      const sonnet = codex || agy ? null : usageWindowView(u.sevenDaySonnet, u.fetchedAt, now, WEEK_MS);
       if (opus) rows.push([tr('Opus (semana)'), opus.summary]);
       if (sonnet) rows.push([tr('Sonnet (semana)'), sonnet.summary]);
     }
     if (u && state === 'noquota') rows.push([tr('Cota'), tr('sem cota nem créditos agora')]);
     if (u && (state !== 'empty' || codex)) {
-      rows.push([tr('Origem'), sourceLabel(u)]);
+      rows.push([tr('Origem'), sourceLabel(u, a.provider)]);
       rows.push([tr('Atualizado'), relativeTime(u.fetchedAt, now)]);
     }
     syncRows(r.tipRows, rows);
+
+    if (pi) {
+      setText(r.tipNote, tr('Para eventos ao vivo e mensagens pelo escritório no Pi, rode `npm run pi:install`.'));
+      setHidden(r.tipNote, false);
+      setHidden(r.tipSetup, true);
+      return;
+    }
 
     // Codex: a explicação dele, sem o passo a passo do Claude Code (não há o que instalar para o uso).
     if (codex) {
@@ -428,15 +445,19 @@ export class UsageCards {
     }
 
     let note = '';
-    if (state === 'empty')
-      note = u ? tr('A última leitura ({0}, {1}) não trouxe números de 5 h nem da semana.', [sourceLabel(u), relativeTime(u.fetchedAt, now)]) : tr('Ainda não há números de uso para esta conta.');
-    else if (state === 'stale') note = tr('Números antigos: refletem a última leitura, não o uso de agora.');
+    if (state === 'empty') {
+      note = u
+        ? tr('A última leitura ({0}, {1}) não trouxe números de 5 h nem da semana.', [sourceLabel(u, a.provider), relativeTime(u.fetchedAt, now)])
+        : agy
+          ? tr('Para ver os limites de 5 h e da semana do Antigravity CLI, rode npm run usage:install (ou npm run antigravity:install) e abra uma sessão do agy.')
+          : tr('Ainda não há números de uso para esta conta.');
+    } else if (state === 'stale') note = tr('Números antigos: refletem a última leitura, não o uso de agora.');
     else if (u?.source === 'cache') note = tr('Cache do /usage: atualiza quando alguém roda /usage nesta conta.');
     else if (five?.renewed || week?.renewed) note = tr('Uma das janelas já reiniciou depois da última leitura.');
     setText(r.tipNote, note);
     setHidden(r.tipNote, !note);
-    // O passo a passo aparece sempre que os números não são ao vivo.
+    // O passo a passo do Claude Code não se aplica ao Antigravity CLI, nem quando os números já são ao vivo.
     const live = u?.source === 'statusline' && state === 'ok';
-    setHidden(r.tipSetup, live);
+    setHidden(r.tipSetup, live || agy);
   }
 }

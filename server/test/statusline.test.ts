@@ -355,4 +355,64 @@ describe('statusline-install.ts (arquivos, HOME falso)', () => {
     expect(message).toMatch(/rode o comando de novo/);
     expect(readdirSync(join(home, '.claude')).filter((f) => f.includes('habblaud-backup') || f.includes('habblaud-tmp'))).toEqual([]);
   });
+
+  it('Antigravity CLI: captura quota de 5h e semanal (Gemini e modelos 3P) e instala com stack_with_default', () => {
+    const agyDir = join(home, '.gemini', 'antigravity-cli');
+    mkdirSync(join(agyDir, 'brain'), { recursive: true });
+    expect(exec('install')).toBe(0);
+    const agySettings = JSON.parse(readFileSync(join(agyDir, 'settings.json'), 'utf8'));
+    expect(agySettings.statusLine).toEqual({
+      type: 'command',
+      command: wrapCommand(process.execPath, TAP_SCRIPT, undefined, agyDir),
+      enabled: true,
+      stack_with_default: true,
+    });
+    expect(unwrapCommand(agySettings.statusLine.command)).toEqual({ tapPath: TAP_SCRIPT, original: '', dir: agyDir });
+
+    const usageDir = join(tmp.dir, 'usage');
+    const agyPayload = (modelId: string) =>
+      JSON.stringify({
+        product: 'antigravity',
+        transcript_path: join(home, '.gemini', 'antigravity', 'brain', '.system_generated', 'logs', 'transcript.jsonl'),
+        model: { id: modelId },
+        quota: {
+          'gemini-5h': { remaining_fraction: 0.92, reset_time: '2026-11-17T21:00:55Z', reset_in_seconds: 16_000 },
+          'gemini-weekly': { remaining_fraction: 0.68, reset_time: '2026-11-23T14:44:15Z', reset_in_seconds: 512_000 },
+          '3p-5h': { remaining_fraction: 0.1, reset_in_seconds: 3_600 },
+          '3p-weekly': { remaining_fraction: 0.55, reset_time: '2026-11-24T15:51:14Z' },
+        },
+        email: 'dev@example.com',
+      });
+
+    const rGem = spawnSync(process.execPath, [TAP, '--dir', agyDir], {
+      input: agyPayload('gemini-4-hydrogen-high'),
+      env: { PATH: process.env.PATH, HOME: home, HABBLAUD_USAGE_DIR: usageDir },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(rGem.status).toBe(0);
+    const gemRec = JSON.parse(readFileSync(join(usageDir, 'antigravity-cli.json'), 'utf8'));
+    expect(gemRec).toMatchObject({
+      accountId: 'antigravity-cli',
+      configDir: agyDir,
+      five_hour: { utilization: 8, resets_at: Math.round(Date.parse('2026-11-17T21:00:55Z') / 1000) },
+      seven_day: { utilization: 32, resets_at: Math.round(Date.parse('2026-11-23T14:44:15Z') / 1000) },
+    });
+    expect(readFileSync(join(usageDir, 'antigravity-cli.json'), 'utf8')).not.toContain('dev@example.com');
+
+    const r3p = spawnSync(process.execPath, [TAP, '--dir', agyDir], {
+      input: agyPayload('claude-sonnet-5-5-high'),
+      env: { PATH: process.env.PATH, HOME: home, HABBLAUD_USAGE_DIR: usageDir },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+    expect(r3p.status).toBe(0);
+    const rec3p = JSON.parse(readFileSync(join(usageDir, 'antigravity-cli.json'), 'utf8'));
+    expect(rec3p.five_hour.utilization).toBe(90);
+    expect(typeof rec3p.five_hour.resets_at).toBe('number');
+    expect(rec3p.seven_day.utilization).toBe(45);
+
+    expect(exec('uninstall')).toBe(0);
+    expect(JSON.parse(readFileSync(join(agyDir, 'settings.json'), 'utf8'))).toEqual({});
+  });
 });

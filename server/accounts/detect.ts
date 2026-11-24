@@ -93,6 +93,8 @@ function isFile(p: string): boolean {
 
 /** Pasta de ano (AAAA) dentro de sessions/: o Codex guarda os rollouts em sessions/AAAA/MM/DD/. */
 const YEAR_DIR = /^\d{4}$/;
+/** Subpasta de sessões do Pi: `--encoded-path--`. */
+const PI_PROJECT_DIR = /^--.*--$/;
 
 /**
  * A pasta é do Codex (um CODEX_HOME, ex.: ~/.codex)? Ela também tem `sessions/`; sem esta checagem viraria uma
@@ -115,14 +117,45 @@ export function isCodexHome(p: string): boolean {
   }
 }
 
+/**
+ * A pasta é do Antigravity CLI (ex.: ~/.gemini/antigravity-cli)? Conferida só pela existência das pastas/arquivos que
+ * o `agy` cria (brain/, conversations/, presence/, conversation_summaries.db ou jetbox_summaries_proto.pb), sem
+ * `projects/` (Claude Code) e sem ser do Codex.
+ */
+export function isAntigravityDir(p: string): boolean {
+  if (isDir(join(p, 'projects')) || isCodexHome(p)) return false;
+  return (
+    isDir(join(p, 'brain')) ||
+    isDir(join(p, 'conversations')) ||
+    isDir(join(p, 'presence')) ||
+    isFile(join(p, 'conversation_summaries.db')) ||
+    isFile(join(p, 'jetbox_summaries_proto.pb'))
+  );
+}
+
+/**
+ * A pasta tem marcas inequívocas do Pi coding agent (ex.: ~/.pi/agent)? Conferida só pela existência das pastas e
+ * arquivos que o Claude Code não cria (`sessions/--...--/`, `models.json` ou `extensions/`), sem `projects/` e sem
+ * ser do Codex.
+ */
+export function isPiDir(p: string): boolean {
+  if (isDir(join(p, 'projects')) || isCodexHome(p)) return false;
+  if (isFile(join(p, 'models.json')) || isDir(join(p, 'extensions'))) return true;
+  try {
+    return readdirSync(join(p, 'sessions'), { withFileTypes: true }).some((e) => e.isDirectory() && PI_PROJECT_DIR.test(e.name));
+  } catch {
+    return false;
+  }
+}
+
 /** Tem a cara de um config dir do Claude Code (`projects/` ou `sessions/`), sem olhar se é do Codex. */
 function hasClaudeLayout(p: string): boolean {
   return isDir(join(p, 'projects')) || isDir(join(p, 'sessions'));
 }
 
-/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex. */
+/** Config dir do Claude Code: `projects/` ou `sessions/`, e não é uma pasta do Codex, do Antigravity nem do Pi. */
 export function isClaudeDir(p: string): boolean {
-  return hasClaudeLayout(p) && !isCodexHome(p);
+  return hasClaudeLayout(p) && !isCodexHome(p) && !isAntigravityDir(p) && !isPiDir(p);
 }
 
 export function isDefaultDir(dir: string, home: string): boolean {
@@ -218,6 +251,14 @@ const ALIAS_TOOLS: Record<Provider, { invokes: RegExp; dir: RegExp }> = {
   codex: {
     invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?codex(?=$|[\s;&|)])/,
     dir: /\bCODEX_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
+  },
+  antigravity: {
+    invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?(?:agy|antigravity(?:-cli)?)(?=$|[\s;&|)])/,
+    dir: /\bANTIGRAVITY_CLI_HOME=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
+  },
+  pi: {
+    invokes: /(?:^|[\s;&|(])(?:[\w.~/-]*\/)?pi(?=$|[\s;&|)])/,
+    dir: /\bPI_CODING_AGENT_DIR=(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/,
   },
 };
 

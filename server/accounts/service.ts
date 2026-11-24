@@ -57,6 +57,7 @@ export class AccountsService {
   private readonly statusline: StatuslineUsageReader | null;
   /** Assinatura do uso exibido (o status muda sozinho com o tempo: ok -> stale, janelas reiniciam). */
   private usageSig = '';
+  private lastStatuslineFiles: StatuslineUsage[] = [];
   private readonly now: () => number;
 
   constructor(private readonly opts: AccountsServiceOptions) {
@@ -89,8 +90,8 @@ export class AccountsService {
   }
 
   /**
-   * Relê os arquivos do tap de statusline e aplica a cada conta o mais recente que casar
-   * (pelo config dir; senão pelo id/basename). Conta sem arquivo perde a fonte 'statusline'.
+   * Relê os arquivos do tap de statusline e aplica a cada conta compatível (Claude Code e Antigravity CLI) o mais
+   * recente que casar (pelo config dir; senão pelo id/basename). Conta sem arquivo perde a fonte 'statusline'.
    */
   refreshStatusline(): void {
     if (!this.statusline) return;
@@ -101,15 +102,24 @@ export class AccountsService {
       log.warnOnce('statusline-read', tr('Falha ao ler o uso do statusline: {0}', [String(err).slice(0, 120)]));
       return;
     }
+    this.lastStatuslineFiles = files;
+    let changed = this.applyStatusline(
+      this.allEntries().filter((e) => e.provider === 'claude' || e.provider === 'antigravity'),
+      files,
+    );
+    if (this.usageViewChanged()) changed = true;
+    if (changed) this.opts.onChange();
+  }
+
+  private applyStatusline(entries: readonly AccountEntry[], files: readonly StatuslineUsage[]): boolean {
     let changed = false;
-    for (const e of this.list_) {
+    for (const e of entries) {
       const mine = files.filter((f) => this.fileMatches(e, f));
       const best = mine.reduce<StatuslineUsage | undefined>((acc, f) => (!acc || f.usage.fetchedAt > acc.usage.fetchedAt ? f : acc), undefined);
       if (best) changed = this.usage.set(e.id, best.usage) || changed;
       else changed = this.usage.clear(e.id, 'statusline') || changed;
     }
-    if (this.usageViewChanged()) changed = true;
-    if (changed) this.opts.onChange();
+    return changed;
   }
 
   private fileMatches(e: AccountEntry, f: StatuslineUsage): boolean {
@@ -117,7 +127,7 @@ export class AccountsService {
       const dir = resolve(f.configDir);
       if (dir === resolve(e.detected.configDir) || dir === resolve(e.dir)) return true;
       // Mesmo nome de pasta mas caminho diferente: só vale se nenhuma outra conta tiver esse caminho.
-      if (this.list_.some((o) => resolve(o.detected.configDir) === dir || resolve(o.dir) === dir)) return false;
+      if (this.allEntries().some((o) => resolve(o.detected.configDir) === dir || resolve(o.dir) === dir)) return false;
       return basename(dir) === e.id;
     }
     return !!f.accountId && f.accountId === e.id;
@@ -144,6 +154,9 @@ export class AccountsService {
     for (const e of prev) if (!next.some((n) => n.id === e.id)) changed = this.usage.forget(e.id) || changed;
     if (next.length) this.external.set(provider, next);
     else this.external.delete(provider);
+    if (provider === 'antigravity' && next.length && this.lastStatuslineFiles.length) {
+      changed = this.applyStatusline(next, this.lastStatuslineFiles) || changed;
+    }
     if (this.usageViewChanged()) changed = true;
     if (changed) this.opts.onChange();
     return next;

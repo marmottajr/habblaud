@@ -97,9 +97,10 @@ export function updateAgentRow(
   setAttr(row, 'aria-current', selected ? 'true' : null);
   // Para leitores de tela, o tempo em minutos (o cronômetro mudaria o rótulo a cada segundo).
   const doing = wait ? tr('{0}, há {1}', [shellLine(wait, now).label, formatDuration(now - wait.since)]) : agent.activity?.text;
+  const provSuffix = agent.provider === 'codex' ? ' (Codex)' : agent.provider === 'antigravity' ? ' (Antigravity)' : agent.provider === 'pi' ? ' (Pi)' : '';
   setAttr(
     row,
     'aria-label',
-    `${agent.name}, ${agent.kind === 'main' ? tr('agente principal') : tr('subagente {0}', [agent.role])}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
+    `${agent.name}, ${agent.kind === 'main' ? tr('agente principal') : tr('subagente {0}', [agent.role])}, ${account?.name ?? agent.account}${provSuffix}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
   );
 }

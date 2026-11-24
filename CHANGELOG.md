@@ -10,6 +10,17 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Compatibilidade com o Google Antigravity CLI (`agy`).** O Habblaud agora descobre automaticamente as contas em
+  `~/.gemini/antigravity-cli` (ou `HABBLAUD_ANTIGRAVITY_DIRS`) e acompanha as sessões abertas, subagentes, ferramentas,
+  tarefas em segundo plano, terminal ao vivo, histórico de sessões, entregas e limites de uso de 5 h e semanal
+  (`npm run usage:install` ou `npm run antigravity:install`), além de suportar hooks em tempo real.
+- **Suporte ao Pi coding agent (`~/.pi/agent` / `PI_CODING_AGENT_DIR`).** O Habblaud agora descobre e acompanha
+  sessões do Pi diretamente pelos arquivos JSONL em `sessions/*/*.jsonl` (atividades, tokens, custo, terminal ao vivo e
+  histórico) e inclui uma extensão opcional (`mod/habblaud-pi/habblaud.ts`, instalável com `npm run pi:install`) para
+  presença e eventos em tempo real (`POST /api/pi/events`) além do envio de mensagens pelo escritório.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

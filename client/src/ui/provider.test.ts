@@ -8,7 +8,9 @@ import {
   fallbackShort,
   hasCodexPermission,
   isCodex,
+  isPi,
   looksLikeCodexId,
+  looksLikePiId,
   providerOf,
   showsProviderTag,
 } from './provider';
@@ -86,5 +88,26 @@ describe('ferramenta (Claude Code ou Codex)', () => {
     expect(codexApprovalLabel('never')).toBe('Nunca pergunta');
     expect(codexApprovalLabel('outra')).toBe('outra');
     expect(codexApprovalLabel(undefined)).toBe('—');
+  });
+
+  it('suporte ao Pi (detecção, chip, selo e dica de escritório vazio)', () => {
+    expect(providerOf({ provider: 'pi' })).toBe('pi');
+    expect(isPi({ provider: 'pi' })).toBe(true);
+    expect(isPi({ provider: 'codex' })).toBe(false);
+    expect(looksLikePiId('.pi')).toBe(true);
+    expect(looksLikePiId('.pi-work')).toBe(true);
+    expect(looksLikePiId('.claude')).toBe(false);
+    expect(accountProvider(undefined, '.pi')).toBe('pi');
+    expect(fallbackShort('.pi')).toBe('P');
+    expect(fallbackShort('.pi-work')).toBe('W');
+    expect(showsProviderTag('pi', 'Conta P')).toBe(true);
+    expect(showsProviderTag('pi', 'Pi')).toBe(false);
+    expect(accountChipLabel({ name: 'Pi', provider: 'pi' }, '.pi', 'pi')).toBe('Pi');
+    expect(accountChipLabel(undefined, '.pi', 'pi')).toBe('.pi · Pi');
+    const c = { short: 'C' };
+    const p = { short: 'P', provider: 'pi' as const };
+    const x = { short: 'X', provider: 'codex' as const };
+    expect(emptyOfficeHint([c, p])).toBe('Abra o Claude Code (atalho c) ou o Pi em qualquer projeto e veja seu agente chegar.');
+    expect(emptyOfficeHint([c, x, p])).toBe('Abra o Claude Code (atalho c), o Codex ou o Pi em qualquer projeto e veja seu agente chegar.');
   });
 });
