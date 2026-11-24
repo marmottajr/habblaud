@@ -404,12 +404,14 @@ describe('projeção: limites', () => {
     expect(r.bytes).toBeLessThan(2600);
   });
 
-  it('agentes antigravity ficam de fora da projeção em vez de subir como claude', () => {
-    const rooms = [room('/p/a'), room('/p/b')];
+  it('agentes antigravity e pi ficam de fora da projeção em vez de subir como claude', () => {
+    const rooms = [room('/p/a'), room('/p/b'), room('/p/c')];
     const agents = [
       agent('m1', '/p/a', { provider: 'claude' }),
       agent('m2', '/p/a', { provider: 'antigravity' }),
       agent('m3', '/p/b', { provider: 'antigravity' }),
+      agent('m4', '/p/a', { provider: 'pi' }),
+      agent('m5', '/p/c', { provider: 'pi' }),
     ];
     const u = project(input(rooms, agents), new FakeIds(), NOW);
     expect(u.floors).toHaveLength(1);

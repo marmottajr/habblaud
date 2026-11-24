@@ -5,10 +5,12 @@ import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, Upd
 import type { AccountsService } from '../accounts/service';
 import { handleAntigravityEvent } from '../antigravity/http';
 import { handleCodexEvent } from '../codex/http';
+import { handlePiEvent } from '../pi/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { AntigravityLive } from '../sources/antigravity/live';
 import type { CodexLive } from '../sources/codex/live';
+import type { PiLive } from '../sources/pi/live';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import type { RemoteFeature } from './remote';
@@ -70,6 +72,8 @@ export interface ApiDeps {
    * server/antigravity/http.ts). Sem ela a rota responde {ok: false}.
    */
   antigravityLive?: AntigravityLive;
+  /** Fonte do Pi ao vivo: recebe eventos da extensão do Pi (POST /api/pi/events, server/pi/http.ts). */
+  piLive?: PiLive;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
@@ -133,6 +137,7 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
     path.startsWith('/api/antigravity/') ||
+    path.startsWith('/api/pi/') ||
     path.startsWith('/api/host/')
   );
 }
@@ -384,6 +389,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
+          piEvents: !!deps.piLive,
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
@@ -502,6 +508,13 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do Antigravity só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleAntigravityEvent(req, res, { live: deps.antigravityLive, entries: () => accounts.entriesOf('antigravity') }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/pi/events') {
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('eventos do Pi só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else handlePiEvent(req, res, { live: deps.piLive, entries: () => accounts.entriesOf('pi') }).catch((err) => fail(res, err));
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

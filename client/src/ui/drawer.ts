@@ -573,17 +573,18 @@ class AgentView {
     setHidden(this.alert, !waiting || this.perm.visible);
     if (waiting) {
       const accName = account?.name ?? a.account;
-      // Codex: "Vá ao Codex (Conta X)"; sem repetir quando a conta já se chama "Codex".
-      const where = codex ? tr('ao Codex{0}', [/codex/i.test(accName) ? '' : ` (${accName})`]) : tr('ao terminal da {0}', [accName]);
+      const where = codex
+        ? tr('ao Codex{0}', [/codex/i.test(accName) ? '' : ` (${accName})`])
+        : provider === 'pi'
+          ? tr('ao Pi{0}', [/\bpi\b/i.test(accName) ? '' : ` (${accName})`])
+          : tr('ao terminal da {0}', [accName]);
       setText(this.alertText, tr('Vá {0} em {1} para responder{2}', [where, room?.name ?? tr('seu projeto'), a.waitingFor ? `: ${a.waitingFor}` : '.']));
     }
-    // Perguntas do AskUserQuestion (só leitura): o Codex não pergunta pelo escritório.
-    const asking = waiting && !codex && a.activity?.kind === 'ask' ? a.activity : undefined;
+    // Perguntas do AskUserQuestion (só leitura): só o Claude Code pergunta pelo escritório.
+    const asking = waiting && provider === 'claude' && a.activity?.kind === 'ask' ? a.activity : undefined;
     this.renderQuestions(asking);
-    // Sem o pedido no escritório: dá para responder por aqui com o plugin (só com a trava local, como o cartão). O Codex
-    // não responde perguntas pelo escritório.
     const answerable =
-      !codex && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
+      provider === 'claude' && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
     setHidden(this.alertAnswerHint, !answerable);
 
     // Esperando o shell.
@@ -720,7 +721,7 @@ class AgentView {
             ? tr('O agente já saiu do escritório.')
             : kind === 'ao vivo'
               ? tr('Ver a conversa desta sessão como no {0}, ao vivo{1} (T)', [
-                  provider === 'codex' ? 'Codex' : provider === 'antigravity' ? 'Antigravity' : tr('terminal do Claude Code'),
+                  provider === 'codex' ? 'Codex' : provider === 'antigravity' ? 'Antigravity' : provider === 'pi' ? 'Pi' : tr('terminal do Claude Code'),
                   this.pty.enabled && ptyControllable(this.last) ? tr('; "Assumir daqui" continua nela aqui') : '',
                 ])
               : kind === 'interativo'
@@ -736,7 +737,8 @@ class AgentView {
     st.set('tokensIn', formatTokens(s.tokensIn));
     st.set('tokensOut', formatTokens(s.tokensOut));
     st.set('cost', s.costUSD !== undefined ? formatUSD(s.costUSD) : null);
-    const codex = providerOf(a) === 'codex';
+    const prov = providerOf(a);
+    const codex = prov === 'codex';
     const hasLines = s.linesAdded !== undefined || s.linesRemoved !== undefined;
     st.show('lines', hasLines);
     setText(this.linesPlus, `+${formatInt(s.linesAdded ?? 0)}`);
@@ -746,7 +748,7 @@ class AgentView {
     st.set('branch', a.gitBranch ?? null);
     // Codex: a política de aprovação (quando o servidor a manda) no lugar do modo de permissão do Claude Code.
     st.label('perm', codex ? tr('Aprovações') : tr('Permissões'));
-    st.set('perm', a.kind !== 'main' ? null : codex ? (a.permissionMode ? codexApprovalLabel(a.permissionMode) : null) : permissionLabel(a.permissionMode));
+    st.set('perm', a.kind !== 'main' || prov === 'pi' ? null : codex ? (a.permissionMode ? codexApprovalLabel(a.permissionMode) : null) : permissionLabel(a.permissionMode));
 
     setText(this.sessionValue, a.sessionId);
     setTitle(this.sessionValue, a.sessionId);

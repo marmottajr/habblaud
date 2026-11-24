@@ -37,10 +37,14 @@ import { discoverAntigravityDirs } from './sources/antigravity/accounts';
 import { AntigravityHistory } from './sources/antigravity/history';
 import { AntigravitySource } from './sources/antigravity/source';
 import type { CodexLive } from './sources/codex/live';
+import type { PiLive } from './sources/pi/live';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { discoverPiDirs } from './sources/pi/accounts';
+import { PiHistory } from './sources/pi/history';
+import { PiSource } from './sources/pi/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -147,10 +151,14 @@ const antigravity = antigravityDirs.length
   ? new AntigravitySource({ accounts, office, dirs: antigravityDirs, env: process.env, home: config.home })
   : undefined;
 if (antigravity) agents.add(antigravity);
+const piDirs = config.pi ? discoverPiDirs(process.env, config.home) : [];
+const pi = piDirs.length ? new PiSource({ accounts, office, dirs: piDirs, env: process.env, home: config.home }) : undefined;
+if (pi) agents.add(pi);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
 const antigravityLive: AntigravityLive | undefined = antigravity;
+const piLive: PiLive | undefined = pi;
 late.office = office;
 late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
@@ -209,6 +217,7 @@ if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.en
 if (history && antigravity) {
   history.add(new AntigravityHistory({ accounts: () => accounts.entriesOf('antigravity'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 }
+if (history && pi) history.add(new PiHistory({ accounts: () => accounts.entriesOf('pi'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -386,6 +395,7 @@ const api = createApiHandler({
   },
   codexLive,
   antigravityLive,
+  piLive,
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
@@ -518,6 +528,16 @@ server.listen(config.port, config.host, () => {
         config.antigravity ? tr('nenhuma pasta do Antigravity encontrada (defina HABBLAUD_ANTIGRAVITY_DIRS)') : tr('desligado (HABBLAUD_ANTIGRAVITY=0)'),
       ]),
     );
+  }
+  if (pi) {
+    const piAccounts = pi.accountEntries();
+    const open = pi.sources().reduce((n, s) => n + s.sessions, 0);
+    log.info(tr('   Pi: {0} conta(s), {1} sessão(ões) aberta(s).', [piAccounts.length, open]));
+    for (const a of piAccounts) {
+      log.info(tr('   Conta {0} do Pi ({1}): {2}', [a.detected.short, a.id, a.detected.configDir]));
+    }
+  } else {
+    log.info(tr('   Pi: {0}.', [config.pi ? tr('nenhuma pasta do Pi encontrada (defina HABBLAUD_PI_DIRS)') : tr('desligado (HABBLAUD_PI=0)')]));
   }
   if (office.isDemo()) log.info(tr('   Modo demonstração ligado (agentes simulados misturados aos reais).'));
   if (config.terminal) log.info(tr('   Terminal: ligado (acesso só local).'));

@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { tempDir } from '../test/fixtures';
-import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, parseClaudeAliases, shortcutsByDir } from './detect';
+import { accountIds, codexDirsRefused, discoverClaudeDirs, detectAccounts, isClaudeDir, isCodexHome, isPiDir, parseClaudeAliases, shortcutsByDir } from './detect';
 import { AccountsService } from './service';
 import { rollover, STALE_AFTER_MS, usageFromCache, usageFromWindows, UsageStore } from './usage';
 
@@ -112,6 +112,25 @@ describe('detecção de contas', () => {
     expect(codexDirsRefused({ HABBLAUD_CLAUDE_DIRS: `~/.claude,~/.codex,/x/a` }, home)).toEqual([codex]);
     const env = { HABBLAUD_ACCOUNTS: JSON.stringify([{ id: '.codex', mountDir: codex }]) };
     expect(discoverClaudeDirs(env, home)).not.toContain(codex);
+  });
+
+  it('pasta do Pi (sessions/--proj--, models.json ou extensions/) não vira isClaudeDir', () => {
+    for (const [label, setup] of [
+      ['sessions/--proj--', (p: string) => mkdirSync(join(p, 'sessions', '--home-dev-app--'), { recursive: true })],
+      ['models.json', (p: string) => { mkdirSync(join(p, 'sessions'), { recursive: true }); writeFileSync(join(p, 'models.json'), '{}'); }],
+      ['extensions', (p: string) => { mkdirSync(join(p, 'sessions'), { recursive: true }); mkdirSync(join(p, 'extensions'), { recursive: true }); }],
+    ] as const) {
+      const p = join(home, `pi-${label.replace(/[^a-z0-9]/gi, '-')}`);
+      setup(p);
+      expect(isPiDir(p), label).toBe(true);
+      expect(isClaudeDir(p), label).toBe(false);
+    }
+    // Claude Code com sessions/ + settings.json continua sendo Claude Code.
+    const claudeWithSettings = join(home, '.claude-settings');
+    mkdirSync(join(claudeWithSettings, 'sessions'), { recursive: true });
+    writeFileSync(join(claudeWithSettings, 'settings.json'), '{}');
+    expect(isPiDir(claudeWithSettings)).toBe(false);
+    expect(isClaudeDir(claudeWithSettings)).toBe(true);
   });
 
   it('lê só os campos permitidos do .claude.json, atalhos e cores', () => {

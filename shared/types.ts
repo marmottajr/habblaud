@@ -14,9 +14,10 @@ export type AgentKind = 'main' | 'sub';
  * `provider` é opcional e AUSENTE quer dizer 'claude' (tudo o que existia antes do Codex continua igual).
  * - claude: Claude Code;
  * - codex: OpenAI Codex (CLI `codex` e o app desktop, que gravam no mesmo CODEX_HOME);
- * - antigravity: Google Antigravity CLI (`agy`, que grava em ~/.gemini/antigravity-cli).
+ * - antigravity: Google Antigravity CLI (`agy`, que grava em ~/.gemini/antigravity-cli);
+ * - pi: Pi coding agent (`~/.pi/agent` / `PI_CODING_AGENT_DIR`).
  */
-export type Provider = 'claude' | 'codex' | 'antigravity';
+export type Provider = 'claude' | 'codex' | 'antigravity' | 'pi';
 
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.

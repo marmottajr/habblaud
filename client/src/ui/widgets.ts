@@ -4,7 +4,7 @@ import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '..
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
-import { accountChipLabel, accountProvider, fallbackShort, showsProviderTag } from './provider';
+import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 import { tr } from '../../../shared/i18n';
 
 /**
@@ -26,17 +26,24 @@ export function updateAccountChip(chip: HTMLElement, account: AccountInfo | unde
   setAttr(chip, 'aria-label', label);
 }
 
-/** Selo de texto ("Codex" / "Antigravity") ao lado do nome da conta (onde há espaço: gaveta, terminal, cartão de uso, dica). */
+/** Selo de texto ("Codex", "Antigravity" ou "Pi") ao lado do nome da conta (onde há espaço: gaveta, terminal, cartão de uso, dica). */
 export function createProviderTag(extra = ''): HTMLElement {
   return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: 'Codex', hidden: true, title: tr('Agente do Codex (OpenAI)') });
 }
 
-/** Mostra o selo para o Codex ou Antigravity (e não repete quando o nome da conta já diz a ferramenta). */
+/** Mostra o selo para Codex, Antigravity ou Pi (e não repete quando o nome da conta já diz a ferramenta). */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
   const show = showsProviderTag(provider, accountName);
   if (show) {
-    setText(tag, provider === 'antigravity' ? 'Antigravity' : 'Codex');
-    setTitle(tag, provider === 'antigravity' ? tr('Agente do Antigravity CLI (Google)') : tr('Agente do Codex (OpenAI)'));
+    setText(tag, PROVIDER_NAME[provider]);
+    setTitle(
+      tag,
+      provider === 'antigravity'
+        ? tr('Agente do Antigravity CLI (Google)')
+        : provider === 'pi'
+          ? tr('Agente do Pi')
+          : tr('Agente do Codex (OpenAI)'),
+    );
   }
   setHidden(tag, !show);
 }

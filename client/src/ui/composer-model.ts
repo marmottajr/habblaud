@@ -33,15 +33,22 @@ export function composerMode(agent: AgentInfo | undefined, env: ComposerEnv): Co
   if (!agent || agent.status === 'offline' || agent.status === 'done') return { kind: 'off', text: tr('Sessão encerrada') };
   const codex = agent.provider === 'codex';
   const agy = agent.provider === 'antigravity';
+  const pi = agent.provider === 'pi';
   if (!env.enabled) {
     return {
       kind: 'off',
-      text: codex ? tr('Para responder, use o Codex') : agy ? tr('Para responder, use o Antigravity CLI') : tr('Para responder, use o terminal do Claude Code'),
+      text: codex
+        ? tr('Para responder, use o Codex')
+        : agy
+          ? tr('Para responder, use o Antigravity CLI')
+          : pi
+            ? tr('Para responder, use o Pi')
+            : tr('Para responder, use o terminal do Claude Code'),
     };
   }
   if (!env.local) return { kind: 'off', text: tr('Para mandar mensagens por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1)') };
   if (agy) return { kind: 'off', text: tr('Para responder, use o terminal do Antigravity CLI') };
-  if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : PLUGIN_HINT };
+  if (!agent.canMessage) return { kind: 'hint', text: codex ? CODEX_BRIDGE_HINT : pi ? tr('Para mandar mensagens ao Pi: rode npm run pi:install') : PLUGIN_HINT };
   return { kind: 'ready' };
 }
 
@@ -127,9 +134,12 @@ export function pollDelay(elapsed: number): number {
 export const LOST_ERROR = tr('o Habblaud não conhece mais esta mensagem (ele reiniciou?)');
 export const TIMEOUT_ERROR = tr('sem notícia da entrega: confira no terminal do Claude Code');
 export const CODEX_TIMEOUT_ERROR = tr('sem notícia da entrega: confira no Codex');
+export const PI_TIMEOUT_ERROR = tr('sem notícia da entrega: confira no Pi');
 export const OFFLINE_ERROR = tr('não foi possível falar com o Habblaud');
 
 /** Prazo da consulta acabou sem notícia: onde conferir. */
 export function timeoutError(provider: Provider = 'claude'): string {
-  return provider === 'codex' ? CODEX_TIMEOUT_ERROR : TIMEOUT_ERROR;
+  if (provider === 'codex') return CODEX_TIMEOUT_ERROR;
+  if (provider === 'pi') return PI_TIMEOUT_ERROR;
+  return TIMEOUT_ERROR;
 }
