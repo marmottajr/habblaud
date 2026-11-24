@@ -10,6 +10,18 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Habblaud no WSL volta a ver as sessões do Claude Code do Windows.** Rodando no WSL (fora do Docker), o Habblaud
+  conferia o PID de cada sessão com o Linux, que não enxerga os processos do Windows: todas pareciam encerradas e o
+  escritório ficava vazio. Sessões com `pidDomain` de outro sistema agora não têm o PID conferido, como no Docker.
+- **Tarefas das sessões do app desktop do Claude aparecem no escritório.** O app usa a própria lista de tarefas
+  (`mcp__ccd_turn__update_plan`) em vez de TodoWrite/TaskCreate; agora ela vira as tarefas do agente, com o avançar,
+  concluir e começar de cada passo, e fica toda concluída no fim do turno (`mcp__ccd_turn__wrap_up`).
+- **Sala de uma sessão do app desktop sem pasta leva o título da sessão.** O app cria para ela uma pasta temporária
+  (`scratch-2026-11-24-5ea583`), e a sala aparecia com esse nome. Agora a sala usa o título da sessão (um nome dado
+  em Renomear sala continua valendo).
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

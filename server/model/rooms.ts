@@ -11,6 +11,15 @@ function segments(path: string): string[] {
 }
 
 /**
+ * Pasta temporária que o app desktop do Claude cria para uma sessão sem pasta
+ * (…/scratch-workspaces/…/scratch-2026-11-24-5ea583): o nome dela não diz nada, a sala usa o título da sessão.
+ */
+export function isScratchWorkspace(path: string): boolean {
+  const s = segments(path);
+  return s.includes('scratch-workspaces') && /^scratch-\d{4}-\d{2}-\d{2}-[0-9a-z]+$/i.test(s[s.length - 1] ?? '');
+}
+
+/**
  * Nome de cada sala: o basename do caminho; salas com o mesmo basename ganham o(s) diretório(s)
  * pai até ficarem distintas (ex.: "applications/app" e "outro/app").
  */

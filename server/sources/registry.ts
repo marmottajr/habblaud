@@ -23,6 +23,17 @@ export interface RegistryEntry {
   agent?: string;
   updatedAt?: number;
   statusUpdatedAt?: number;
+  /** Onde o PID vale, ex.: "win32:pc001" (versões novas). */
+  pidDomain?: string;
+}
+
+/**
+ * O PID do registro é de outro sistema (sessão do Windows vista pelo Habblaud no WSL): `process.kill` daqui
+ * não o enxerga e daria toda sessão como morta. Nesse caso não dá para confirmar o PID, como no Docker.
+ */
+export function foreignPid(e: RegistryEntry, platform: string = process.platform): boolean {
+  const domain = e.pidDomain?.split(':')[0];
+  return !!domain && domain !== platform;
 }
 
 function str(v: unknown): string | undefined {
@@ -58,6 +69,7 @@ export function parseRegistryEntry(raw: string): RegistryEntry | undefined {
     ['agent', str(j.agent)],
     ['updatedAt', num(j.updatedAt)],
     ['statusUpdatedAt', num(j.statusUpdatedAt)],
+    ['pidDomain', str(j.pidDomain)],
   ];
   for (const [k, v] of optional) if (v !== undefined) (e as unknown as Record<string, unknown>)[k] = v;
   return e;
@@ -165,7 +177,7 @@ export class RegistryReader {
       }
       const e = cached.entry;
       if (!e) continue;
-      if (this.opts.checkPid && !this.isAlive(e.pid)) continue;
+      if (this.opts.checkPid && !foreignPid(e) && !this.isAlive(e.pid)) continue;
       entries.push(e);
     }
     for (const file of [...this.cache.keys()]) if (!seen.has(file)) this.cache.delete(file);
