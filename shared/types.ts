@@ -4,6 +4,7 @@
 // Regra de evolução: mudanças aqui devem ser ADITIVAS (campos opcionais novos).
 // Renomear/remover campos quebra servidor, mundo e UI ao mesmo tempo.
 
+import type { AsideRequest } from './asides';
 import type { AppearanceParts } from './appearance';
 import type { WorldMeta } from './world/api';
 
@@ -777,4 +778,6 @@ export interface InboxMessage {
   text: string;
   /** Troca de modelo e/ou raciocínio da sessão omp (POST /api/messages/control). */
   control?: { model?: string; thinking?: string };
+  /** Pergunta do bate-papo paralelo para a extensão do omp: sem texto e sem atividade no feed. */
+  aside?: AsideRequest;
 }

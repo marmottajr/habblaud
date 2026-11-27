@@ -55,6 +55,15 @@ export interface ApiDeps {
    */
   messages?: (req: IncomingMessage, res: ServerResponse, path: string) => void;
   /**
+   * Bate-papo paralelo com o agente do omp (server/asides/http.ts): `page` serve /api/asides (a janela lateral do
+   * terminal) e `progress` recebe a resposta da extensão em POST /api/omp/aside. Só existem com as mensagens ligadas
+   * (mesmo `ServerConfig.messages`); as travas ficam aqui.
+   */
+  asides?: {
+    page: (req: IncomingMessage, res: ServerResponse, path: string, url: URL) => void;
+    progress: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  };
+  /**
    * Terminal interativo e ações nos agentes (/api/pty/*, POST /api/agents/:id/stop|takeover; http/pty.ts).
    * Ausente = desligado (sem HABBLAUD_PTY=1, Docker, sem node-pty ou sem bind local).
    */
@@ -139,6 +148,9 @@ function isLocalOnlyPath(path: string): boolean {
     path.startsWith('/api/host/')
   );
 }
+
+const MESSAGES_OFF = (): string =>
+  tr('mensagens pelo escritório desligadas: só funcionam com o Habblaud acessível apenas pelo próprio computador (e sem HABBLAUD_MENSAGENS=0)');
 
 function isMessagesPath(path: string): boolean {
   return (
@@ -513,6 +525,23 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
         sendJson(res, 403, { error: denied(req, tr('eventos do omp só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else handleOmpEvent(req, res, { live: deps.ompLive }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/omp/aside') {
+      // A resposta do bate-papo paralelo vem da extensão do omp: a mesma trava dos eventos dela (só o próprio computador).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!deps.asides) sendJson(res, 403, { error: MESSAGES_OFF() });
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('perguntas paralelas só pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else deps.asides.progress(req, res).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/asides' || path.startsWith('/api/asides/')) {
+      // Perguntar manda texto ao modelo (a trava das mensagens); ler mostra a conversa (a trava do terminal).
+      if (!deps.asides) sendJson(res, 403, { error: MESSAGES_OFF() });
+      else if (!trusted(req, isRead ? 'terminal' : 'messages')) {
+        sendJson(res, 403, { error: denied(req, tr('perguntas paralelas só pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else deps.asides.page(req, res, path, url);
       return true;
     }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {

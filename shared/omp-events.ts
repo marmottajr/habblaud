@@ -20,6 +20,8 @@ export type OmpEventKind = (typeof OMP_EVENT_KINDS)[number];
 export const OMP_HEARTBEAT_MS = 10_000;
 /** Sem batimento por este tempo, a sessão que tinha extensão é dada como encerrada (crash, kill). */
 export const OMP_HEARTBEAT_LOST_MS = 30_000;
+/** Id de sessão do omp (uuid do cabeçalho e do nome do arquivo). */
+export const OMP_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface OmpEvent {
   event: OmpEventKind;

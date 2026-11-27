@@ -1,7 +1,7 @@
 // Extensão do Habblaud para o omp (oh-my-pi): carregada pelo omp 18+ de <pasta do omp>/extensions/habblaud.ts (o
 // instalador, scripts/omp-install.ts, grava lá um arquivo de uma linha que reexporta este). Roda dentro do Bun do omp,
-// fora do projeto: só node:* e fetch, e o único import do Habblaud é de tipos (apagado na carga) e do
-// shared/omp-events.ts, que não tem dependências.
+// fora do projeto: só node:* e fetch, e os únicos imports do Habblaud são de tipos (apagados na carga) e de
+// shared/omp-events.ts e shared/asides.ts (este só depende do primeiro), sem dependências.
 //
 // O que faz (design 2, 4 e 5 da mudança suporte-ao-omp):
 //
@@ -35,6 +35,10 @@
 //    resposta no terminal retira o cartão ({behavior: "terminal"}). "Não responder" no escritório vira erro da
 //    ferramenta com o motivo, e o agente segue. Habblaud fora do ar, ninguém olhando ou pergunta que o cartão não
 //    mostra inteira (mais de 4): só o diálogo, como sem a extensão.
+// 5. Bate-papo paralelo: um item do inbox com `aside` inicia ctx.runEphemeralTurn (a maquinaria do /btw do omp: modelo e
+//    conversa de agora, fora do histórico, com o turno principal rodando). O ack sai na hora; o texto acumulado da
+//    resposta vai por POST /api/omp/aside (a cada 0,5 s com texto novo, ao menos a cada 1 s), e a resposta do servidor
+//    diz se a pergunta deve ser abortada (o usuário apertou Parar). Uma por vez; trocar de sessão aborta.
 //
 // Subagentes (ctx.agent.kind === 'sub'): o omp refaz as extensões para cada um; eles não mandam eventos nem
 // perguntam o inbox (o escritório já vê os subagentes pelo arquivo da sessão), mas as ferramentas deles passam pelo
@@ -45,6 +49,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { OMP_HEARTBEAT_MS, type OmpEvent, type OmpEventKind } from '../../shared/omp-events';
+import { ASIDE_ANSWER_MAX, ASIDE_HEARTBEAT_MS, ASIDE_PROGRESS_MS, clipAnswer, type AsideProgress, type AsideRequest } from '../../shared/asides';
 
 export const DEFAULT_PORT = 4747;
 /** Quanto esperar o Habblaud responder (qualquer rota). */
@@ -52,6 +57,8 @@ export const FETCH_TIMEOUT_MS = 2_000;
 export const INBOX_IDLE_MS = 2_000;
 export const INBOX_BUSY_MS = 5_000;
 export const INBOX_OFFLINE_MS = 30_000;
+/** Esperas antes de repetir o ack da caixa de entrada que não chegou: o servidor falha a mensagem sem ack em 30 s. */
+export const ACK_RETRY_MS: readonly number[] = [300, 1_000, 3_000];
 /** Tamanho máximo do motivo de uma falha de entrega. */
 export const MAX_REASON = 500;
 /** Espera do Habblaud pelo pedido de permissão com o diálogo aberto (o padrão do servidor: DEFAULT_TIMEOUT_MS). */
@@ -117,7 +124,20 @@ export interface OmpContext {
     confirm(title: string, message: string, options?: { signal?: AbortSignal }): Promise<boolean>;
     notify(message: string, type?: 'info' | 'warning' | 'error'): void;
   };
-  models?: { list(): { provider: string; id: string }[]; resolve?(spec: string): unknown };
+  models?: { list(): { provider: string; id: string }[]; resolve?(spec: string): unknown; current?(): { provider: string; id: string; api?: string } | undefined };
+  /**
+   * Pergunta lateral (o /btw do omp): usa o modelo e a conversa de agora, não entra no histórico e roda com o turno
+   * principal ativo. O limite de tokens de saída e o desligamento das ferramentas ficam de fora de propósito: vários
+   * transportes recusam o primeiro antes de começar e o segundo quebra o reaproveitamento do cache.
+   */
+  runEphemeralTurn?(opts: {
+    promptText: string;
+    history?: unknown[];
+    conversationKey?: string;
+    dedupeReply?: boolean;
+    onTextDelta?: (delta: string) => void;
+    signal?: AbortSignal;
+  }): Promise<{ replyText: string }>;
   sessionManager: {
     getSessionId(): string;
     getSessionFile?(): string | undefined;
@@ -207,6 +227,8 @@ export interface InboxMessage {
   text: string;
   /** Troca de modelo e/ou raciocínio (POST /api/messages/control): sem texto. */
   control?: { model?: string; thinking?: string };
+  /** Pergunta do bate-papo paralelo (a janela lateral do terminal do Habblaud): sem texto; a extensão a inicia e confirma na hora. */
+  aside?: AsideRequest;
 }
 
 export interface AckResult {
@@ -235,6 +257,15 @@ export function parseInbox(text: string): InboxMessage[] | undefined {
     const m = item as Rec;
     if (typeof m.id !== 'string' || !m.id) continue;
     const msg: InboxMessage = { id: m.id, text: typeof m.text === 'string' ? m.text : '' };
+    const a = m.aside && typeof m.aside === 'object' && !Array.isArray(m.aside) ? (m.aside as Rec) : undefined;
+    if (a && typeof a.topicId === 'string' && typeof a.turnId === 'string' && typeof a.question === 'string' && typeof a.index === 'number' && Array.isArray(a.history)) {
+      const history = a.history.flatMap((h: unknown) => {
+        const r = h && typeof h === 'object' ? (h as Rec) : undefined;
+        if (!r || typeof r.question !== 'string' || typeof r.answer !== 'string') return [];
+        return [{ question: r.question, answer: r.answer, createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0, updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : 0 }];
+      });
+      msg.aside = { topicId: a.topicId, turnId: a.turnId, index: a.index, question: a.question, history };
+    }
     const c = m.control && typeof m.control === 'object' ? (m.control as Rec) : undefined;
     if (c) {
       msg.control = {};
@@ -424,6 +455,8 @@ export function create(pi: OmpApi, deps: Deps): void {
   let busy = false;
   /** O contexto da sessão principal (para perguntar se o agente está livre na hora de entregar). */
   let mainCtx: OmpContext | undefined;
+  /** A pergunta paralela em andamento (uma por vez): a sessão trocar ou fechar a aborta. */
+  let aside: { turnId: string; abort: AbortController } | undefined;
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let inboxTimer: ReturnType<typeof setTimeout> | undefined;
@@ -501,6 +534,7 @@ export function create(pi: OmpApi, deps: Deps): void {
       mainCtx = ctx;
       deps.shared.mainSessionId = id;
       busy = false;
+      aside?.abort.abort();
       void emit('session_start', id, sessionFields(ctx));
       startLoops();
     }
@@ -582,6 +616,7 @@ export function create(pi: OmpApi, deps: Deps): void {
       if (isSub(ctx)) return;
       const id = sessionId ?? track(ctx);
       closed = true;
+      aside?.abort.abort();
       clearInterval(heartbeat);
       clearTimeout(inboxTimer);
       heartbeat = inboxTimer = undefined;
@@ -628,6 +663,7 @@ export function create(pi: OmpApi, deps: Deps): void {
     return results;
 
     async function deliverOne(m: InboxMessage): Promise<AckResult> {
+      if (m.aside) return startAside(m.id, m.aside);
       if (m.control) return applyControl(m.id, m.control);
       if (!m.text.trim()) return { id: m.id, ok: false, error: 'mensagem vazia' };
       try {
@@ -639,6 +675,97 @@ export function create(pi: OmpApi, deps: Deps): void {
       } catch (err) {
         return { id: m.id, ok: false, error: reasonText(err, 'falha ao entregar a mensagem') };
       }
+    }
+  }
+
+  // ---- pergunta paralela (bate-papo da janela lateral) ---------------------------------------
+
+  /**
+   * Inicia a pergunta paralela e confirma NA HORA: esperar a resposta aqui travaria a caixa de entrada pelo tempo todo
+   * (a rodada espera cada entrega). A resposta sai por POST /api/omp/aside, em runAside.
+   */
+  function startAside(id: string, req: AsideRequest): AckResult {
+    const ctx = mainCtx;
+    if (!ctx?.runEphemeralTurn) return { id, ok: false, error: 'este omp não faz perguntas paralelas pela extensão (atualize o omp)' };
+    if (aside) return { id, ok: false, error: 'já há uma pergunta paralela em andamento' };
+    const controller = new AbortController();
+    aside = { turnId: req.turnId, abort: controller };
+    void runAside(ctx, req, controller);
+    return { id, ok: true };
+  }
+
+  /**
+   * Roda a pergunta com ctx.runEphemeralTurn (a maquinaria do /btw do omp: o modelo e a conversa de agora, fora do
+   * histórico, com o turno principal rodando) e manda o texto acumulado ao Habblaud. Nunca lança: uma exceção solta numa
+   * extensão derruba a sessão inteira do omp.
+   */
+  async function runAside(ctx: OmpContext, req: AsideRequest, controller: AbortController): Promise<void> {
+    let pump: ReturnType<typeof setInterval> | undefined;
+    try {
+      const session = sessionId;
+      if (!session || !ctx.runEphemeralTurn) return;
+      let text = '';
+      let sentLen = -1;
+      let lastSent = 0;
+      const post = async (state: AsideProgress['state'], error?: string): Promise<void> => {
+        const r = await request('POST', '/api/omp/aside', { sessionId: session, turnId: req.turnId, text: clipAnswer(text), state, ...(error ? { error } : {}) });
+        if (!ok(r)) return;
+        try {
+          if ((JSON.parse(r.text) as Rec | null)?.cancel === true) controller.abort();
+        } catch {
+          // resposta que não é JSON: sem cancelamento
+        }
+      };
+      pump = setInterval(() => {
+        try {
+          if (text.length !== sentLen || deps.now() - lastSent >= ASIDE_HEARTBEAT_MS) {
+            sentLen = text.length;
+            lastSent = deps.now();
+            void post('running').catch(() => {});
+          }
+        } catch {
+          // nunca chega ao omp
+        }
+      }, ASIDE_PROGRESS_MS);
+      pump.unref?.();
+
+      // Perguntas anteriores da conversa, no formato do /btw do omp; sem o modelo (ou sem `api`), vão como texto na pergunta.
+      const model = ctx.models?.current?.();
+      const past = req.history;
+      let history: unknown[] | undefined;
+      let promptText = req.question;
+      if (past.length && model?.api) {
+        const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+        history = past.flatMap((h) => [
+          { role: 'user', content: [{ type: 'text', text: h.question }], attribution: 'agent', timestamp: h.createdAt },
+          ...(h.answer ? [{ role: 'assistant', content: [{ type: 'text', text: h.answer }], api: model.api, provider: model.provider, model: model.id, usage: zero, stopReason: 'stop', timestamp: h.updatedAt }] : []),
+        ]);
+      } else if (past.length) {
+        promptText = `${past.map((h) => `Pergunta anterior: ${h.question}${h.answer ? `\nResposta: ${h.answer}` : ''}`).join('\n\n')}\n\nPergunta: ${req.question}`;
+      }
+
+      try {
+        const { replyText } = await ctx.runEphemeralTurn({
+          promptText,
+          history,
+          conversationKey: `hb:${req.topicId}:${req.index}`,
+          dedupeReply: false,
+          onTextDelta: (d) => {
+            if (text.length < ASIDE_ANSWER_MAX) text += d;
+          },
+          signal: controller.signal,
+        });
+        text = replyText || text;
+        await post('complete');
+      } catch (err) {
+        if (controller.signal.aborted) await post('cancelled');
+        else await post('failed', reasonText(err, 'falha na pergunta paralela'));
+      }
+    } catch {
+      // nenhum erro chega ao omp
+    } finally {
+      if (aside?.abort === controller) aside = undefined;
+      clearInterval(pump);
     }
   }
 
@@ -661,6 +788,21 @@ export function create(pi: OmpApi, deps: Deps): void {
     }
   }
 
+  /**
+   * Confirma o lote. Repete só quando o pedido não chegou ou o servidor falhou (rede, prazo, 5xx): um 4xx é recusa
+   * definitiva e repetir não muda nada. O servidor ignora ack repetido, então repetir é seguro; sem a repetição, um
+   * ack perdido faz uma mensagem entregue aparecer como "não confirmada" e o usuário a reenvia.
+   */
+  async function sendAck(session: string, results: readonly AckResult[]): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      const r = await request('POST', '/api/mod/inbox/ack', { session, results });
+      if (r && r.status < 500) return;
+      const wait = ACK_RETRY_MS[attempt];
+      if (wait === undefined || closed) return;
+      await sleep(wait);
+    }
+  }
+
   /** Uma rodada: pergunta, entrega, confirma. Uma por vez (o próximo agendamento só sai no fim). */
   async function inboxRound(): Promise<void> {
     let next = busy ? INBOX_BUSY_MS : INBOX_IDLE_MS;
@@ -674,7 +816,7 @@ export function create(pi: OmpApi, deps: Deps): void {
         if (!messages) next = INBOX_OFFLINE_MS;
         else if (messages.length) {
           const results = await deliver(session, messages);
-          await request('POST', '/api/mod/inbox/ack', { session, results });
+          await sendAck(session, results);
         }
       }
     } catch {
