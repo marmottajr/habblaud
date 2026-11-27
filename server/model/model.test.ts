@@ -259,6 +259,44 @@ describe('Office', () => {
     expect(office.commit().feed).toEqual([]);
   });
 
+  it('releitura do transcript com mais de 30 atividades não duplica o histórico, não mexe na atividade atual e não refaz o feed', () => {
+    const { office, advance, now } = makeOffice();
+    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
+    const acts: Activity[] = [];
+    for (let i = 0; i < 100; i++) {
+      advance(1_000);
+      acts.push(act(`a${i}`, now()));
+      office.addActivity('acc:1', acts[i], true);
+    }
+    office.commit();
+    const before = office.detail('acc:1')!.history.map((a) => a.id);
+    expect(before).toHaveLength(100);
+    for (const a of acts) office.addActivity('acc:1', a, false, { feed: false });
+    expect(office.detail('acc:1')!.history.map((a) => a.id)).toEqual(before);
+    const r = office.commit();
+    expect(r.feed).toEqual([]);
+    expect(r.snapshot.agents[0].activity?.id).toBe('a99');
+    // O dedupe não pode engolir atividade nova.
+    advance(1_000);
+    office.addActivity('acc:1', act('a100', now()), true);
+    const h = office.detail('acc:1')!.history.map((a) => a.id);
+    expect(h).toHaveLength(101);
+    expect(h[100]).toBe('a100');
+  });
+
+  it('releitura de um transcript maior que o histórico (250 atividades) mantém as 200 mais novas, em ordem e sem cópias', () => {
+    const { office, advance, now } = makeOffice();
+    office.addMain({ id: 'acc:1', account: 'acc', sessionId: 's1', cwd: '/p/a', role: 'x', startedAt: now(), status: 'working' });
+    const acts: Activity[] = [];
+    for (let i = 0; i < 250; i++) {
+      advance(1_000);
+      acts.push(act(`b${i}`, now()));
+      office.addActivity('acc:1', acts[i], true);
+    }
+    for (const a of acts) office.addActivity('acc:1', a, false, { feed: false });
+    expect(office.detail('acc:1')!.history.map((a) => a.id)).toEqual(Array.from({ length: 200 }, (_, i) => `b${50 + i}`));
+  });
+
   it('boot com o agente esperando você: balão "Precisa de você" sem aviso nem feed', () => {
     const { office, now } = makeOffice();
     office.beginBoot();

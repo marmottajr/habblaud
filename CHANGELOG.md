@@ -70,6 +70,9 @@ do meio (0.**3**.0).
   ainda terminava no encerramento do processo anterior).
 - omp: a conversa aberta por `/new` ou `/resume` só aparecia (e só recebia mensagens) depois do primeiro prompt no
   terminal do omp.
+- **Histórico do agente do omp com atividades repetidas:** quando o omp trocava o título da sessão, o Habblaud relia o
+  transcript e copiava de novo as atividades já conhecidas para o histórico do agente, que enchia de repetidas e mostrava
+  uma linha do tempo mais curta. Agora cada atividade entra uma vez só.
 
 ## [1.0.3] - 2026-10-16
 

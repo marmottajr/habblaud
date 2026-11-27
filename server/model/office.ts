@@ -722,8 +722,9 @@ export class Office {
       this.markDirty();
       return;
     }
-    // Releitura de um transcript regravado: não duplica o que já está no histórico.
-    if (info.recent.some((a) => a.id === activity.id)) return;
+    // Releitura de um transcript regravado (ex.: o omp reescreveu o slot do título): `recent` guarda só 30, então
+    // sozinho ele deixa passar as mais antigas e o histórico (200) recebia cópias de tudo.
+    if (rec.history.some((a) => a.id === activity.id) || info.recent.some((a) => a.id === activity.id)) return;
     if (activity.kind !== 'done') delete rec.synthDone;
     info.recent = [...info.recent, activity].slice(-RECENT_LIMIT);
     rec.history.push(activity);

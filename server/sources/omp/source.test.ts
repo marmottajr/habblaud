@@ -208,6 +208,29 @@ describe('fonte do omp: presença pelo arquivo', () => {
     expect(c.agents().filter((a) => a.id === KEY)).toHaveLength(1);
   });
 
+  it('título trocado no lugar numa sessão com mais de 30 atividades: o histórico do detalhe não duplica e mantém a ordem', () => {
+    const c = setup();
+    const path = c.path();
+    c.session(path, [
+      L.model(c),
+      L.user(c),
+      ...Array.from({ length: 40 }, (_, i) => [L.tool(c, `toolu_${i}`, 'bash', { command: `echo ${i}`, i: `Passo ${i}` }), L.result(c, `toolu_${i}`, 'bash')]).flat(),
+    ]);
+    c.source.boot();
+    const before = c.office.detail(KEY)!.history.map((a) => a.id);
+    expect(before.length).toBeGreaterThan(30);
+    c.advance(1_000);
+    c.append(path, [{ type: 'title_change', id: id8(), timestamp: c.ts(), title: 'Título novo', source: 'auto' }]);
+    const raw = readFileSync(path, 'utf8').split('\n');
+    const slot = JSON.stringify({ type: 'title', v: 1, title: 'Título novo', updatedAt: c.ts(), pad: '' });
+    raw[0] = slot.padEnd(raw[0].length - 1 > slot.length ? raw[0].length : slot.length);
+    writeFileSync(path, raw.join('\n'));
+    c.poll();
+    c.poll();
+    expect(c.office.detail(KEY)!.history.map((a) => a.id)).toEqual(before);
+    expect(c.agent()!.title).toBe('Título novo');
+  });
+
   it('parada há 11 min sem session_exit sai; escrita nova a traz de volta', () => {
     const c = setup();
     const path = c.path();
