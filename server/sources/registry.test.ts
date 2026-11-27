@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
@@ -68,6 +68,19 @@ describe('registro de sessões', () => {
     expect(reader.poll().entries[0].status).toBe('idle');
     rmSync(file);
     expect(reader.poll().entries).toEqual([]);
+  });
+
+  it('regravado no mesmo tique do relógio e com o mesmo tamanho ("busy" -> "idle"): lê a versão nova', () => {
+    const file = join(sessions, '30.json');
+    // O Windows só avança o mtime a cada ~16 ms: as duas gravações ficam com o mesmo mtime e o mesmo tamanho.
+    const tick = new Date(Math.floor(Date.now() / 1000) * 1000);
+    writeFileSync(file, entry(30, { status: 'busy' }));
+    utimesSync(file, tick, tick);
+    const reader = new RegistryReader(tmp.dir, { checkPid: false });
+    expect(reader.poll().entries[0].status).toBe('busy');
+    writeFileSync(file, entry(30, { status: 'idle' }));
+    utimesSync(file, tick, tick);
+    expect(reader.poll().entries[0].status).toBe('idle');
   });
 
   it('pasta sessions/ ausente é reportada como fonte com problema', () => {

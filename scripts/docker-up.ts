@@ -16,6 +16,9 @@
 //    sessions/, archived_sessions/ e thread-writer-locks/ de cada uma, somente leitura, em /codex/<conta>/... —
 //    nunca auth.json, config.toml, shell_snapshots/, history.jsonl, logs nem os SQLite. Vão em HABBLAUD_CODEX_DIRS
 //    e, com `provider: 'codex'` e a pasta do HOST (onde o `codex queue` roda), em HABBLAUD_ACCOUNTS.
+//    Agent dirs do omp (~/.omp/agent, PI_CODING_AGENT_DIR ou HABBLAUD_OMP_DIRS; HABBLAUD_OMP=0 desliga): SOMENTE
+//    sessions/ de cada uma, somente leitura, em /omp/<conta>/sessions — nunca agent.db, config.yml nem models.yml. Vão em
+//    HABBLAUD_OMP_DIRS e, com `provider: 'omp'` e a pasta do HOST, em HABBLAUD_ACCOUNTS.
 // 3. Migra o que sobrou do nome antigo (CodeTown, até a 0.3.2): ~/.codetown vira ~/.habblaud, o container
 //    `codetown` e a rede codetown_default saem e, se o volume novo ainda não existe, os dados de
 //    codetown_codetown-data são copiados para ele (o antigo fica, para apagar à mão). Avisa de CODETOWN_*
@@ -40,6 +43,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { AccountInfo, SourceInfo } from '../shared/types';
 import { codexDirsRefused, detectAccounts, discoverClaudeDirs, type DetectedAccount } from '../server/accounts/detect';
 import { detectCodexAccounts, discoverCodexDirs } from '../server/sources/codex/accounts';
+import { detectOmpAccounts, discoverOmpDirs } from '../server/sources/omp/accounts';
 import { describeStateMigration, LEGACY_NAME, legacyEnvWarning, migrateLegacyStateDir } from '../server/legacy';
 import { makeClaudeRunner, MIN_CLAUDE_VERSION, readPackageVersion, updateInstalledMods, type ModUpdateResult } from './mod-install';
 import { tr } from '../shared/i18n';
@@ -71,6 +75,10 @@ const CODEX_CONTAINER_ROOT = '/codex';
  * auth.json, config.toml, shell_snapshots/, history.jsonl, logs e os SQLite ficam no host.
  */
 export const CODEX_MOUNTED_SUBDIRS = ['sessions', 'archived_sessions', 'thread-writer-locks'] as const;
+/** Raiz das montagens do omp dentro do container: /omp/<conta>/sessions. */
+const OMP_CONTAINER_ROOT = '/omp';
+/** Somente `sessions/` de cada agent dir do omp entra no container: agent.db, config.yml e models.yml têm credenciais. */
+export const OMP_MOUNTED_SUBDIRS = ['sessions'] as const;
 const DEFAULT_PORT = 4747;
 const HEALTH_TIMEOUT_MS = 120_000;
 /** Imagem e volume de dados como o Compose os nomeia (`name: habblaud` no docker-compose.yml). */
@@ -84,7 +92,7 @@ const LEGACY_DOCKER = {
   image: `${LEGACY_NAME}:local`,
 } as const;
 
-const USAGE = tr('Uso: npm run docker:up [-- opções]\n\nOpções:\n  --no-build   sobe sem reconstruir a imagem\n  --down       derruba o container (o mesmo que npm run docker:down)\n  -h, --help   mostra esta ajuda\n\nVariáveis: HABBLAUD_PORT (porta no host, padrão {0}), HABBLAUD_CLAUDE_DIRS\n(config dirs separados por vírgula, se as contas não estiverem em ~/.claude*), HABBLAUD_CODEX_DIRS\n(pastas do Codex, se não estiverem em ~/.codex* nem em CODEX_HOME) e HABBLAUD_CODEX=0 (sem o Codex).', [DEFAULT_PORT]);
+const USAGE = tr('Uso: npm run docker:up [-- opções]\n\nOpções:\n  --no-build   sobe sem reconstruir a imagem\n  --down       derruba o container (o mesmo que npm run docker:down)\n  -h, --help   mostra esta ajuda\n\nVariáveis: HABBLAUD_PORT (porta no host, padrão {0}), HABBLAUD_CLAUDE_DIRS\n(config dirs separados por vírgula, se as contas não estiverem em ~/.claude*), HABBLAUD_CODEX_DIRS\n(pastas do Codex, se não estiverem em ~/.codex* nem em CODEX_HOME) e HABBLAUD_CODEX=0 (sem o Codex);\nHABBLAUD_OMP_DIRS (agent dirs do omp, se não estiverem em ~/.omp/agent nem em PI_CODING_AGENT_DIR) e HABBLAUD_OMP=0 (sem o omp).', [DEFAULT_PORT]);
 
 // ---------------------------------------------------------------------------------------------
 // Saída no terminal
@@ -166,8 +174,8 @@ type CachedUsage = { fetchedAtMs: unknown; utilization: Partial<Record<(typeof U
 
 export interface AccountPayload {
   id: string;
-  /** Só nas contas do Codex (ausente = Claude Code). */
-  provider?: 'codex';
+  /** Só nas contas do Codex e do omp (ausente = Claude Code). */
+  provider?: 'codex' | 'omp';
   configDir: string;
   mountDir: string;
   short: string;
@@ -238,6 +246,36 @@ export function codexAccountsPayload(mounts: AccountMount[]): AccountPayload[] {
   });
 }
 
+/**
+ * Monta só `sessions/` de cada agent dir do omp (as que existirem), em /omp/<id>/sessions, somente leitura. `accounts` vem
+ * de detectOmpAccounts(dirs), na mesma ordem de `dirs`; o id vira o nome da pasta no container.
+ */
+export function planOmpMounts(dirs: string[], accounts: DetectedAccount[], resolveDir: (p: string) => string | undefined = realDir): AccountMount[] {
+  const out: AccountMount[] = [];
+  dirs.forEach((hostDir, i) => {
+    const account = accounts[i];
+    const mountDir = posix.join(OMP_CONTAINER_ROOT, account.id);
+    const binds: BindMount[] = [];
+    for (const sub of OMP_MOUNTED_SUBDIRS) {
+      const source = resolveDir(join(hostDir, sub));
+      if (source) binds.push({ source, target: posix.join(mountDir, sub) });
+    }
+    if (binds.length) out.push({ account, hostDir, mountDir, binds });
+  });
+  return out;
+}
+
+/** Metadados das contas do omp para HABBLAUD_ACCOUNTS: `provider: 'omp'` e a pasta do HOST em `configDir`. */
+export function ompAccountsPayload(mounts: AccountMount[]): AccountPayload[] {
+  return mounts.map(({ account: a, hostDir, mountDir }) => ({ id: a.id, provider: 'omp', configDir: hostDir, mountDir, short: a.short, name: a.name, color: a.color }));
+}
+
+/** HABBLAUD_OMP desligado (0, false, off, no) no ambiente de quem roda o docker:up. */
+export function ompDisabled(env: NodeJS.ProcessEnv): boolean {
+  const v = env.HABBLAUD_OMP?.trim();
+  return !!v && !/^(1|true|yes|sim|on)$/i.test(v);
+}
+
 /** HABBLAUD_CODEX desligado (0, false, off, no) no ambiente de quem roda o docker:up. */
 export function codexDisabled(env: NodeJS.ProcessEnv): boolean {
   const v = env.HABBLAUD_CODEX?.trim();
@@ -306,7 +344,7 @@ export function hostTimeZone(env: NodeJS.ProcessEnv = process.env): string | und
 /**
  * `usageDir`: pasta do host com o uso capturado pelo tap de statusline (já existente; caminho real),
  * montada somente leitura em /usage. `timeZone`: fuso do host, repassado como TZ. `codex`: montagens das contas do
- * Codex (planCodexMounts).
+ * Codex (planCodexMounts). `omp`: montagens das contas do omp (planOmpMounts).
  */
 export function renderOverride(
   mounts: AccountMount[],
@@ -316,12 +354,14 @@ export function renderOverride(
   codex: AccountMount[] = [],
   remoteTlsDir?: string,
   extraPorts: string[] = [],
+  omp: AccountMount[] = [],
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
-    ['HABBLAUD_ACCOUNTS', JSON.stringify([...accountsPayload(mounts), ...codexAccountsPayload(codex)])],
+    ['HABBLAUD_ACCOUNTS', JSON.stringify([...accountsPayload(mounts), ...codexAccountsPayload(codex), ...ompAccountsPayload(omp)])],
   ];
   if (codex.length) env.push(['HABBLAUD_CODEX_DIRS', codex.map((m) => m.mountDir).join(',')]);
+  if (omp.length) env.push(['HABBLAUD_OMP_DIRS', omp.map((m) => m.mountDir).join(',')]);
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
   const lines = [
@@ -329,6 +369,7 @@ export function renderOverride(
     '# Contém caminhos do host e e-mails das contas: fica fora do git e com permissão 600.',
     '# Montagens: SOMENTE <conta>/projects, <conta>/sessions e a pasta do uso do statusline, todas somente leitura.',
     ...(codex.length ? ['# Codex: SOMENTE <pasta>/sessions, <pasta>/archived_sessions e <pasta>/thread-writer-locks, somente leitura.'] : []),
+    ...(omp.length ? ['# omp: SOMENTE <agent dir>/sessions, somente leitura (nunca agent.db, config.yml nem models.yml).'] : []),
     'services:',
     `  ${SERVICE}:`,
     '    environment:',
@@ -336,7 +377,7 @@ export function renderOverride(
   ];
   // O Compose junta estas portas às do docker-compose.yml.
   if (extraPorts.length) lines.push('    ports:', ...extraPorts.map((p) => `      - ${yamlString(p)}`));
-  const binds = [...mounts, ...codex].flatMap((m) => m.binds);
+  const binds = [...mounts, ...codex, ...omp].flatMap((m) => m.binds);
   if (usageDir) binds.push({ source: usageDir, target: CONTAINER_USAGE_DIR });
   // Acesso remoto: SÓ a pasta do certificado do servidor (a chave da CA fica no host).
   if (remoteTlsDir) binds.push({ source: remoteTlsDir, target: CONTAINER_REMOTE_TLS_DIR });
@@ -707,13 +748,23 @@ async function up(opts: Options, port: number): Promise<void> {
     }
   }
 
+  // omp (oh-my-pi): só o sessions/ de cada agent dir (HABBLAUD_OMP_DIRS › PI_CODING_AGENT_DIR › ~/.omp/agent; HABBLAUD_OMP=0 desliga).
+  const ompDirs = ompDisabled(process.env) ? [] : discoverOmpDirs(process.env, HOME);
+  const ompAccounts = detectOmpAccounts(ompDirs, {
+    home: HOME,
+    env: process.env,
+    taken: { shorts: [...accounts, ...codexAccounts].map((a) => a.short), colors: [...accounts, ...codexAccounts].map((a) => a.color) },
+  });
+  const ompMounts = planOmpMounts(ompDirs, ompAccounts);
+  for (const m of ompMounts) say(tr('omp {0} ({1}): monta sessions de {2}, somente leitura.', [m.account.short, m.account.id, tildify(m.hostDir)]));
+
   migrateStateDir();
   const usageDir = ensureUsageDir();
   if (usageDir) say(tr('Uso ao vivo (mod ou tap de statusline): monta {0} em {1}, somente leitura.', [tildify(USAGE_DIR), CONTAINER_USAGE_DIR]));
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts), { mode: 0o600 });
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, ompMounts), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say(tr('docker-compose.override.yml gerado.'));
@@ -740,6 +791,12 @@ async function up(opts: Options, port: number): Promise<void> {
     const usage = health.accounts?.find((a) => a.id === m.account.id)?.usageStatus;
     const state = src.ok ? plural(src.sessions, tr('sessão aberta'), tr('sessões abertas')) : tr('erro ao ler ({0})', [src.error ?? tr('desconhecido')]);
     say(`  Codex ${m.account.short} (${m.account.id}): ${state}${usage ? ` · ${USAGE_STATUS[usage]}` : ''}`);
+  }
+  for (const m of ompMounts) {
+    const src = health.sources?.find((s) => s.label === m.account.id && s.provider === 'omp');
+    if (!src) continue;
+    const state = src.ok ? plural(src.sessions, tr('sessão aberta'), tr('sessões abertas')) : tr('erro ao ler ({0})', [src.error ?? tr('desconhecido')]);
+    say(`  omp ${m.account.short} (${m.account.id}): ${state}`);
   }
   for (const line of modHint(updateMods(dirs, accounts))) say(line);
   // Com a cópia falha, os dados só existem no volume antigo: nada de sugerir apagá-lo.

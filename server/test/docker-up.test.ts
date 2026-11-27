@@ -12,8 +12,12 @@ import {
   envFileKeys,
   hostTimeZone,
   parseArgs,
+  OMP_MOUNTED_SUBDIRS,
+  ompAccountsPayload,
+  ompDisabled,
   planCodexMounts,
   planMounts,
+  planOmpMounts,
   planUp,
   renderOverride,
   sanitizeCachedUsage,
@@ -130,6 +134,36 @@ describe('docker-up', () => {
     expect(codexDisabled({ HABBLAUD_CODEX: 'off' })).toBe(true);
     expect(codexDisabled({ HABBLAUD_CODEX: '1' })).toBe(false);
     expect(codexDisabled({})).toBe(false);
+  });
+
+  it('omp: monta SÓ sessions/ (somente leitura) em /omp/<conta>/sessions e passa HABBLAUD_OMP_DIRS e a conta com a pasta do host', () => {
+    expect([...OMP_MOUNTED_SUBDIRS]).toEqual(['sessions']);
+    const host = '/Users/fulano/.omp/agent';
+    // No host também há agent.db, config.yml, models.yml, history.db, blobs/...: nada disso entra.
+    const exists = new Set([`${host}/sessions`, `${host}/agent.db`, `${host}/config.yml`, `${host}/models.yml`, `${host}/history.db`]);
+    const ompAcc: DetectedAccount = { id: '.omp', provider: 'omp', configDir: host, short: 'O', name: 'omp', color: '#a77bf3' };
+    const omp = planOmpMounts([host, '/Users/fulano/.omp2/agent'], [ompAcc, { ...ompAcc, id: '.omp2' }], (p) => (exists.has(slash(p)) ? `/real${slash(p)}` : undefined));
+    expect(omp.map((m) => m.binds)).toEqual([[{ source: `/real${host}/sessions`, target: '/omp/.omp/sessions' }]]);
+    expect(omp[0]).toMatchObject({ hostDir: host, mountDir: '/omp/.omp' });
+    const claude = planMounts(['/Users/fulano/.claude'], [acc('.claude')], slash);
+    const yml = renderOverride(claude, new Date(0), undefined, undefined, [], undefined, [], omp);
+    expect(yml).toContain('HABBLAUD_OMP_DIRS: "/omp/.omp"');
+    expect(yml).toContain(`source: "/real${host}/sessions"`);
+    expect(yml).toContain('target: "/omp/.omp/sessions"');
+    expect(yml.match(/read_only: true/g)).toHaveLength(3);
+    for (const secret of ['agent.db', 'models.yml', 'history.db', 'config.yml']) expect(yml.split('\n').filter((l) => !l.startsWith('#') && l.includes(secret))).toEqual([]);
+    const accounts = JSON.parse(JSON.parse(/HABBLAUD_ACCOUNTS: (".*")/.exec(yml)![1]) as string) as Array<Record<string, unknown>>;
+    expect(accounts.map((a) => [a.id, a.provider, a.configDir])).toEqual([
+      ['.claude', undefined, '/Users/fulano/.claude'],
+      ['.omp', 'omp', host],
+    ]);
+    expect(ompAccountsPayload(omp)).toEqual([{ id: '.omp', provider: 'omp', configDir: host, mountDir: '/omp/.omp', short: 'O', name: 'omp', color: '#a77bf3' }]);
+    // Sem omp: nada de HABBLAUD_OMP_DIRS.
+    expect(renderOverride(claude)).not.toContain('HABBLAUD_OMP_DIRS');
+    expect(ompDisabled({ HABBLAUD_OMP: '0' })).toBe(true);
+    expect(ompDisabled({ HABBLAUD_OMP: 'off' })).toBe(true);
+    expect(ompDisabled({ HABBLAUD_OMP: '1' })).toBe(false);
+    expect(ompDisabled({})).toBe(false);
   });
 
   it('fuso do host vai para o container como TZ', () => {

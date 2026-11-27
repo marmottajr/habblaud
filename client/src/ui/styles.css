@@ -365,6 +365,23 @@
   --step: 3px;
 }
 
+/* Conta do omp: o mesmo chip vazado do Codex (fundo escuro, borda e letra na cor da conta), mas com só os cantos de
+   cima cortados, para as duas ferramentas não se confundirem de longe. Sem logotipo. */
+.ui-acc-chip[data-provider='omp'] {
+  --step: 2px;
+  border-radius: 0;
+  background: #161b26;
+  color: var(--acc);
+  box-shadow:
+    inset 0 0 0 var(--step) var(--acc),
+    inset 0 calc(var(--step) * -2) 0 rgba(0, 0, 0, 0.3);
+  clip-path: polygon(var(--step) 0, calc(100% - var(--step)) 0, 100% var(--step), 100% 100%, 0 100%, 0 var(--step));
+}
+
+.ui-acc-chip--lg[data-provider='omp'] {
+  --step: 3px;
+}
+
 /* Selo de texto "Codex" ao lado do nome da conta (fonte do sistema: na Pixelify o "C" parece "O"). */
 .ui-prov {
   display: inline-flex;
@@ -1040,6 +1057,93 @@
   border: 0;
   background: none;
   color: inherit;
+}
+
+/* omp: "N ▾" abre o painel com todos os provedores (ui-omp-usage). Fica na ponta direita do cabeçalho. */
+.ui-usage-card__provs {
+  flex: none;
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ui-muted);
+  font: 600 10.5px/13px var(--font-ui);
+  cursor: pointer;
+}
+
+.ui-usage-card__provs:hover,
+.ui-usage-card__provs[aria-expanded='true'] {
+  color: var(--ui-text);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ui-usage-card__state:not([hidden]) ~ .ui-usage-card__provs {
+  margin-left: 4px;
+}
+
+/* Painel dos provedores do omp: um bloco por provedor, os limites agrupados (Gemini, Claude & GPT…). */
+.ui-omp-usage {
+  width: min(360px, calc(100vw - 16px));
+}
+
+.ui-omp-usage__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px;
+}
+
+.ui-omp-usage__prov {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+}
+
+.ui-omp-usage__prov.is-current {
+  border-color: var(--ui-line-strong);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ui-omp-usage__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-omp-usage__chip {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ui-muted);
+  font-size: 10.5px;
+}
+
+.ui-omp-usage__chip.is-current {
+  color: var(--ui-accent);
+}
+
+.ui-omp-usage__label {
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+/* Limite esgotado (o omp marcou): o percentual em negrito, além da cor de nível crítico da barra. */
+.ui-meter.is-exhausted .ui-meter__pct {
+  font-weight: 700;
+}
+
+.ui-omp-usage__note,
+.ui-omp-usage__foot {
+  color: var(--ui-faint);
+  font-size: 11px;
+}
+
+.ui-omp-usage__foot {
+  padding: 8px 16px 2px;
 }
 
 /* As duas linhas (5h e Semana) dividem as mesmas colunas (subgrid): barras alinhadas e a coluna do
@@ -5449,6 +5553,217 @@ button.ui-term__think:hover,
   height: 13px;
 }
 
+/* Bate-papo paralelo (ui/aside.ts): coluna à direita da conversa do agente. Fechado, o terminal fica como era; aberto, ele
+   alarga (mesma fórmula de --term-w, com o teto maior) para a conversa do agente não encolher. */
+.ui-term__split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.ui-term__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-term.is-chat {
+  --term-w: min(1320px, 94vw, max(560px, calc(100vw - var(--free-left) - var(--free-right) - 16px)));
+}
+
+.ui-term__chat-btn .ui-px-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.ui-chat {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 380px;
+  min-height: 0;
+  border-left: 1px solid var(--ui-line-strong);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--ui-text);
+  font: 13px/1.45 var(--font-ui);
+}
+
+.ui-chat__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 8px 6px 8px 12px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-chat__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-chat__hint {
+  font-size: 11px;
+  color: var(--ui-faint);
+}
+
+.ui-chat__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-chat__picker {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ui-line-strong);
+  background: var(--ui-bg-solid);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ui-chat__picker:disabled,
+.ui-chat .ui-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-chat__log {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ui-chat__log:focus {
+  outline: none;
+}
+
+.ui-chat__empty {
+  margin: 24px 8px;
+  text-align: center;
+  color: var(--ui-muted);
+}
+
+.ui-chat__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ui-chat__bubble {
+  max-width: 92%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+/* A pergunta: à direita, com o destaque dos botões primários. */
+.ui-chat__bubble--me {
+  align-self: flex-end;
+  background: #2f7fd1;
+  border: 1px solid #58a6f2;
+  color: #fff;
+  white-space: pre-wrap;
+}
+
+/* A resposta: à esquerda, com o fundo neutro dos cartões. */
+.ui-chat__bubble--agent {
+  align-self: flex-start;
+  background: var(--ui-bg-soft);
+  border: 1px solid var(--ui-line-strong);
+}
+
+.ui-chat__md:empty {
+  display: none;
+}
+
+.ui-chat__status {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ui-muted);
+}
+
+.ui-chat__md:not(:empty) + .ui-chat__status {
+  margin-top: 6px;
+}
+
+.ui-chat__status.is-failed,
+.ui-chat__error {
+  color: #ffb3aa;
+}
+
+.ui-chat__error {
+  flex: none;
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.ui-chat__foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex: none;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--ui-line);
+}
+
+.ui-chat__input {
+  flex: 1;
+  min-width: 0;
+  max-height: calc(1.45em * 6);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ui-line-strong);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ui-text);
+  font: inherit;
+  resize: none;
+}
+
+.ui-chat__input:focus {
+  outline: none;
+  border-color: rgba(124, 200, 255, 0.55);
+}
+
+.ui-chat__input::placeholder {
+  color: var(--ui-faint);
+}
+
+.ui-chat__send.is-stop {
+  border-color: rgba(255, 107, 107, 0.55);
+  color: #ffb3aa;
+}
+
+/* Tela estreita: o bate-papo cobre a conversa do agente (fechar volta a ela). */
+@media (max-width: 900px) {
+  .ui-term__split {
+    position: relative;
+  }
+
+  .ui-chat {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    width: auto;
+    border-left: 0;
+    background: #0a0c12;
+  }
+}
+
 .ui-term__search {
   display: flex;
   align-items: center;
@@ -6739,6 +7054,18 @@ html.is-replay #world {
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
+}
+
+.ui-ctl-select {
+  max-width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ui-line-strong);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ui-text);
+  font: 500 12px/1 var(--font-ui);
+  cursor: pointer;
 }
 
 .ui-day__select {

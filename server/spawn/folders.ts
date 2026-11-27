@@ -17,10 +17,11 @@ export interface SpawnFolder {
 
 export const FOLDERS_LIMIT = 15;
 
-const TEMP = /^(\/private)?\/(tmp|var\/folders|var\/tmp)(\/|$)/;
-/** Pastas descartáveis que o app desktop do Claude cria para sessões sem projeto. */
-const SCRATCH = /\/Application Support\/Claude\/scratch-workspaces\//;
-const WORKTREE = /^(.*?)\/\.(claude|codex)\/worktrees\/[^/]+(\/.*)?$/;
+/** Temporárias do macOS e do Linux, e a %TEMP% do Windows (C:\Users\<nome>\AppData\Local\Temp). */
+const TEMP = /^(?:(\/private)?\/(tmp|var\/folders|var\/tmp)(\/|$)|[A-Za-z]:[\\/]Users[\\/][^\\/]+[\\/]AppData[\\/]Local[\\/]Temp([\\/]|$))/i;
+/** Pastas descartáveis que o app desktop do Claude cria para sessões sem projeto (macOS e Windows). */
+const SCRATCH = /[\\/](Application Support|AppData[\\/]Roaming)[\\/]Claude[\\/]scratch-workspaces[\\/]/;
+const WORKTREE = /^(.*?)[\\/]\.(claude|codex)[\\/]worktrees[\\/][^\\/]+([\\/].*)?$/;
 
 function absolute(p: string): boolean {
   return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);

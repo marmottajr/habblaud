@@ -576,7 +576,8 @@ export class DayPanel implements UiComponent {
       const acc = accounts.get(w.account);
       const chip = h('span', { class: 'ui-acc-chip', text: acc?.short ?? '?', title: acc?.name ?? w.account });
       setStyleVar(chip, '--acc', acc?.color ?? '#8b98b3');
-      if (this.isCodexAccount(w.account)) chip.dataset.provider = 'codex';
+      const tool = accountProvider(this.ctx.account(w.account), w.account);
+      if (tool !== 'claude') chip.dataset.provider = tool;
       list.append(
         h(
           'li',

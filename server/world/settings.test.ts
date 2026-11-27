@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, 
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setQuiet } from '../log';
-import { tempDir } from '../test/fixtures';
+import { HAS_POSIX_MODES, tempDir } from '../test/fixtures';
 import { parseWorldSession, WorldSettingsStore } from './settings';
 
 setQuiet(true);
@@ -28,7 +28,7 @@ describe('WorldSettingsStore', () => {
     const { file, dir, store: s } = store();
     expect(s.load()).toBeUndefined();
     expect(s.save(SESSION)).toBe(true);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(readdirSync(dir)).toEqual(['world.json']);
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ...SESSION, updatedAt: 1_000 });
     expect(new WorldSettingsStore(file).load()).toEqual({ ...SESSION, updatedAt: 1_000 });
@@ -39,7 +39,7 @@ describe('WorldSettingsStore', () => {
     s.save(SESSION);
     chmodSync(file, 0o644);
     expect(new WorldSettingsStore(file).load()?.token).toBe(TOKEN);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it('o 600 vale também por cima de um temporário velho com outra permissão', () => {
@@ -47,7 +47,7 @@ describe('WorldSettingsStore', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(`${file}.${process.pid}.tmp`, 'velho', { mode: 0o644 });
     s.save(SESSION);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it('update muda só acesso e personagem; clear apaga o arquivo', () => {
@@ -68,7 +68,7 @@ describe('WorldSettingsStore', () => {
     expect(s.getTheme()).toBe('auto');
     s.setTheme('halloween');
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ theme: 'halloween' });
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (HAS_POSIX_MODES) expect(statSync(file).mode & 0o777).toBe(0o600);
     s.save(SESSION);
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ...SESSION, updatedAt: 1_000, theme: 'halloween' });
     s.clear();

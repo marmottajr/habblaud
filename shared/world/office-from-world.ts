@@ -31,7 +31,7 @@
 import { PART_KEYS, parseAppearanceParts, parseCharacterName, type AppearanceParts } from '../appearance';
 import { hash32 } from '../hash';
 import { tr } from '../i18n';
-import type { AccountInfo, AgentInfo, AgentStatus, OfficeSnapshot, Provider, RoomInfo } from '../types';
+import type { AccountInfo, AgentInfo, AgentStatus, OfficeSnapshot, RoomInfo } from '../types';
 import { floorLabel } from './floor-labels';
 import { UPLINK_LIMITS, type BuildingPatchMessage, type WorldAgent, type WorldBuildingDetail, type WorldBuildingPublic } from './protocol';
 
@@ -48,12 +48,15 @@ export function isWorldId(id: string): boolean {
   return id.startsWith(WORLD_ID_PREFIX);
 }
 
-/** Contas fictícias da visita, uma por ferramenta: só o nome da ferramenta, a letra e a cor (sem e-mail nem uso). */
-export const WORLD_TOOL_ACCOUNTS: Readonly<Record<Provider, { short: string; name: string; color: string }>> = {
+/**
+ * Contas fictícias da visita, uma por ferramenta que existe no protocolo do mundo (claude, codex): só o nome da
+ * ferramenta, a letra e a cor (sem e-mail nem uso). Um agente local de outra ferramenta (omp) sobe como claude.
+ */
+export const WORLD_TOOL_ACCOUNTS: Readonly<Record<WorldAgent['provider'], { short: string; name: string; color: string }>> = {
   claude: { short: 'C', name: 'Claude Code', color: '#f08a3c' },
   codex: { short: 'X', name: 'Codex', color: '#a77bf3' },
 };
-const PROVIDERS: readonly Provider[] = ['claude', 'codex'];
+const PROVIDERS: readonly WorldAgent['provider'][] = ['claude', 'codex'];
 /** Status que existem no mundo; um que esta versão não conhece vira 'idle' (passeia, sem prometer nada). */
 const STATUSES: readonly AgentStatus[] = ['working', 'waiting', 'idle', 'shell'];
 
@@ -175,7 +178,7 @@ function build(floors: WorldBuildingDetail['floors'], hidden: boolean, now: numb
 function agentInfo(a: WorldAgent, roomId: string, now: number, present: ReadonlySet<string>): AgentInfo {
   const id = worldId(a.id);
   const kind = a.kind === 'sub' ? 'sub' : 'main';
-  const provider: Provider = PROVIDERS.includes(a.provider) ? a.provider : 'claude';
+  const provider: WorldAgent['provider'] = PROVIDERS.includes(a.provider) ? a.provider : 'claude';
   const status: AgentStatus = STATUSES.includes(a.status) ? a.status : 'idle';
   const info: AgentInfo = {
     id,

@@ -22,7 +22,7 @@ import { HistoryPopover } from './history';
 import { Deliveries } from './deliveries';
 import { HoverTip } from './hovertip';
 import { hasRunningShells } from './model';
-import { hasCodexPermission } from './provider';
+import { hasShortPermission } from './provider';
 import { Notifier } from './notify';
 import { ConnectionBanner, EmptyState, Splash } from './overlays';
 import { focusPermission, nextPermissionAgent } from './permission';
@@ -375,7 +375,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   }, CLOCK_MS);
   setInterval(() => {
     // Shells rodando (cronômetro) ou pedido do Codex esperando (prazo de segundos).
-    if (!document.hidden && (hasRunningShells(store.snapshot) || hasCodexPermission(store.snapshot))) invalidate();
+    if (!document.hidden && (hasRunningShells(store.snapshot) || hasShortPermission(store.snapshot))) invalidate();
   }, SHELL_CLOCK_MS);
 
   addEventListener('keydown', (e) => onKey(e));

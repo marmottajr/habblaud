@@ -1,0 +1,152 @@
+{
+  "generatedAt": 1792518267491,
+  "reports": [
+    {
+      "provider": "anthropic",
+      "fetchedAt": 1792518261576,
+      "limits": [
+        {
+          "id": "anthropic:5h",
+          "label": "Claude 5 Hour",
+          "scope": { "provider": "anthropic", "windowId": "5h", "shared": true },
+          "window": { "id": "5h", "label": "5 Hour", "durationMs": 18000000, "resetsAt": 1792533000000 },
+          "amount": { "used": 11, "limit": 100, "remaining": 89, "usedFraction": 0.11, "remainingFraction": 0.89, "unit": "percent" },
+          "status": "ok"
+        },
+        {
+          "id": "anthropic:7d",
+          "label": "Claude 7 Day",
+          "scope": { "provider": "anthropic", "windowId": "7d", "shared": true },
+          "window": { "id": "7d", "label": "7 Day", "durationMs": 604800000, "resetsAt": 1792519200000 },
+          "amount": { "used": 41, "limit": 100, "remaining": 59, "usedFraction": 0.41, "remainingFraction": 0.5900000000000001, "unit": "percent" },
+          "status": "ok"
+        },
+        {
+          "id": "anthropic:7d:fable",
+          "label": "Claude 7 Day (Fable)",
+          "scope": { "provider": "anthropic", "windowId": "7d", "tier": "fable" },
+          "window": { "id": "7d", "label": "7 Day", "durationMs": 604800000, "resetsAt": 1792519200216 },
+          "amount": { "used": 19, "limit": 100, "remaining": 81, "usedFraction": 0.19, "remainingFraction": 0.81, "unit": "percent" },
+          "status": "ok"
+        }
+      ],
+      "metadata": {
+        "accountId": "ex*",
+        "email": "ex*@ex*",
+        "orgId": "ex*",
+        "orgName": "Ex*",
+        "endpoint": "https://api.anthropic.com/api/oauth/usage",
+        "headersUpdatedAt": 1792518261576
+      },
+      "resetCredits": { "availableCount": 0 }
+    },
+    {
+      "provider": "openai-codex",
+      "fetchedAt": 1792518080893,
+      "limits": [
+        {
+          "id": "openai-codex:primary",
+          "label": "30 days",
+          "scope": { "provider": "openai-codex", "windowId": "30d", "shared": true },
+          "window": { "id": "30d", "label": "30 days", "durationMs": 2592000000, "resetsAt": 1795110081000 },
+          "amount": { "used": 0, "limit": 100, "remaining": 100, "usedFraction": 0, "remainingFraction": 1, "unit": "percent" },
+          "status": "ok"
+        }
+      ],
+      "resetCredits": { "availableCount": 0 },
+      "metadata": {
+        "planType": "free",
+        "allowed": true,
+        "limitReached": false,
+        "email": "ex*@ex*",
+        "accountId": "ex*",
+        "meterStates": { "chat": { "allowed": true, "limitReached": false } },
+        "orgId": "ex*",
+        "orgName": "Ex*"
+      }
+    },
+    {
+      "provider": "google-antigravity",
+      "fetchedAt": 1792518081142,
+      "limits": [
+        {
+          "id": "google-antigravity:google:default:gemini-weekly",
+          "label": "Gemini",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "weekly" },
+          "window": { "id": "weekly", "label": "Weekly", "durationMs": 604800000, "resetsAt": 1793122881000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        },
+        {
+          "id": "google-antigravity:google:default:gemini-5h",
+          "label": "Gemini",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "5h" },
+          "window": { "id": "5h", "label": "5 Hour", "durationMs": 18000000, "resetsAt": 1792536081000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        },
+        {
+          "id": "google-antigravity:anthropic:default:3p-weekly",
+          "label": "Claude & GPT (shared)",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "weekly", "shared": true, "sharedGroup": "3p-weekly:weekly" },
+          "window": { "id": "weekly", "label": "Weekly", "durationMs": 604800000, "resetsAt": 1793122881000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        },
+        {
+          "id": "google-antigravity:openai:default:3p-weekly",
+          "label": "Claude & GPT (shared)",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "weekly", "shared": true, "sharedGroup": "3p-weekly:weekly" },
+          "window": { "id": "weekly", "label": "Weekly", "durationMs": 604800000, "resetsAt": 1793122881000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        },
+        {
+          "id": "google-antigravity:anthropic:default:3p-5h",
+          "label": "Claude & GPT (shared)",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "5h", "shared": true, "sharedGroup": "3p-5h:5h" },
+          "window": { "id": "5h", "label": "5 Hour", "durationMs": 18000000, "resetsAt": 1792536081000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        },
+        {
+          "id": "google-antigravity:openai:default:3p-5h",
+          "label": "Claude & GPT (shared)",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "5h", "shared": true, "sharedGroup": "3p-5h:5h" },
+          "window": { "id": "5h", "label": "5 Hour", "durationMs": 18000000, "resetsAt": 1792536081000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        },
+        {
+          "id": "google-antigravity:google:default:gemini-argon-wtu-weekly",
+          "label": "Gemini",
+          "scope": { "provider": "google-antigravity", "projectId": "ex*", "windowId": "weekly" },
+          "window": { "id": "weekly", "label": "Weekly", "durationMs": 604800000, "resetsAt": 1793122881000 },
+          "amount": { "unit": "percent", "remainingFraction": 1, "usedFraction": 0, "remaining": 100, "used": 0, "limit": 100 },
+          "status": "ok"
+        }
+      ],
+      "metadata": { "endpoint": "https://daily-cloudcode-pa.googleapis.com", "projectId": "ex*", "email": "ex*@ex*" }
+    },
+    {
+      "provider": "ollama-cloud",
+      "fetchedAt": 1792518080897,
+      "limits": [],
+      "notes": ["Ollama does not expose a standalone quota usage API; per-response token usage is reported during requests."]
+    }
+  ],
+  "accountsWithoutUsage": [],
+  "disabledCredentials": [],
+  "capacity": {
+    "anthropic": [
+      { "window": "5h", "durationMs": 18000000, "accounts": 1, "usedAccounts": 0.11, "remainingAccounts": 0.89 },
+      { "window": "7d", "durationMs": 604800000, "accounts": 1, "usedAccounts": 0.41, "remainingAccounts": 0.5900000000000001 },
+      { "window": "7d", "durationMs": 604800000, "meter": "fable", "accounts": 1, "usedAccounts": 0.19, "remainingAccounts": 0.81 }
+    ],
+    "openai-codex": [{ "window": "30d", "durationMs": 2592000000, "meter": "chat", "accounts": 1, "usedAccounts": 0, "remainingAccounts": 1 }],
+    "google-antigravity": [
+      { "window": "5h", "durationMs": 18000000, "accounts": 1, "usedAccounts": 0, "remainingAccounts": 1 },
+      { "window": "7d", "durationMs": 604800000, "accounts": 1, "usedAccounts": 0, "remainingAccounts": 1 }
+    ]
+  }
+}

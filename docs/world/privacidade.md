@@ -72,7 +72,7 @@ O pacote do prédio tem estes campos e mais nenhum (o formato exato está em
 | `agents` (do andar) | Um por agente principal ou subagente trabalhando, esperando, à toa ou de olho num shell | O personagem fazendo a coisa certa na mesa certa |
 | `id` (do agente) | Id aleatório (`a_` e 8 caracteres), com as mesmas trocas do id do andar | Saber quem é quem no pacote |
 | `kind` e `parentId` | Principal (`main`) ou subagente (`sub`) e, no subagente, o id **do mundo** do agente que o chamou (ausente se esse agente já saiu) | O subagente perto de quem o chamou |
-| `provider` | `claude` ou `codex` | O visual da ferramenta |
+| `provider` | `claude` ou `codex` | O visual da ferramenta (agentes do omp (oh-my-pi) vão como `claude`: o protocolo do mundo só tem `claude` e `codex`) |
 | `status` | `working`, `waiting`, `idle` ou `shell`. **Sem** "desde quando" | O que o personagem está fazendo |
 | `look` | A dica visual do personagem (`f` ou `m`) | O corpo e o nome combinarem |
 | `name` | Um nome sorteado da lista de nomes do Habblaud a partir do id aleatório do mundo (nunca o nome do escritório, editado ou não) | O personagem ter um nome |

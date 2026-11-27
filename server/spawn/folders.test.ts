@@ -11,6 +11,9 @@ describe('pastas sugeridas no Novo agente', () => {
     expect(projectFolder('/Users/a/Library/Application Support/Claude/scratch-workspaces/e8/60/scratch-2026-10-12-315a47')).toBeUndefined();
     expect(projectFolder('relativo')).toBeUndefined();
     expect(projectFolder('C:\\code\\win')).toBe('C:\\code\\win');
+    expect(projectFolder('C:\\Users\\DIEGO~1\\AppData\\Local\\Temp\\dbx-claude-code-1')).toBeUndefined();
+    expect(projectFolder('C:\\Users\\a\\AppData\\Roaming\\Claude\\scratch-workspaces\\x\\scratch-1')).toBeUndefined();
+    expect(projectFolder('C:\\code\\win\\.claude\\worktrees\\feat')).toBe('C:\\code\\win');
     expect(projectFolder(undefined)).toBeUndefined();
   });
 

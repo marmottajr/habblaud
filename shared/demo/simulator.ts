@@ -13,6 +13,12 @@
 // `codexRng`), sem chamadas a mais no sorteio principal; ainda assim o escritório de cada semente mudou em relação
 // às versões sem o Codex (a 2ª sessão muda de sala, e os agentes do Codex não sorteiam custo). Vale sempre: a mesma
 // semente gera o mesmo escritório.
+//
+// O omp (oh-my-pi) entra do mesmo jeito: conta `.omp` sem e-mail nem uso, modelos sem o prefixo do provedor,
+// subagentes com nome de task em CamelCase, mensagens como as do Claude Code (viram turno novo) e aprovações com as
+// regras do Codex (sem "sempre permitir" nem interromper). Na abertura (com 4 sessões ou mais) a 3ª sessão é do omp,
+// numa sala só dele; depois, ~20% das sessões novas, pelo hash do id (sem gastar o sorteio principal; o omp não
+// sorteia custo).
 import type { AccountInfo, AccountUsage, Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionDecision, RoomInfo, ShellJob, TaskItem } from '../types';
 import { describePrompt, describeShellJob, describeTool, SHELL_DONE_TOOL, SHELL_WAIT_TOOL, SPECIAL, type ActivityDescription, type ShellOutcome } from '../activity';
 import { answerSummary, ASK_TOOL, checkAnswers } from '../answers';
@@ -21,7 +27,7 @@ import { hash32, mulberry32 } from '../hash';
 import { describeMessage, MESSAGE_TOOL } from '../messages';
 import { pickName } from '../names';
 import { demoGitHubEvent } from './github';
-import { demoCodexPermission, demoPermission, type DemoPermissionKind } from './permission';
+import { demoCodexPermission, demoOmpPermission, demoPermission, type DemoPermissionKind } from './permission';
 import { tr } from '../i18n';
 
 interface DemoProject {
@@ -114,6 +120,12 @@ const CODEX_MODELS = ['gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.1-codex-mini'];
 const CODEX_SUB_ROLES = ['explorer', 'worker', 'reviewer'];
 /** Parte das sessões novas que abre no Codex (decidida pelo hash do id da sessão). */
 const CODEX_SHARE = 30;
+/** Modelos do omp (o servidor mostra `provedor/modelo` sem o `provedor/`). */
+const OMP_MODELS = ['claude-opus-5-5', 'gpt-5.3', 'glm-4.7'];
+/** Nomes de task dos subagentes do omp (CamelCase, o `role` que o OmpSource usa). */
+const OMP_SUB_ROLES = ['ArchScout', 'ApiScout', 'TestRunner', 'DocsWriter', 'CodeReviewer'];
+/** Parte das sessões novas que abre no omp (decidida pelo hash do id da sessão). */
+const OMP_SHARE = 20;
 
 /** Comandos que os agentes deixam rodando em segundo plano (e encerram o turno esperando). */
 const BACKGROUND_JOBS: Array<{ description: string; command: string }> = [
@@ -155,6 +167,9 @@ const MERGED_ACCOUNTS: Array<Pick<DemoAccount, 'short' | 'name' | 'color'>> = [
   { short: 'Y', name: 'Demo Y', color: '#a77bf3' },
 ];
 const MERGED_CODEX_ACCOUNT: Pick<DemoAccount, 'short' | 'name' | 'color'> = { short: 'Z', name: 'Demo Codex', color: '#f06fa0' };
+/** Conta do omp (uma agent dir): sem e-mail nem uso (o omp não informa). */
+const DEMO_OMP_ACCOUNT: DemoAccount = { id: '.omp', provider: 'omp', short: 'O', name: 'omp', color: '#2fb5b0', configDir: '~/.omp/agent' };
+const MERGED_OMP_ACCOUNT: Pick<DemoAccount, 'short' | 'name' | 'color'> = { short: 'W', name: 'Demo omp', color: '#d9b43a' };
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 /** Uso do Codex com mais de 30 min (sem sessão rodando) aparece como antigo, como no servidor. */
@@ -239,6 +254,8 @@ export class DemoSimulator {
   private codexAccount: DemoAccount;
   /** Sorteio próprio do Codex (uso, "sem cota"): não mexe na sequência do resto. */
   private codexRng: () => number;
+  /** Conta do omp (fica depois da do Codex no snapshot): sem uso nem e-mail. */
+  private ompAccount: DemoAccount;
   /** Quando os números de uso do Codex foram "lidos" pela última vez: a última atividade de uma sessão do Codex. */
   private codexFetchedAt: number;
   /** "Sem cota" do Codex: sempre (opção) ou em janelas de alguns minutos, de tempos em tempos. */
@@ -267,6 +284,9 @@ export class DemoSimulator {
     this.codexAccount = this.prefix
       ? { ...DEMO_CODEX_ACCOUNT, ...MERGED_CODEX_ACCOUNT, id: `${this.prefix}${DEMO_CODEX_ACCOUNT.id}`, configDir: tr('(demonstração)') }
       : DEMO_CODEX_ACCOUNT;
+    this.ompAccount = this.prefix
+      ? { ...DEMO_OMP_ACCOUNT, ...MERGED_OMP_ACCOUNT, id: `${this.prefix}${DEMO_OMP_ACCOUNT.id}`, configDir: tr('(demonstração)') }
+      : DEMO_OMP_ACCOUNT;
     this.startedAt = now;
     this.accounts.forEach((acc, i) =>
       this.usage.set(acc.id, {
@@ -372,6 +392,8 @@ export class DemoSimulator {
           };
         }),
         this.codexAccountInfo(now),
+        // omp: sem uso (ele não informa) = 'disabled', como o servidor.
+        { ...this.ompAccount, sessions: this.sessionsOf(this.ompAccount.id), usageStatus: 'disabled' as const },
       ],
       meta: { demo: true, sources: [], startedAt: this.startedAt, version: 'demo' },
     };
@@ -422,7 +444,7 @@ export class DemoSimulator {
     if (!a || a.phase !== 'waiting') return false;
     const p = a.info.permission!;
     // Codex (como no servidor): sem respostas, sem "sempre permitir" nem interromper, e recusa só com motivo.
-    if (p.provider === 'codex' && (d.behavior === 'answer' || d.suggestion !== undefined || d.interrupt || (d.behavior === 'deny' && !d.message?.trim()))) return false;
+    if ((p.provider === 'codex' || p.provider === 'omp') && (d.behavior === 'answer' || d.suggestion !== undefined || d.interrupt || (d.behavior === 'deny' && !d.message?.trim()))) return false;
     const ask = p.tool === ASK_TOOL;
     const answers = d.behavior === 'answer' && ask ? checkAnswers(p.questions ?? [], d.answers) : undefined;
     if ((d.behavior === 'answer' && !answers) || (d.behavior === 'allow' && ask)) return false;
@@ -450,7 +472,7 @@ export class DemoSimulator {
    * e capturas de tela; devolve o id do agente. `provider` escolhe a ferramenta do agente (padrão: Claude Code);
    * no Codex o pedido é sempre de aprovação (ele não pergunta pelo escritório).
    */
-  forcePermission(now = Date.now(), kind?: DemoPermissionKind, provider: 'claude' | 'codex' = 'claude'): string | undefined {
+  forcePermission(now = Date.now(), kind?: DemoPermissionKind, provider: 'claude' | 'codex' | 'omp' = 'claude'): string | undefined {
     const mains = [...this.agents.values()].filter((a) => a.info.kind === 'main' && a.removeAt === undefined && (a.info.provider ?? 'claude') === provider);
     const a = mains.find((x) => x.phase === 'working') ?? mains.find((x) => x.phase === 'idle') ?? mains.find((x) => x.phase === 'shell');
     if (!a) return undefined;
@@ -469,9 +491,9 @@ export class DemoSimulator {
     // Com o cartão para responder, a espera é mais longa (dá tempo de clicar).
     a.phaseUntil = now + this.ms(25_000, 50_000);
     const id = `${this.prefix}perm-${this.tag}-${++this.seq}`;
-    const codex = a.info.provider === 'codex';
-    a.info.permission = codex ? demoCodexPermission(id, a.project, a.rng, now) : demoPermission(id, a.project, a.rng, now, kind);
-    const reason = codex ? tr('aprovar um comando') : a.info.permission.tool === ASK_TOOL ? tr('responder uma pergunta') : tr('aprovar uma permissão');
+    const permission = a.info.provider === 'codex' ? demoCodexPermission : a.info.provider === 'omp' ? demoOmpPermission : undefined;
+    a.info.permission = permission ? permission(id, a.project, a.rng, now) : demoPermission(id, a.project, a.rng, now, kind);
+    const reason = permission ? tr('aprovar um comando') : a.info.permission.tool === ASK_TOOL ? tr('responder uma pergunta') : tr('aprovar uma permissão');
     a.info.waitingFor = reason;
     this.setStatus(a, 'waiting', now);
     this.activity(a, now, SPECIAL.waiting(reason));
@@ -526,12 +548,16 @@ export class DemoSimulator {
     // sala acontece igual (a sequência das outras sessões não muda); só o resultado é trocado.
     const host = warm && k === 1 ? [...this.agents.values()].find((x) => x.info.kind === 'main') : undefined;
     if (host) project = host.project;
+    else if (warm && k === 2) project = PROJECTS.find((p) => !activeRooms.has(p.name)) ?? project;
     const room = this.ensureRoom(project, now);
     const n = ++this.seq;
     const sessionId = `${this.prefix}sess-${this.tag}-${n}-${Math.floor(this.rng() * 1e9).toString(36)}`;
     const id = `${this.prefix || 'demo:'}${this.tag}-${n}`;
     // Codex: na abertura, só a 2ª; depois, ~30% das sessões novas (pelo hash do id, sem gastar o sorteio).
     const codex = !!host || (!warm && hash32(`codex:${sessionId}`) % 100 < CODEX_SHARE);
+    // omp: na abertura, a 3ª sessão (numa sala só dele); depois, ~20% das sessões novas (hash próprio, sem gastar o
+    // sorteio). O omp não grava custo (só tokens) e não informa o uso da conta.
+    const omp = !codex && (warm ? k === 2 : hash32(`omp:${sessionId}`) % 100 < OMP_SHARE);
     const person = pickName(sessionId, this.usedNames());
     const rng = mulberry32(hash32(sessionId));
     const tasks: TaskItem[] = project.tasks
@@ -547,19 +573,19 @@ export class DemoSimulator {
       role: tr('Agente principal'),
       title: this.pick(project.prompts, rng),
       sessionId,
-      account: codex ? this.codexAccount.id : claudeAccount,
+      account: codex ? this.codexAccount.id : omp ? this.ompAccount.id : claudeAccount,
       status: 'idle',
       recent: [],
       tasks,
-      model: this.pick(codex ? CODEX_MODELS : MODELS, rng),
+      model: this.pick(codex ? CODEX_MODELS : omp ? OMP_MODELS : MODELS, rng),
       gitBranch: this.pick(['main', 'develop', 'feat/checkout', 'fix/webhooks'], rng),
       // Codex: a política de aprovação (approval_policy) no lugar do modo de permissão do Claude Code.
-      permissionMode: codex ? 'on-request' : 'default',
+      ...(omp ? {} : { permissionMode: codex ? 'on-request' : 'default' }),
       startedAt: now,
       lastEventAt: now,
       statusSince: now,
       // O Codex não grava custo: só tokens.
-      stats: codex
+      stats: codex || omp
         ? { toolCalls: 0, tokensIn: 0, tokensOut: 0, linesAdded: 0, linesRemoved: 0, subagents: 0 }
         : { toolCalls: 0, tokensIn: 0, tokensOut: 0, costUSD: 0, linesAdded: 0, linesRemoved: 0, subagents: 0 },
       seed: hash32(id),
@@ -568,6 +594,7 @@ export class DemoSimulator {
       canMessage: true,
     };
     if (codex) info.provider = 'codex';
+    else if (omp) info.provider = 'omp';
     const a: SimAgent = {
       info,
       project,
@@ -589,6 +616,17 @@ export class DemoSimulator {
     this.dirty = true;
   }
 
+  /** Nome de task de um subagente do omp, sem repetir o de um irmão ainda no escritório. */
+  private pickOmpSubRole(parent: SimAgent, rng: () => number): string {
+    const taken = new Set(parent.children.map((c) => this.agents.get(c)?.info.role));
+    const start = Math.floor(rng() * OMP_SUB_ROLES.length);
+    for (let i = 0; i < OMP_SUB_ROLES.length; i++) {
+      const role = OMP_SUB_ROLES[(start + i) % OMP_SUB_ROLES.length];
+      if (!taken.has(role)) return role;
+    }
+    return OMP_SUB_ROLES[start];
+  }
+
   private spawnSub(parent: SimAgent, now: number): void {
     const n = ++this.seq;
     const agentId = `a${Math.floor(this.rng() * 1e12).toString(16)}`;
@@ -603,7 +641,7 @@ export class DemoSimulator {
       roomId: parent.info.roomId,
       name: person.name,
       look: person.look,
-      role: this.pick(parent.info.provider === 'codex' ? CODEX_SUB_ROLES : SUB_TYPES, rng),
+      role: parent.info.provider === 'omp' ? this.pickOmpSubRole(parent, rng) : this.pick(parent.info.provider === 'codex' ? CODEX_SUB_ROLES : SUB_TYPES, rng),
       title: desc,
       sessionId: parent.info.sessionId,
       account: parent.info.account,
@@ -619,7 +657,7 @@ export class DemoSimulator {
       seed: hash32(id),
       background: rng() < 0.3,
     };
-    if (parent.info.provider === 'codex') info.provider = 'codex';
+    if (parent.info.provider === 'codex' || parent.info.provider === 'omp') info.provider = parent.info.provider;
     const sub: SimAgent = {
       info,
       project: parent.project,

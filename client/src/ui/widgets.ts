@@ -4,7 +4,7 @@ import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '..
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
-import { accountChipLabel, accountProvider, fallbackShort, showsProviderTag } from './provider';
+import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 import { tr } from '../../../shared/i18n';
 
 /**
@@ -20,20 +20,24 @@ export function updateAccountChip(chip: HTMLElement, account: AccountInfo | unde
   const p = accountProvider(account, fallbackId, provider);
   setText(chip, account?.short ?? fallbackShort(fallbackId, p));
   setStyleVar(chip, '--acc', account?.color ?? '#8b98b3');
-  setAttr(chip, 'data-provider', p === 'codex' ? 'codex' : null);
+  setAttr(chip, 'data-provider', p === 'claude' ? null : p);
   const label = accountChipLabel(account, fallbackId, p);
   setTitle(chip, label);
   setAttr(chip, 'aria-label', label);
 }
 
-/** Selo de texto "Codex" ao lado do nome da conta (onde há espaço: gaveta, terminal, cartão de uso, dica). */
+/** Selo de texto ("Codex", "omp") ao lado do nome da conta (onde há espaço: gaveta, terminal, cartão de uso, dica). */
 export function createProviderTag(extra = ''): HTMLElement {
   return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: 'Codex', hidden: true, title: tr('Agente do Codex (OpenAI)') });
 }
 
-/** Mostra o selo só para o Codex (e não repete quando o nome da conta já diz "Codex"). */
+/** Mostra o selo só para o Codex e o omp (e não repete quando o nome da conta já o diz). */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
-  setHidden(tag, !showsProviderTag(provider, accountName));
+  const show = showsProviderTag(provider, accountName);
+  setHidden(tag, !show);
+  if (!show) return;
+  setText(tag, PROVIDER_NAME[provider]);
+  setTitle(tag, provider === 'omp' ? tr('Agente do omp (oh-my-pi)') : tr('Agente do Codex (OpenAI)'));
 }
 
 /** Quadradinho de status (pixel), com pulso quando precisa de você. */

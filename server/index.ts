@@ -1,6 +1,7 @@
 // Servidor do Habblaud: observa as sessões abertas do Claude Code (todas as contas),
 // mantém o modelo do escritório e transmite via SSE. Sem dependências de runtime.
 //   npm run dev    -> tsx server/index.ts --dev (Vite em middleware mode, HMR no mesmo servidor)
+//   npm run demo   -> idem, com --demo (simulador ligado, como HABBLAUD_DEMO=1)
 //   npm start      -> node dist/server/index.js (serve dist/client)
 import http from 'node:http';
 import { join } from 'node:path';
@@ -21,6 +22,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
+import { OmpSettings } from './sources/omp/settings';
 import { createPtyRoutes } from './http/pty';
 import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
 import { loadHeadlessScreen } from './pty/screen';
@@ -30,13 +32,18 @@ import { createPermissionRoutes } from './permissions/http';
 import { PermissionRegistry } from './permissions/registry';
 import { codexAccountOf } from './codex/http';
 import { createCodexQueueRunner, findCodexBin } from './messages/codex';
+import { createAsideRoutes, handleAsideProgress } from './asides/http';
+import { AsideStore } from './asides/store';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
 import type { CodexLive } from './sources/codex/live';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
+import { OmpHistory } from './sources/omp/history';
 import { CodexSource } from './sources/codex/source';
+import { OmpSource } from './sources/omp/source';
+import type { OmpLive } from './sources/omp/live';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -77,6 +84,9 @@ names.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
+// Opções do omp escolhidas em Configurações (sala por projeto).
+const ompSettings = new OmpSettings(join(config.dataDir, 'omp.json'));
+ompSettings.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
@@ -129,6 +139,7 @@ const office = new Office({
   ptys: () => (late.ptys ? { status: late.ptys.status(), list: late.ptys.list() } : { status: { enabled: false, reason: late.ptyOff ?? tr('desligado') }, list: [] }),
   updates: () => updates.status(),
   world: () => world?.meta() ?? { enabled: false, configured: false, state: 'off' },
+  ompRoomByProject: config.ompDirs.length ? () => ompSettings.roomByProject : undefined,
 });
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
@@ -141,6 +152,13 @@ if (codex) agents.add(codex);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
+// A do omp (quando há agent dir com sessions/; HABBLAUD_OMP=0 desliga) entra do mesmo jeito; `omp` também recebe os eventos
+// da extensão do Habblaud no omp (POST /api/omp/events, OmpLive); sem ela a rota responde {ok: false}.
+const omp = config.ompDirs.length
+  ? new OmpSource({ accounts, office, dirs: config.ompDirs, env: process.env, home: config.home, usage: config.ompUsage, roomByProject: () => ompSettings.roomByProject })
+  : undefined;
+if (omp) agents.add(omp);
+const ompLive: OmpLive | undefined = omp;
 late.office = office;
 late.agents = agents;
 // Página que pode responder pelo escritório: Host local na porta local; na remota, só com permissions liberado.
@@ -196,6 +214,7 @@ const history = config.terminal
   ? new HistorySet([new SessionHistory({ accounts: () => accounts.entries(), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) })])
   : undefined;
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
+if (history && omp) history.add(new OmpHistory({ accounts: () => accounts.entriesOf('omp'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
 const deliveries = history
@@ -274,7 +293,12 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      onSettled: (id, status, error) => asides?.settled(id, status, error),
     })
+  : undefined;
+// Bate-papo paralelo: as conversas ficam em <dataDir>/asides/ (uma por sessão do omp). Só com as mensagens ligadas.
+const asides = messages
+  ? new AsideStore({ dir: join(config.dataDir, 'asides'), office, queue: (id, req) => messages.aside(id, req), discard: (id) => messages.discard(id) })
   : undefined;
 late.messages = messages;
 
@@ -327,6 +351,7 @@ if (timeline) {
 }
 permissions?.start();
 messages?.start();
+asides?.start();
 stats.start();
 updates.start();
 worldUplink?.start();
@@ -346,6 +371,13 @@ const api = createApiHandler({
     office.refreshRoomNames();
     return office.roomName(id);
   },
+  setOmpRoomByProject: config.ompDirs.length
+    ? (on) => {
+        ompSettings.setRoomByProject(on);
+        office.markDirty();
+        return ompSettings.roomByProject;
+      }
+    : undefined,
   office,
   hub,
   accounts,
@@ -358,6 +390,7 @@ const api = createApiHandler({
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
+  asides: asides ? { page: createAsideRoutes(asides), progress: (req, res) => handleAsideProgress(req, res, asides) } : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   attachments,
@@ -372,6 +405,7 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   codexLive,
+  ompLive,
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
@@ -491,6 +525,17 @@ server.listen(config.port, config.host, () => {
   } else {
     log.info(tr('   Codex: {0}.', [config.codex ? tr('nenhuma pasta do Codex encontrada (defina HABBLAUD_CODEX_DIRS)') : tr('desligado (HABBLAUD_CODEX=0)')]));
   }
+  if (omp) {
+    const open = omp.sources().reduce((n, s) => n + s.sessions, 0);
+    const usage = config.ompUsage
+      ? tr('ligado (omp usage a cada 5 min)')
+      : config.inDocker
+        ? tr('desligado no Docker')
+        : tr('desligado (HABBLAUD_OMP_USAGE=0)');
+    log.info(tr('   omp: {0} conta(s), {1} sessão(ões) aberta(s); uso do plano: {2}.', [omp.accountEntries().length, open, usage]));
+  } else {
+    log.info(tr('   omp: {0}.', [config.omp ? tr('nenhuma pasta do omp com sessions/ encontrada (defina HABBLAUD_OMP_DIRS)') : tr('desligado (HABBLAUD_OMP=0)')]));
+  }
   if (office.isDemo()) log.info(tr('   Modo demonstração ligado (agentes simulados misturados aos reais).'));
   if (config.terminal) log.info(tr('   Terminal: ligado (acesso só local).'));
   else log.info(tr('   Terminal: desligado ({0}).', [terminalOffReason(process.env, config.host, config.inDocker)]));
@@ -553,6 +598,7 @@ function shutdown(signal: string): void {
   timeline?.stop();
   permissions?.stop();
   messages?.stop();
+  asides?.stop();
   ptys?.stopAll();
   updates.stop();
   worldViewer?.stop();
@@ -566,3 +612,5 @@ function shutdown(signal: string): void {
 }
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+// Ctrl+Break no console do Windows (no macOS e no Linux o Node só ignora o registro).
+process.on('SIGBREAK', () => shutdown('SIGBREAK'));

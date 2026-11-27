@@ -2,10 +2,10 @@
 // conferida em http/app.ts; o guard (http/guard.ts) já exigiu JSON e Origin local nos POST (contra CSRF).
 //
 //   POST /api/permissions                 (hook)    registra o pedido: 201 {id, expiresAt} ou 200 {skip}
-//                                                   (o hook do Codex manda também provider: "codex", account e codexHome)
+//                                                   (o hook do Codex manda também provider: "codex", account e codexHome; a extensão do omp, provider: "omp")
 //   GET  /api/permissions/:id/wait        (hook)    long-poll: {status: pending | decided | released}
 //   GET  /api/permissions/:id             (página)  detalhe com os argumentos (comando, diff...)
-//   POST /api/permissions/:id/decision    (página)  {behavior: allow | deny | terminal | answer, message?, answers?, ...}
+//   POST /api/permissions/:id/decision    (página; a extensão do omp com {behavior: terminal} retira o pedido) {behavior: allow | deny | terminal | answer, message?, answers?, ...}
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { InvalidRequest, parseDecision, WAIT_MAX_MS, type PermissionRegistry } from './registry';
@@ -73,7 +73,7 @@ export function createPermissionRoutes(registry: PermissionRegistry): (req: Inco
       case 'invalid-answer':
         return sendJson(res, 400, { error: tr('resposta que não serve para este pedido: pergunta se responde com "answer" (cada pergunta uma vez, com as opções dela); os outros pedidos, com "allow" ou "deny"') });
       case 'unsupported':
-        return sendJson(res, 400, { error: tr('o Codex não aceita interromper nem "sempre permitir" pelo Habblaud: aprove, recuse (com um motivo, se quiser) ou responda no terminal') });
+        return sendJson(res, 400, { error: tr('o Codex e o omp não aceitam interromper nem "sempre permitir" pelo Habblaud: aprove, recuse (com um motivo, se quiser) ou responda no terminal') });
     }
   };
 

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ptyRequestProblem } from '../http/pty';
 import {
@@ -48,7 +48,7 @@ class FakeProc implements PtyProcess {
 
 interface Setup {
   manager: PtyManager;
-  spawned: { args: string[]; cwd: string }[];
+  spawned: { file: string; args: string[] | string; cwd: string }[];
   alive: Set<number>;
   killPid: ReturnType<typeof vi.fn>;
   forceKill: ReturnType<typeof vi.fn>;
@@ -65,8 +65,8 @@ function setup(over: Partial<Omit<PtyManagerOptions, 'agent'>> & { agent?: Parti
   const killPid = vi.fn((pid: number) => void alive.delete(pid));
   const forceKill = vi.fn((pid: number) => void alive.delete(pid));
   const manager = new PtyManager({
-    spawn: (_file, args, o) => {
-      spawned.push({ args, cwd: o.cwd });
+    spawn: (file, args, o) => {
+      spawned.push({ file, args, cwd: o.cwd });
       return new FakeProc(++nextPid);
     },
     claudeBin: process.execPath,
@@ -140,8 +140,53 @@ describe('PtyManager: assumir', () => {
     const s = setup();
     const info = await s.manager.takeover(`acc:${PID}`);
     expect(s.killPid).toHaveBeenCalledOnce();
-    expect(s.spawned).toEqual([{ args: ['--resume', SESSION], cwd: tmpdir() }]);
+    expect(s.spawned).toEqual([{ file: process.execPath, args: ['--resume', SESSION], cwd: tmpdir() }]);
     expect(info).toMatchObject({ resumed: SESSION, fromAgent: `acc:${PID}` });
+  });
+
+  it('lançador do npm (claude.cmd): roda o claude.exe de verdade; um .cmd desconhecido vai pelo cmd.exe, escapado', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hb-pty-cmd-'));
+    const exe = join(dir, 'pkg', 'bin', 'claude.exe');
+    mkdirSync(dirname(exe), { recursive: true });
+    writeFileSync(exe, '');
+    const shim = join(dir, '.bin', 'claude.cmd');
+    mkdirSync(dirname(shim));
+    writeFileSync(shim, '@ECHO off\r\nGOTO start\r\n:start\r\nSETLOCAL\r\n"%dp0%\\..\\pkg\\bin\\claude.exe"   %*\r\n');
+    const unknown = join(dir, 'claude.cmd');
+    writeFileSync(unknown, '@echo off\r\n');
+    for (const f of [shim, unknown]) chmodSync(f, 0o755);
+    const npm = setup({ claudeBin: shim });
+    await npm.manager.takeover(`acc:${PID}`);
+    expect(npm.spawned).toEqual([{ file: exe, args: ['--resume', SESSION], cwd: tmpdir() }]);
+    const other = setup({ claudeBin: unknown });
+    await other.manager.takeover(`acc:${PID}`);
+    expect(other.spawned).toEqual([{ file: expect.stringMatching(/cmd\.exe$/i), args: `/d /v:off /s /c ""${unknown}" "--resume" "${SESSION}""`, cwd: tmpdir() }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('aberto por um intermediário: o terminal passa a ser do Claude Code filho dele que aparece no registro', async () => {
+    let registered: number[] = [4242];
+    const s = setup({
+      sessionPids: () => registered,
+      // 777 descende do processo aberto (9001, via 800); 555 é uma sessão de outro terminal que abriu na mesma hora.
+      parents: async () => new Map([[777, { parent: 800 }], [800, { parent: 9001 }], [555, { parent: 1 }]]),
+    });
+    const info = s.manager.create({ cwd: tmpdir() });
+    expect(info).toMatchObject({ pid: 9001, agentId: 'acc:9001' });
+    registered = [4242, 555, 777];
+    await vi.waitFor(() => expect(s.manager.list()[0]).toMatchObject({ pid: 777, agentId: 'acc:777' }));
+  });
+
+  it('Windows: um "pai" que começou depois do filho é um PID reaproveitado, não o processo aberto', async () => {
+    let registered: number[] = [];
+    const parents = vi.fn(async () => new Map([[777, { parent: 9001, start: 100n }], [9001, { parent: 1, start: 200n }]]));
+    const s = setup({ sessionPids: () => registered, parents });
+    s.manager.create({ cwd: tmpdir() });
+    registered = [777];
+    // A árvore foi consultada (o 777 era candidato) e, mesmo assim, o terminal continua no processo aberto.
+    await vi.waitFor(() => expect(parents).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(s.manager.list()[0]).toMatchObject({ pid: 9001, agentId: 'acc:9001' });
   });
 
   it('pasta que não existe: recusa antes de encerrar a sessão de lá', async () => {

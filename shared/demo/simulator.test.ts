@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { DemoSimulator } from './simulator';
 
 describe('DemoSimulator', () => {
-  it('no ?mock=1 imita as contas C e D (e a do Codex, por último)', () => {
+  it('no ?mock=1 imita as contas C e D (e as do Codex e do omp, por último)', () => {
     const sim = new DemoSimulator({ seed: 1 }, 1_000);
     expect(sim.snapshot(1_000).accounts.map((a) => [a.id, a.short, a.provider])).toEqual([
       ['.claude', 'C', undefined],
       ['.claude-conta2', 'D', undefined],
       ['.codex', 'X', 'codex'],
+      ['.omp', 'O', 'omp'],
     ]);
   });
 
@@ -18,6 +19,7 @@ describe('DemoSimulator', () => {
       ['demo:.claude', 'X', 'Demo X'],
       ['demo:.claude-conta2', 'Y', 'Demo Y'],
       ['demo:.codex', 'Z', 'Demo Codex'],
+      ['demo:.omp', 'W', 'Demo omp'],
     ]);
     expect(snap.agents.every((a) => a.id.startsWith('demo:') && a.account.startsWith('demo:'))).toBe(true);
     expect(snap.rooms.every((r) => r.id.startsWith('demo:'))).toBe(true);
@@ -98,7 +100,7 @@ describe('DemoSimulator: Codex', () => {
       expect(codex[0].model).toMatch(/^gpt-5\.\d-codex/);
       expect(codex[0].stats.costUSD).toBeUndefined();
       // Nunca grava provider 'claude'.
-      expect(mains.every((a) => a.provider === undefined || a.provider === 'codex')).toBe(true);
+      expect(mains.every((a) => a.provider === undefined || a.provider === 'codex' || a.provider === 'omp')).toBe(true);
     }
   });
 
@@ -192,5 +194,52 @@ describe('DemoSimulator: Codex', () => {
     expect(deliveredAt).toBeGreaterThan(start);
     // Entrou depois do fim de um turno (o Codex só usa a fila com a sessão ociosa).
     expect(['done', 'communicate']).toContain(statusAtDelivery);
+  });
+});
+
+describe('DemoSimulator: omp', () => {
+  it('abre com um agente do omp (conta .omp, sem custo nem uso) numa sala só dele', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const snap = new DemoSimulator({ seed }, 1_000).snapshot(1_000);
+      const mains = snap.agents.filter((a) => a.kind === 'main');
+      const omp = mains.filter((a) => a.provider === 'omp');
+      expect(omp).toHaveLength(1);
+      expect(omp[0]).toMatchObject({ account: '.omp', role: 'Agente principal', canMessage: true });
+      expect(omp[0].permissionMode).toBeUndefined();
+      expect(omp[0].stats.costUSD).toBeUndefined();
+      expect(['claude-opus-5-5', 'gpt-5.3', 'glm-4.7']).toContain(omp[0].model);
+      expect(mains.filter((a) => a.roomId === omp[0].roomId)).toHaveLength(1);
+      expect(snap.accounts.find((a) => a.id === '.omp')).toMatchObject({ provider: 'omp', short: 'O', name: 'omp', configDir: '~/.omp/agent', usageStatus: 'disabled', sessions: 1 });
+      expect(snap.accounts.find((a) => a.id === '.omp')!.usage).toBeUndefined();
+      expect(snap.accounts.find((a) => a.id === '.omp')!.email).toBeUndefined();
+    }
+  });
+
+  it('mensagem para o agente do omp é aceita e vira turno novo; subagentes têm nome de task', () => {
+    const sim = new DemoSimulator({ seed: 3, speed: 6, sessions: 5 }, 0);
+    const omp = sim.snapshot(0).agents.find((a) => a.provider === 'omp' && a.kind === 'main')!;
+    expect(sim.receiveMessage(omp.id, 'continue', 0)).toBe(true);
+    expect(sim.snapshot(0).agents.find((a) => a.id === omp.id)!.recent.some((r) => r.text === 'Mensagem pelo Habblaud')).toBe(true);
+    const roles = new Set<string>();
+    for (let t = 0; t < 1_200_000; t += 250) {
+      sim.tick(t);
+      for (const a of sim.snapshot(t).agents) if (a.kind === 'sub' && a.provider === 'omp') roles.add(a.role);
+    }
+    expect(roles.size).toBeGreaterThan(0);
+    for (const r of roles) expect(r).toMatch(/^[A-Z][A-Za-z]+$/);
+  });
+
+  it('pedido de permissão do omp: aprovar/recusar com motivo; sem "sempre permitir" nem interromper', () => {
+    const sim = new DemoSimulator({ seed: 2 }, 1_000);
+    const id = sim.forcePermission(1_000, undefined, 'omp')!;
+    const a = sim.snapshot(1_000).agents.find((x) => x.id === id)!;
+    expect(a.provider).toBe('omp');
+    const p = a.permission!;
+    expect(p.provider).toBe('omp');
+    expect(p.suggestions).toBeUndefined();
+    expect(sim.decidePermission(p.id, { behavior: 'allow', suggestion: 0 }, 1_100)).toBe(false);
+    expect(sim.decidePermission(p.id, { behavior: 'deny', message: 'não', interrupt: true }, 1_100)).toBe(false);
+    expect(sim.decidePermission(p.id, { behavior: 'deny' }, 1_100)).toBe(false);
+    expect(sim.decidePermission(p.id, { behavior: 'deny', message: 'não' }, 1_100)).toBe(true);
   });
 });

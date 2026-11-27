@@ -18,6 +18,7 @@ npm run build && npm start   # produção: serve dist/client
 | Conta (e-mail, organização) e cache de uso | `~/.claude.json` (conta padrão) ou `<config>/.claude.json` — só esses campos |
 | Uso ao vivo (5h e semanal) | `~/.habblaud/usage/<conta>.json`, gravado pelo mod do Habblaud (`npm run mod:install`) ou pelo `scripts/statusline-tap.mjs` (`npm run usage:install`) |
 | Atalho da conta (`c`, `d`...) | linhas `alias x='... claude ...'` de `~/.zshrc`, `~/.bashrc`, `~/.zprofile`, `~/.bash_profile` |
+| Uso do plano das contas do omp (5h e semanal) | `omp usage --json --redact` (comando, não arquivo; a rede é do omp, com as credenciais e o cache dele) |
 
 **Forks** (subagentes que herdam o contexto do pai): o transcript começa com uma linha `fork-context-ref`, a
 cópia da chamada `Agent` do pai (mesmo `tool_use` id do `.meta.json`) e o resultado dela ("Fork started…") junto
@@ -353,6 +354,13 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
   com `CODEX_HOME` = pasta da conta (no host). Fora do Docker o servidor roda o comando (`HABBLAUD_CODEX_BIN` ou `codex`
   do PATH); no Docker, o auxiliar do host (`npm run codex:bridge`) busca em `POST /api/codex/bridge/poll` e confirma em
   `/ack` (mesma trava das mensagens). `canMessage` = há entregador (binário achado, ou auxiliar visto há até 10 s).
+- **Uso do plano do omp** (`sources/omp/usage.ts`, `bin.ts`): com uma sessão principal do omp aberta, a fonte do omp
+  roda `omp usage --json --redact` (sem shell, `PI_CODING_AGENT_DIR` = agent dir da conta, timeout 20 s) a cada 5 min
+  — na hora quando o provedor do modelo em uso muda, 1 min depois de uma falha, uma consulta em voo por vez — e empurra
+  com `accounts.setUsage` (origem `'omp'`) as janelas compartilhadas de 5 h e 7 d do report desse provedor (o primeiro;
+  limites com `tier` ficam de fora). Provedor sem essas janelas (Ollama, Codex grátis) vira uso sem janelas, com a nota
+  do omp. Nunca usa `invalidate` nem `--force-refresh`; `metadata` (e-mails, ids) é descartado. `HABBLAUD_OMP_USAGE=0`
+  desliga; no Docker, sempre desligado.
   Retorno 0 = entrou na fila da sessão (`delivered`); o Codex consome a fila a cada ~10 s, quando a sessão fica ociosa.
 
 ## Habblaud World
@@ -484,6 +492,8 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_CODEX` | ligado | `0` desliga a fonte do Codex |
 | `HABBLAUD_CODEX_DIRS` | — | pastas do Codex separadas por vírgula; substitui a detecção (`CODEX_HOME` e `~/.codex*`) |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
+| `HABBLAUD_OMP_USAGE` | ligado (Docker: desligado) | `0` desliga o `omp usage --json` (uso do plano das contas do omp) |
+| `HABBLAUD_OMP_BIN` | `omp` do PATH, senão `~/.bun/bin/omp` | executável do omp para o uso do plano (caminho ou nome no PATH) |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |

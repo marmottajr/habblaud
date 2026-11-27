@@ -7,7 +7,8 @@
 #     (uso de 5h/semanal capturado pelo tap de statusline) em /usage;
 #   - do Codex, SOMENTE <pasta>/sessions, <pasta>/archived_sessions e <pasta>/thread-writer-locks em
 #     /codex/<conta>/... (nunca auth.json, config.toml, history.jsonl, logs nem os bancos SQLite);
-#   - HABBLAUD_CLAUDE_DIRS, HABBLAUD_CODEX_DIRS, HABBLAUD_ACCOUNTS e HABBLAUD_USAGE_DIR.
+#   - do omp (oh-my-pi), SOMENTE <agent dir>/sessions em /omp/<conta>/sessions (nunca agent.db, config.yml nem models.yml);
+#   - HABBLAUD_CLAUDE_DIRS, HABBLAUD_CODEX_DIRS, HABBLAUD_OMP_DIRS, HABBLAUD_ACCOUNTS e HABBLAUD_USAGE_DIR.
 # O Compose mescla o override automaticamente em qualquer `docker compose ...` rodado nesta pasta.
 name: habblaud
 
@@ -39,6 +40,10 @@ services:
       HABBLAUD_LANG: ${HABBLAUD_LANG:-}
       # 0 desliga as sessões do Codex no escritório.
       HABBLAUD_CODEX: ${HABBLAUD_CODEX:-}
+      # 0 desliga as sessões do omp (oh-my-pi) no escritório. HABBLAUD_OMP_DIRS: no Docker, quem preenche é o override do
+      # docker:up (só o sessions/ de cada agent dir do omp, somente leitura, em /omp/<conta>).
+      HABBLAUD_OMP: ${HABBLAUD_OMP:-}
+      HABBLAUD_OMP_DIRS: ${HABBLAUD_OMP_DIRS:-}
       # 1 liga o Novo agente pelo escritório (no Docker, quem começa a sessão é o auxiliar do host, npm run
       # codex:bridge; o terminal interativo em si não roda no container).
       HABBLAUD_PTY: ${HABBLAUD_PTY:-}

@@ -19,7 +19,8 @@
 // o auxiliar visto há até PRESENCE_MS). `delivered` = entrou na fila da sessão (entra quando ela ficar ociosa).
 import { randomBytes } from 'node:crypto';
 import { truncate } from '../../shared/activity';
-import { describeMessage, MESSAGE_MAX } from '../../shared/messages';
+import { describeMessage, MESSAGE_MAX, OMP_THINKING_LEVELS } from '../../shared/messages';
+import type { AsideRequest } from '../../shared/asides';
 import type { Activity, AgentInfo, InboxMessage, OutboxMessage } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { CodexQueueResult, CodexQueueRunner } from './codex';
@@ -53,6 +54,7 @@ export const ERR_CODEX_SLOW = tr('o Codex demorou demais com as mensagens anteri
 export const ERR_CODEX_NOT_CONFIRMED = tr('o auxiliar do Codex não confirmou a entrega');
 export const ERR_CODEX_HOME = tr('a pasta da conta do Codex deste agente é desconhecida');
 export const ERR_CODEX_REFUSED = tr('o codex queue não aceitou a mensagem');
+export const ERR_OMP_UNAVAILABLE = tr('a sessão não está com a extensão do Habblaud no omp (npm run omp:install)');
 
 const ERROR_MAX = 300;
 const ID_MAX = 300;
@@ -90,6 +92,8 @@ export interface MessageRegistryOptions {
   sentTimeoutMs?: number;
   keepMs?: number;
   demoDeliveryMs?: number;
+  /** Toda mensagem resolvida (entregue ou falha), inclusive a confirmação atrasada que corrige uma falha. */
+  onSettled?: (id: string, status: 'delivered' | 'failed', error?: string) => void;
 }
 
 export type SendResult = { message: OutboxMessage } | { error: 'not-found' | 'too-many' } | { error: 'unavailable'; reason: string };
@@ -113,7 +117,11 @@ interface Entry {
   /** O texto como foi digitado; esvazia quando a mensagem se resolve. */
   text: string;
   /** Atividade do feed quando a entrega se confirma (o começo do texto, mascarado e cortado). */
-  activity: ReturnType<typeof describeMessage>;
+  activity?: ReturnType<typeof describeMessage>;
+  /** Troca de modelo/raciocínio do omp: sem texto e sem atividade no feed. */
+  control?: { model?: string; thinking?: string };
+  /** Pergunta do bate-papo paralelo (só para a extensão do omp): sem texto e sem atividade no feed. */
+  aside?: AsideRequest;
   /** Sessão do agente quando a mensagem foi mandada: só ela recebe (troca de conversa = falha). */
   target: string;
   /** Sessão que buscou a mensagem (sent): só ela confirma a entrega. */
@@ -152,7 +160,10 @@ const isFinal = (e: Entry) => e.msg.status === 'delivered' || e.msg.status === '
 function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined {
   if (a.kind !== 'main') return tr('subagentes não recebem mensagens: mande para o agente principal');
   if (!present(a)) return tr('o agente já saiu do escritório');
-  if (!reachable) return a.provider === 'codex' ? ERR_CODEX_UNAVAILABLE : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
+  if (!reachable) {
+    if (a.provider === 'codex') return ERR_CODEX_UNAVAILABLE;
+    return a.provider === 'omp' ? ERR_OMP_UNAVAILABLE : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
+  }
   return undefined;
 }
 
@@ -164,6 +175,25 @@ export function parseSend(raw: unknown): { agentId: string; text: string } {
   if (!r.text.trim()) throw new InvalidRequest(tr('a mensagem está vazia'));
   if (r.text.length > MAX_TEXT) throw new InvalidRequest(tr('a mensagem passa de 20.000 caracteres'));
   return { agentId, text: r.text };
+}
+
+/** Corpo de POST /api/messages/control: `{agentId, model?, thinking?}`, com ao menos um dos dois. */
+export function parseControl(raw: unknown): { agentId: string; model?: string; thinking?: string } {
+  const r = rec(raw);
+  const agentId = shortStr(r?.agentId, ID_MAX);
+  if (!r || !agentId) throw new InvalidRequest('esperado {agentId, model?, thinking?}');
+  const out: { agentId: string; model?: string; thinking?: string } = { agentId };
+  if (r.model !== undefined) {
+    const model = shortStr(r.model, 200);
+    if (!model) throw new InvalidRequest(tr('modelo inválido'));
+    out.model = model;
+  }
+  if (r.thinking !== undefined) {
+    if (typeof r.thinking !== 'string' || !(OMP_THINKING_LEVELS as readonly string[]).includes(r.thinking)) throw new InvalidRequest(tr('raciocínio inválido'));
+    out.thinking = r.thinking;
+  }
+  if (!out.model && !out.thinking) throw new InvalidRequest(tr('informe o modelo ou o raciocínio'));
+  return out;
 }
 
 /** Resultados de uma confirmação ({results: [{id, ok, error?}]}): os válidos, até ACK_MAX. */
@@ -264,19 +294,76 @@ export class MessageRegistry {
     if (!agent) return { error: 'not-found' };
     const reason = unavailableReason(agent, real ? this.canMessage(agentId) : demo!.canMessage === true);
     if (reason) return { error: 'unavailable', reason };
-    let open = 0;
-    for (const e of this.messages.values()) if (e.msg.agentId === agentId && !isFinal(e)) open++;
-    if (open >= MAX_OPEN) return { error: 'too-many' };
+    if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
 
-    const now = this.now();
-    const id = `m-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
-    const entry: Entry = { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, text, activity: describeMessage(text), target: agent.sessionId };
+    const entry = this.entry(agentId, agent.sessionId, { text, activity: describeMessage(text) });
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
-    this.messages.set(id, entry);
+    this.messages.set(entry.msg.id, entry);
     const out = { ...entry.msg };
     if (entry.codex) this.pumpCodex();
     return { message: out };
+  }
+
+  /**
+   * Troca de modelo e/ou raciocínio da sessão omp pela gaveta: entra na mesma fila das mensagens (a extensão aplica
+   * e confirma), só para agentes do omp. Mesmos resultados de `send`.
+   */
+  control(raw: unknown): SendResult {
+    const { agentId, model, thinking } = parseControl(raw);
+    const real = this.opts.office.get(agentId);
+    const demo = real ? undefined : this.opts.demoAgent?.(agentId);
+    const agent = real ?? demo;
+    if (!agent) return { error: 'not-found' };
+    if (agent.provider !== 'omp') return { error: 'unavailable', reason: tr('só agentes do omp trocam de modelo e raciocínio pela gaveta') };
+    const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
+    if (reason) return { error: 'unavailable', reason };
+    if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+    const entry = this.entry(agentId, agent.sessionId, { text: '', control: { ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) } });
+    this.messages.set(entry.msg.id, entry);
+    return { message: { ...entry.msg } };
+  }
+
+  /**
+   * Pergunta do bate-papo paralelo (AsideStore): entra na mesma fila das mensagens, só para agentes do omp. A extensão
+   * só a inicia e confirma na hora; a resposta chega por outra rota. Mesmos resultados de `send`.
+   */
+  aside(agentId: string, request: AsideRequest): SendResult {
+    const real = this.opts.office.get(agentId);
+    const demo = real ? undefined : this.opts.demoAgent?.(agentId);
+    const agent = real ?? demo;
+    if (!agent) return { error: 'not-found' };
+    if (agent.provider !== 'omp') return { error: 'unavailable', reason: tr('só agentes do omp respondem perguntas paralelas') };
+    const reason = unavailableReason(agent, real ? this.canMessage(agentId) : false);
+    if (reason) return { error: 'unavailable', reason };
+    if (this.openCount(agentId) >= MAX_OPEN) return { error: 'too-many' };
+    const entry = this.entry(agentId, agent.sessionId, { text: '' });
+    entry.aside = request;
+    this.messages.set(entry.msg.id, entry);
+    return { message: { ...entry.msg } };
+  }
+
+  /**
+   * Retira da fila uma pergunta paralela que a extensão ainda não buscou (o usuário a cancelou): sem isto, a próxima
+   * rodada a entregaria e o omp gastaria tokens com uma pergunta já desistida. Já buscada (`sent`), resolvida ou que
+   * não é pergunta paralela: nada muda (a extensão é parada pelo `progress`, em AsideStore). Devolve true se retirou.
+   */
+  discard(id: string): boolean {
+    const e = this.messages.get(id);
+    if (!e?.aside || e.msg.status !== 'queued') return false;
+    return this.messages.delete(id);
+  }
+
+  private openCount(agentId: string): number {
+    let open = 0;
+    for (const e of this.messages.values()) if (e.msg.agentId === agentId && !isFinal(e)) open++;
+    return open;
+  }
+
+  private entry(agentId: string, target: string, body: Pick<Entry, 'text' | 'activity' | 'control'>): Entry {
+    const now = this.now();
+    const id = `m-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
+    return { msg: { id, agentId, status: 'queued', createdAt: now, updatedAt: now }, target, ...body };
   }
 
   /** Situação de uma mensagem (sem o texto), ou undefined. */
@@ -294,7 +381,7 @@ export class MessageRegistry {
     const session = shortStr(r?.session, ID_MAX);
     if (!r || !session) throw new InvalidRequest('esperado {session, account?}');
     const account = shortStr(r.account, ID_MAX);
-    // O plugin é do Claude Code: agentes do Codex nunca recebem por aqui.
+    // O plugin do Claude Code e a extensão do omp usam esta rota (cada sessão tem o próprio id); agentes do Codex nunca recebem por aqui.
     const agent = this.opts.office
       .list()
       .find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === session && (!account || a.account === account) && present(a));
@@ -313,7 +400,7 @@ export class MessageRegistry {
       this.setStatus(e, 'sent', now);
       e.session = session;
       e.sentAt = now;
-      out.push({ id: e.msg.id, text: e.text });
+      out.push({ id: e.msg.id, text: e.text, ...(e.control ? { control: e.control } : {}), ...(e.aside ? { aside: e.aside } : {}) });
     }
     return out;
   }
@@ -490,9 +577,15 @@ export class MessageRegistry {
     if (status === 'delivered') {
       delete e.msg.error;
       // A do demo vai para o agente fictício (Office.deliverDemoMessage).
-      if (!e.demo) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
+      if (!e.demo && e.activity) this.opts.office.addActivity(e.msg.agentId, { id: `${e.msg.agentId}#msg:${e.msg.id}`, at: now, ...e.activity }, false);
     }
     e.text = '';
+    delete e.aside;
+    try {
+      this.opts.onSettled?.(e.msg.id, status, e.msg.error);
+    } catch (err) {
+      log.warnOnce(`messages-settled:${errMsg(err)}`, tr('Mensagens: falha ao avisar a resolução de uma mensagem ({0}).', [errMsg(err)]));
+    }
   }
 
   private fail(e: Entry, now: number, error: string): void {
